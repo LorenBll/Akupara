@@ -17,12 +17,14 @@ PortHandler is scoped to service registration and discovery on the local device.
 2. Unix-like systems: run `bash scripts/run.sh`.
 3. Manual: run `python src/main.py` from the project root.
 
-## API Endpoints
+## Access Control
 
 All endpoints are local-device only. Requests from non-local addresses are rejected with:
 - `403` -> `{ "error": "Local device access only." }`
 - All endpoints also support `HEAD` and `OPTIONS`.
 - API responses use `Connection: close` (non-persistent connections).
+
+## API Endpoints
 
 ### `POST /api/register` (also `HEAD`, `OPTIONS`)
 Registers a new client service and returns a SHA-256 hash. Before registering, PortHandler probes the new client's health endpoint (`/api/health`) to confirm it is reachable.
@@ -49,8 +51,6 @@ Looks up a registered client's port by name. No registration is required to ask.
 	- `200` -> `{ "name": "<target-name>", "port": <target-port> }`
 	- `400` -> `{ "error": "The name of the target client is required." }`
 	- `404` -> `{ "error": "No client found with name '...'." }`
-		}
-		```
 
 ### `DELETE /api/unregister` (also `HEAD`, `OPTIONS`)
 Unregisters a client by its hash.
