@@ -159,6 +159,14 @@ def _initialize_service_config() -> None:
 
 
 def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if not addr.is_loopback:
+        return False
+    if not isinstance(port, int) or port < 1 or port > 65535:
+        return False
     url = f"http://{ip}:{port}/api/health"
     try:
         req = urllib.request.Request(url, method="GET")
