@@ -38,18 +38,20 @@ Registers a new client service and returns a SHA-256 hash. Before registering, P
 	- `400` -> `{ "error": "Client health endpoint is not reachable." }`
 	- `409` -> `{ "error": "A client with name '...' is already registered." }` (only returned when the existing client is still alive)
 
-### `POST /api/question` (also `HEAD`, `OPTIONS`)
-Looks up another client's port by name. The asker must be a registered client.
+### `GET /api/question` (also `HEAD`, `OPTIONS`)
+Returns all registered clients with their name and port. No input required.
 
-- Body (JSON object):
-	- `hash` (string, required): SHA-256 hash of the asking client.
-	- `name` (string, required): name of the target client to look up.
+- Body: none
 - Returns:
-	- `200` -> `{ "name": "<target-name>", "port": <target-port> }`
-	- `400` -> `{ "error": "Your hash is required to ask a question." }`
-	- `400` -> `{ "error": "The name of the target client is required." }`
-	- `404` -> `{ "error": "Asker is not a registered client." }`
-	- `404` -> `{ "error": "No client found with name '...'." }`
+	- `200` ->
+		```json
+		{
+			"clients": [
+				{ "name": "Cipher", "port": 49158 },
+				{ "name": "DiskIdentifier", "port": 49157 }
+			]
+		}
+		```
 
 ### `DELETE /api/unregister` (also `HEAD`, `OPTIONS`)
 Unregisters a client by its hash.

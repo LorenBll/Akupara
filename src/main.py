@@ -357,37 +357,20 @@ def register():
     return _success_response({"hash": client_hash}, 201)
 
 
-@app.route("/api/question", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/question", methods=["GET", "HEAD", "OPTIONS"])
 def question():
     if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
+        return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
 
-    payload = request.get_json(silent=True) or {}
-    asker_hash = payload.get("hash") if isinstance(payload, dict) else None
-    target_name = payload.get("name") if isinstance(payload, dict) else None
-
-    if not isinstance(asker_hash, str) or not asker_hash.strip():
-        return _error_response("Your hash is required to ask a question.")
-
-    if not isinstance(target_name, str) or not target_name.strip():
-        return _error_response("The name of the target client is required.")
-
     with REGISTERED_CLIENTS_LOCK:
-        if asker_hash.strip() not in REGISTERED_CLIENTS:
-            return _error_response("Asker is not a registered client.", 404)
+        clients_list = [
+            {"name": c["name"], "port": c["port"]}
+            for c in REGISTERED_CLIENTS.values()
+        ]
 
-        target = None
-        for client in REGISTERED_CLIENTS.values():
-            if client.get("name") == target_name.strip():
-                target = client
-                break
-
-    if target is None:
-        return _error_response(f"No client found with name '{target_name}'.", 404)
-
-    return _success_response({"name": target["name"], "port": target["port"]})
+    return _success_response({"clients": clients_list})
 
 
 @app.route("/api/unregister", methods=["DELETE", "HEAD", "OPTIONS"])
