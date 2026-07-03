@@ -308,12 +308,29 @@ def register():
     if not _ping_health(client_ip, port):
         return _error_response("Client health endpoint is not reachable.", 400)
 
+    name_to_check = name.strip()
+
     with REGISTERED_CLIENTS_LOCK:
+        existing_client = None
         for existing in list(REGISTERED_CLIENTS.values()):
-            if existing.get("name") == name.strip():
-                return _error_response(
-                    f"A client with name '{name}' is already registered.", 409
-                )
+            if existing.get("name") == name_to_check:
+                existing_client = existing
+                break
+
+    if existing_client is not None:
+        old_ip = existing_client.get("ip", "127.0.0.1")
+        old_port = existing_client.get("port", 0)
+        if _ping_health(old_ip, old_port):
+            return _error_response(
+                f"A client with name '{name}' is already registered.", 409
+            )
+        with REGISTERED_CLIENTS_LOCK:
+            REGISTERED_CLIENTS.pop(existing_client["hash"], None)
+        _save_clients()
+        logger.info(
+            f"Removed stale registration for '{name_to_check}' "
+            f"({existing_client['hash'][:8]}...)"
+        )
 
     timestamp = datetime.now(timezone.utc).isoformat()
 

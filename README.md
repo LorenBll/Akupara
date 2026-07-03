@@ -23,10 +23,10 @@ All endpoints are local-device only. Requests from non-local addresses are rejec
 - API responses use `Connection: close` (non-persistent connections).
 
 ### `POST /api/register` (also `HEAD`, `OPTIONS`)
-Registers a new client service and returns a SHA-256 hash.
+Registers a new client service and returns a SHA-256 hash. Before registering, PortHandler probes the new client's health endpoint (`/api/health`) to confirm it is reachable.
 
 - Body (JSON object):
-	- `name` (string, required): unique name for the client service.
+	- `name` (string, required): name for the client service. If a client with the same name is already registered, PortHandler checks whether that existing client is still alive. If it is, registration is rejected. If it is not, the stale registration is replaced.
 	- `port` (number, required): port number the client listens on (1-65535).
 	- `starting_script` (string, optional): path to the client's startup script.
 	- `pid` (number, optional): process ID of the running client.
@@ -36,7 +36,7 @@ Registers a new client service and returns a SHA-256 hash.
 	- `400` -> `{ "error": "A port number is required." }`
 	- `400` -> `{ "error": "Port must be a number between 1 and 65535." }`
 	- `400` -> `{ "error": "Client health endpoint is not reachable." }`
-	- `409` -> `{ "error": "A client with name '...' is already registered." }`
+	- `409` -> `{ "error": "A client with name '...' is already registered." }` (only returned when the existing client is still alive)
 
 ### `POST /api/question` (also `HEAD`, `OPTIONS`)
 Looks up another client's port by name. The asker must be a registered client.
