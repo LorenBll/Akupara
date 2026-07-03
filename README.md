@@ -1,0 +1,85 @@
+# PortHandler
+
+PortHandler is a local web service registry. It solves the problem of registering named services on the local machine so clients can look up each other by name, port, and metadata through a small HTTP API.
+
+## About
+PortHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory and persisted to `resources/clients.json`. A background health-check thread pings registered clients every 30 seconds and removes unreachable ones.
+
+## Setup
+1. Install the Python dependencies with `pip install -r requirements.txt`.
+2. Review `resources/configuration.json` if you want to change the port.
+3. Leave the project structure intact so the service can find `resources/` and `src/`.
+
+## Run
+1. Windows: run `scripts\run.bat`.
+2. Unix-like systems: run `bash scripts/run.sh`.
+3. Manual: run `python src/main.py` from the project root.
+
+## API Endpoints
+
+All endpoints are local-device only. Requests from non-local addresses are rejected with:
+- `403` -> `{ "error": "Local device access only." }`
+- All endpoints also support `HEAD` and `OPTIONS`.
+- API responses use `Connection: close` (non-persistent connections).
+
+### `POST /api/register` (also `HEAD`, `OPTIONS`)
+Registers a new client service and returns a SHA-256 hash.
+
+- Body (JSON object):
+	- `name` (string, required): unique name for the client service.
+	- `port` (number, required): port number the client listens on (1-65535).
+	- `starting_script` (string, optional): path to the client's startup script.
+	- `pid` (number, optional): process ID of the running client.
+- Returns:
+	- `201` -> `{ "hash": "<sha256-hash>" }`
+	- `400` -> `{ "error": "A non-empty name is required." }`
+	- `400` -> `{ "error": "A port number is required." }`
+	- `400` -> `{ "error": "Port must be a number between 1 and 65535." }`
+	- `400` -> `{ "error": "Client health endpoint is not reachable." }`
+	- `409` -> `{ "error": "A client with name '...' is already registered." }`
+
+### `POST /api/question` (also `HEAD`, `OPTIONS`)
+Looks up another client's port by name. The asker must be a registered client.
+
+- Body (JSON object):
+	- `hash` (string, required): SHA-256 hash of the asking client.
+	- `name` (string, required): name of the target client to look up.
+- Returns:
+	- `200` -> `{ "name": "<target-name>", "port": <target-port> }`
+	- `400` -> `{ "error": "Your hash is required to ask a question." }`
+	- `400` -> `{ "error": "The name of the target client is required." }`
+	- `404` -> `{ "error": "Asker is not a registered client." }`
+	- `404` -> `{ "error": "No client found with name '...'." }`
+
+### `DELETE /api/unregister` (also `HEAD`, `OPTIONS`)
+Unregisters a client by its hash.
+
+- Body (JSON object):
+	- `hash` (string, required): SHA-256 hash of the client to unregister.
+- Returns:
+	- `200` -> `{ "status": "unregistered", "hash": "<hash>" }`
+	- `400` -> `{ "error": "A hash is required to unregister." }`
+	- `404` -> `{ "error": "Hash not found." }`
+
+### `GET /api/health` (also `HEAD`, `OPTIONS`)
+Service health check with registration statistics.
+
+- Body: none
+- Returns:
+	- `200` ->
+		```json
+		{
+			"status": "ok",
+			"service": "PortHandler",
+			"bind_address": "127.0.0.1",
+			"port": 49155,
+			"hostname": "workstation-name",
+			"registered_clients": 0
+		}
+		```
+
+## License
+- [LICENSE](LICENSE)
+
+## Author
+- [LorenBll](https://github.com/LorenBll)
