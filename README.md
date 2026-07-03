@@ -5,6 +5,8 @@ PortHandler is a local web service registry. It solves the problem of registerin
 ## About
 PortHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory and persisted to `resources/clients.json`. A background health-check thread pings registered clients every 30 seconds and removes unreachable ones.
 
+> **Safety notice**: PortHandler is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
+
 ## Setup
 1. Install the Python dependencies with `pip install -r requirements.txt`.
 2. Review `resources/configuration.json` if you want to change the port.
