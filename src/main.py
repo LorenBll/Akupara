@@ -14,7 +14,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 from models import PostResponse
 
@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 SERVICE_HOST = None
 SERVICE_PORT = None
 
-CLIENTS_PATH = Path(__file__).parent.parent / "resources" / "clients.json"
 REGISTERED_CLIENTS: dict[str, dict] = {}
 REGISTERED_CLIENTS_LOCK = threading.Lock()
 
@@ -52,37 +51,6 @@ def _load_configuration() -> dict:
 
     return config
 
-
-def _save_clients() -> None:
-    CLIENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with REGISTERED_CLIENTS_LOCK:
-        clients_list = list(REGISTERED_CLIENTS.values())
-    with open(CLIENTS_PATH, "w", encoding="utf-8") as f:
-        json.dump({"clients": clients_list}, f, indent=2)
-
-
-def _load_clients_from_disk() -> None:
-    if not CLIENTS_PATH.exists():
-        return
-
-    try:
-        with open(CLIENTS_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return
-
-    if not isinstance(data, dict):
-        return
-
-    clients_list = data.get("clients", [])
-    if not isinstance(clients_list, list):
-        return
-
-    with REGISTERED_CLIENTS_LOCK:
-        REGISTERED_CLIENTS.clear()
-        for client in clients_list:
-            if isinstance(client, dict) and "hash" in client:
-                REGISTERED_CLIENTS[client["hash"]] = client
 
 
 def _get_local_device_addresses() -> set[str]:
@@ -155,8 +123,6 @@ def _initialize_service_config() -> None:
 
     SERVICE_PORT = configured_port
 
-    _load_clients_from_disk()
-
 
 def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
     try:
@@ -193,7 +159,6 @@ def _health_check_worker() -> None:
                 with REGISTERED_CLIENTS_LOCK:
                     for client_hash in to_remove:
                         REGISTERED_CLIENTS.pop(client_hash, None)
-                _save_clients()
                 for client_hash in to_remove:
                     entry = current_clients.get(client_hash, {})
                     logger.info(
@@ -221,8 +186,9 @@ app = Flask(__name__)
 
 @app.before_request
 def restrict_to_local_device() -> tuple | None:
-    if request.path.startswith("/api/") and not _is_local_request():
-        return _error_response("Local device access only.", 403)
+    if request.path in ("/",) or request.path.startswith(("/api/", "/css/")):
+        if not _is_local_request():
+            return _error_response("Local device access only.", 403)
 
     return None
 
@@ -275,6 +241,18 @@ def set_connection_header(response):
     else:
         response.headers["Connection"] = "close"
     return response
+
+
+@app.route("/")
+def index():
+    web_dir = Path(__file__).parent.parent / "web"
+    return send_from_directory(web_dir, "index.html")
+
+
+@app.route("/css/<path:filename>")
+def css_files(filename):
+    css_dir = Path(__file__).parent.parent / "web" / "css"
+    return send_from_directory(css_dir, filename)
 
 
 @app.route("/api/register", methods=["POST", "HEAD", "OPTIONS"])
@@ -334,7 +312,6 @@ def register():
             )
         with REGISTERED_CLIENTS_LOCK:
             REGISTERED_CLIENTS.pop(existing_client["hash"], None)
-        _save_clients()
         logger.info(
             f"Removed stale registration for '{name_to_check}' "
             f"({existing_client['hash'][:8]}...)"
@@ -357,8 +334,6 @@ def register():
 
     with REGISTERED_CLIENTS_LOCK:
         REGISTERED_CLIENTS[client_hash] = client_data
-
-    _save_clients()
 
     logger.info(f"Client '{name}' registered on port {port} ({client_hash[:16]}...)")
 
@@ -410,8 +385,6 @@ def unregister():
     if client_data is None:
         return _error_response("Hash not found.", 404)
 
-    _save_clients()
-
     logger.info(
         f"Client '{client_data.get('name')}' unregistered ({client_hash[:16]}...)"
     )
@@ -441,6 +414,60 @@ def health():
     )
 
 
+@app.route("/api/clients", methods=["GET", "HEAD", "OPTIONS"])
+def clients():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_list = list(REGISTERED_CLIENTS.values())
+
+    return _success_response({"clients": client_list})
+
+
+def _get_config_path() -> Path:
+    return Path(__file__).parent.parent / "resources" / "configuration.json"
+
+
+@app.route("/api/sort-settings", methods=["GET", "PUT", "HEAD", "OPTIONS"])
+def sort_order():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    config_path = _get_config_path()
+
+    if request.method == "GET":
+        config = _load_configuration()
+        order = config.get("sort_order", ["name", "port", "pid"])
+        return _success_response({"sort_order": order})
+
+    payload = request.get_json(silent=True) or {}
+    new_order = payload.get("sort_order") if isinstance(payload, dict) else None
+
+    if not isinstance(new_order, list) or not new_order:
+        return _error_response("sort_order must be a non-empty list.")
+
+    try:
+        with open(config_path, "r", encoding="utf-8-sig") as f:
+            config = json.load(f)
+    except Exception:
+        return _error_response("Failed to read configuration.", 500)
+
+    config["sort_order"] = new_order
+
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+    except Exception:
+        return _error_response("Failed to write configuration.", 500)
+
+    return _success_response({"sort_order": new_order})
+
+
 if __name__ == "__main__":
     try:
         logging.basicConfig(
@@ -459,7 +486,7 @@ if __name__ == "__main__":
         logger.info("  PortHandler - Web Service Registry")
         logger.info("=" * 50)
         logger.info(f"Binding to: http://{SERVICE_HOST}:{SERVICE_PORT}")
-        logger.info(f"Clients loaded from disk: {len(REGISTERED_CLIENTS)}")
+        logger.info(f"Clients registered in memory: {len(REGISTERED_CLIENTS)}")
         logger.info("Server starting...")
 
         app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)

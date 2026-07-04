@@ -42,3 +42,6 @@ htmlcov/
 
 # Configuration (uncomment if you want to ignore config with API keys)
 # resources/configuration.json
+
+# Runtime data (not persisted)
+resources/clients.json

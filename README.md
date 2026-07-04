@@ -1,9 +1,11 @@
 # PortHandler
 
-PortHandler is a local web service registry. It solves the problem of registering named services on the local machine so clients can look up each other by name, port, and metadata through a small HTTP API.
+PortHandler is a local web service registry with a web UI. It solves the problem of registering named services on the local machine so clients can look up each other by name, port, and metadata through a small HTTP API.
 
 ## About
-PortHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory and persisted to `resources/clients.json`. A background health-check thread pings registered clients every 30 seconds and removes unreachable ones.
+PortHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time PortHandler starts. A background health-check thread pings registered clients every 30 seconds and removes unreachable ones.
+
+The web UI (`web/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, and a sidebar for tweaking the sort order of columns.
 
 > **Safety notice**: PortHandler is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
 
@@ -32,7 +34,7 @@ Registers a new client service and returns a SHA-256 hash. Before registering, P
 - Body (JSON object):
 	- `name` (string, required): name for the client service. If a client with the same name is already registered, PortHandler checks whether that existing client is still alive. If it is, registration is rejected. If it is not, the stale registration is replaced.
 	- `port` (number, required): port number the client listens on (1-65535).
-	- `starting_script` (string, optional): path to the client's startup script.
+	- `starting_script` (string, optional): path to the client's startup script. The recommended value is the OS-appropriate run script — `scripts/run.bat` on Windows or `scripts/run.sh` on Unix — not the `main.py` file directly.
 	- `pid` (number, optional): process ID of the running client.
 - Returns:
 	- `201` -> `{ "hash": "<sha256-hash>" }`
@@ -78,6 +80,24 @@ Service health check with registration statistics.
 			"registered_clients": 0
 		}
 		```
+
+### `GET /api/clients` (also `HEAD`, `OPTIONS`)
+Returns the list of all registered clients.
+
+- Body: none
+- Returns:
+	- `200` -> `{ "clients": [ { "hash": "...", "name": "...", "port": 1234, "pid": 5678, "ip": "127.0.0.1", "timestamp": "..." }, ... ] }`
+
+### `GET /api/sort-settings` / `PUT /api/sort-settings` (also `HEAD`, `OPTIONS`)
+Gets or sets the column sort order used by the web UI.
+
+- `GET`: returns current sort order:
+	- `200` -> `{ "sort_order": ["name", "port", "pid"] }`
+- `PUT`: updates sort order (body: `{ "sort_order": ["port", "name", "pid"] }`)
+	- `200` -> `{ "sort_order": ["port", "name", "pid"] }`
+
+### `GET /` (root)
+Serves the web UI dashboard (`web/index.html`).
 
 ## License
 - [LICENSE](LICENSE)

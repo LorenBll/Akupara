@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PortHandler</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="page">
+        <div class="hero">
+            <h1 class="title">PortHandler</h1>
+            <div class="pill" id="pill">
+                <div class="pill-item"><span class="pill-label">bind address</span><span class="pill-value">--</span></div>
+                <div class="pill-item"><span class="pill-label">hostname</span><span class="pill-value">--</span></div>
+                <div class="pill-item"><span class="pill-label">port</span><span class="pill-value">--</span></div>
+                <div class="pill-item"><span class="pill-label">status</span><span class="pill-value">--</span></div>
+                <div class="pill-item"><span class="pill-label">registered clients</span><span class="pill-value">--</span></div>
+            </div>
+        </div>
+        <div class="content" id="content"></div>
+        <div class="search-bar hidden" id="searchBar">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="searchInput" placeholder="Search service...">
+        </div>
+        <div class="sidebar hidden" id="sidebar">
+            <button class="sort-decoration" data-label="Sort">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+            </button>
+            <div class="sort-items-casing" id="sortItemsCasing">
+                <div class="sort-item" draggable="true" data-key="name" data-label="Service Name">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                </div>
+                <div class="sort-item" draggable="true" data-key="port" data-label="Service Port">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"/><circle cx="16" cy="12" r="1.5"/></svg>
+                </div>
+                <div class="sort-item" draggable="true" data-key="pid" data-label="Service PID">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var sortOrder = ['name', 'port', 'pid'];
+        var currentClients = [];
+        var sidebar = document.getElementById('sidebar');
+
+        function levenshtein(a, b) {
+            var m = a.length, n = b.length;
+            var dp = [];
+            for (var i = 0; i <= m; i++) { dp[i] = [i]; }
+            for (var j = 0; j <= n; j++) { dp[0][j] = j; }
+            for (var i = 1; i <= m; i++) {
+                for (var j = 1; j <= n; j++) {
+                    var cost = a[i-1] === b[j-1] ? 0 : 1;
+                    dp[i][j] = Math.min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + cost);
+                }
+            }
+            return dp[m][n];
+        }
+
+        function matchesQuery(text, query) {
+            var lowerText = String(text).toLowerCase();
+            var lowerQuery = query.toLowerCase();
+            if (lowerText.includes(lowerQuery)) return true;
+            var dist = levenshtein(lowerText, lowerQuery);
+            return dist <= 2 || dist <= lowerQuery.length * 0.3;
+        }
+
+        function filterCards() {
+            var query = document.getElementById('searchInput').value;
+            var cards = document.querySelectorAll('.service-card');
+            cards.forEach(function(card) {
+                var name = card.querySelector('.card-name').textContent;
+                var metaItems = card.querySelectorAll('.card-meta-value');
+                var port = metaItems[0] ? metaItems[0].textContent : '';
+                var pid = metaItems[1] ? metaItems[1].textContent : '';
+                if (!query || matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query)) {
+                    card.style.display = '';
+                    card.classList.remove('animate');
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        function loadSortOrder() {
+            fetch('/api/sort-settings')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.sort_order && d.sort_order.length) {
+                        sortOrder = d.sort_order;
+                        applySortOrderToSidebar();
+                        if (currentClients.length) buildCards(currentClients, false);
+                    }
+                })
+                .catch(function() {});
+        }
+
+        function saveSortOrder(order) {
+            fetch('/api/sort-settings', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({sort_order: order})
+            }).catch(function() {});
+        }
+
+        function applySortOrderToSidebar() {
+            var casing = document.getElementById('sortItemsCasing');
+            var items = Array.from(casing.querySelectorAll('.sort-item'));
+            var sorted = items.sort(function(a, b) {
+                return sortOrder.indexOf(a.getAttribute('data-key')) - sortOrder.indexOf(b.getAttribute('data-key'));
+            });
+            sorted.forEach(function(el) { casing.appendChild(el); });
+        }
+
+        function item(label, value, cls) {
+            return '<div class="pill-item' + (cls ? ' ' + cls : '') + '"><span class="pill-label">' + label + '</span><span class="pill-value">' + value + '</span></div>';
+        }
+
+        function cardHTML(name, port, pid, healthy) {
+            var bg = healthy ? '' : ' service-card-unhealthy';
+            return '<div class="service-card' + bg + '">' +
+                '<div class="card-top">' +
+                '<div class="card-name">' + name + '</div>' +
+                '<button class="card-btn card-btn-blue" title="info">' +
+                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' +
+                '</button>' +
+                '</div>' +
+                '<div class="card-meta">' +
+                '<span class="card-meta-item"><span class="card-meta-label">PORT</span><span class="card-meta-value">' + port + '</span></span>' +
+                '<span class="card-meta-item"><span class="card-meta-label">PID</span><span class="card-meta-value">' + pid + '</span></span>' +
+                '</div>' +
+                '<div class="card-buttons">' +
+                '<button class="card-btn card-btn-red">' +
+                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10M6 6a8 8 0 1 0 12 0"/></svg>' +
+                '</button>' +
+                '<button class="card-btn card-btn-red">' +
+                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
+                '</button>' +
+                '<button class="card-btn card-btn-yellow">' +
+                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
+                '</button>' +
+                '</div>' +
+                '</div>';
+        }
+
+        function sortClients(clients) {
+            var keys = sortOrder;
+            clients.sort(function(a, b) {
+                for (var k = 0; k < keys.length; k++) {
+                    var key = keys[k];
+                    var va = a[key];
+                    var vb = b[key];
+                    if (typeof va === 'number' && typeof vb === 'number') {
+                        if (va < vb) return -1;
+                        if (va > vb) return 1;
+                    } else {
+                        var sa = String(va || '');
+                        var sb = String(vb || '');
+                        var cmp = sa.localeCompare(sb);
+                        if (cmp !== 0) return cmp;
+                    }
+                }
+                return 0;
+            });
+        }
+
+        function buildCards(clients, animate) {
+            currentClients = clients;
+            sortClients(clients);
+            if (clients.length <= 1) {
+                sidebar.classList.add('hidden');
+                document.getElementById('searchBar').classList.add('hidden');
+                var btn = document.querySelector('.sort-decoration');
+                if (btn.classList.contains('is-x')) {
+                    btn.classList.remove('is-x');
+                    btn.querySelector('svg').innerHTML = '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>';
+                    document.querySelectorAll('.sort-item').forEach(function(item) { item.classList.remove('visible'); });
+                    document.getElementById('sortItemsCasing').classList.remove('visible');
+                }
+            } else {
+                sidebar.classList.remove('hidden');
+                document.getElementById('searchBar').classList.remove('hidden');
+            }
+            var content = document.getElementById('content');
+            content.innerHTML = '';
+            if (clients.length === 0) {
+                content.innerHTML = '<div class="empty-state">No Service Registered</div>';
+                return;
+            }
+            clients.forEach(function(c, i) {
+                var cardDiv = document.createElement('div');
+                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', true);
+                var card = cardDiv.firstElementChild;
+                card.setAttribute('data-hash', c.hash || '');
+                if (animate) {
+                    card.style.animationDelay = (0.30 + i * 0.15) + 's';
+                    card.classList.add('animate');
+                }
+                content.appendChild(card);
+                var hc = new XMLHttpRequest();
+                hc.open('GET', 'http://127.0.0.1:' + c.port + '/api/health', true);
+                hc.timeout = 3000;
+                hc.onload = function() {
+                    if (hc.status === 200) {
+                        try {
+                            var data = JSON.parse(hc.responseText);
+                            if (data.status !== 'ok') {
+                                card.classList.add('service-card-unhealthy');
+                            }
+                        } catch(e) {
+                            card.classList.add('service-card-unhealthy');
+                        }
+                    } else {
+                        card.classList.add('service-card-unhealthy');
+                    }
+                };
+                hc.ontimeout = function() {
+                    card.classList.add('service-card-unhealthy');
+                };
+                hc.onerror = function() {
+                    card.classList.add('service-card-unhealthy');
+                };
+                hc.send();
+            });
+        }
+
+        var draggedItem = null;
+
+        sidebar.addEventListener('dragstart', function(e) {
+            var item = e.target.closest('.sort-item');
+            if (!item) return;
+            draggedItem = item;
+            e.dataTransfer.effectAllowed = 'move';
+            setTimeout(function() { item.classList.add('dragging'); }, 0);
+        });
+
+        sidebar.addEventListener('dragend', function(e) {
+            var item = e.target.closest('.sort-item');
+            if (item) item.classList.remove('dragging');
+            draggedItem = null;
+        });
+
+        sidebar.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            var target = e.target.closest('.sort-item');
+            if (!target || target === draggedItem) return;
+            var casing = document.getElementById('sortItemsCasing');
+            var items = Array.from(casing.querySelectorAll('.sort-item'));
+            var fromIdx = items.indexOf(draggedItem);
+            var toIdx = items.indexOf(target);
+            if (fromIdx < toIdx) {
+                casing.insertBefore(draggedItem, target.nextSibling);
+            } else {
+                casing.insertBefore(draggedItem, target);
+            }
+        });
+
+        sidebar.addEventListener('drop', function(e) {
+            e.preventDefault();
+            var casing = document.getElementById('sortItemsCasing');
+                var items = Array.from(casing.querySelectorAll('.sort-item'));
+                sortOrder = items.map(function(el) { return el.getAttribute('data-key'); });
+                saveSortOrder(sortOrder);
+                if (currentClients.length) {
+                    buildCards(currentClients, false);
+                }
+        });
+
+        function closeSortMenu() {
+            var btn = document.querySelector('.sort-decoration');
+            if (!btn.classList.contains('is-x')) return;
+            btn.classList.remove('is-x');
+            btn.querySelector('svg').innerHTML = '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>';
+            document.querySelectorAll('.sort-item').forEach(function(item) { item.classList.remove('visible'); });
+            document.getElementById('sortItemsCasing').classList.remove('visible');
+        }
+
+        document.querySelector('.sort-decoration').addEventListener('click', function() {
+            this.classList.toggle('is-x');
+            var svg = this.querySelector('svg');
+            var casing = document.getElementById('sortItemsCasing');
+            if (this.classList.contains('is-x')) {
+                svg.innerHTML = '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>';
+                casing.classList.add('visible');
+                document.querySelectorAll('.sort-item').forEach(function(item, i) {
+                    setTimeout(function() { item.classList.add('visible'); }, i * 60);
+                });
+            } else {
+                svg.innerHTML = '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>';
+                document.querySelectorAll('.sort-item').forEach(function(item) { item.classList.remove('visible'); });
+                casing.classList.remove('visible');
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!document.querySelector('.sort-decoration.is-x')) return;
+            if (!e.target.closest('#sidebar')) closeSortMenu();
+        });
+
+        document.getElementById('searchInput').addEventListener('input', filterCards);
+        document.getElementById('searchInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') this.blur();
+        });
+
+
+
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.altKey || e.metaKey) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            if (e.key.length === 1) {
+                var input = document.getElementById('searchInput');
+                if (input.offsetParent === null) return;
+                input.focus();
+            }
+        });
+
+        loadSortOrder();
+
+        fetch('/api/health')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                document.getElementById('pill').innerHTML =
+                    item('bind address', d.bind_address) +
+                    item('hostname', d.hostname) +
+                    item('port', d.port) +
+                    (d.status === 'ok' ? item('status', d.status.toUpperCase(), 'status-ok') : item('status', d.status.toUpperCase(), 'status-error')) +
+                    item('registered clients', d.registered_clients);
+                var content = document.getElementById('content');
+                var pw = document.querySelector('.pill').offsetWidth;
+                content.style.width = pw + 'px';
+                document.getElementById('searchBar').style.width = ((pw - 10) / 2) + 'px';
+                document.getElementById('sidebar').style.top = content.offsetTop + 'px';
+                if (d.status !== 'ok') {
+                    document.body.classList.add('has-error');
+                }
+                fetch('/api/clients')
+                    .then(function(r) { return r.json(); })
+                    .then(function(cd) { buildCards(cd.clients, true); })
+                    .catch(function() {});
+            })
+            .catch(function() {
+                document.getElementById('pill').innerHTML =
+                    item('bind address', 'error') +
+                    item('hostname', 'error') +
+                    item('port', 'error') +
+                    item('status', 'ERROR', 'status-error') +
+                    item('registered clients', 'error');
+                var content = document.getElementById('content');
+                var pw = document.querySelector('.pill').offsetWidth;
+                content.style.width = pw + 'px';
+                document.getElementById('searchBar').style.width = ((pw - 10) / 2) + 'px';
+                document.getElementById('sidebar').style.top = content.offsetTop + 'px';
+                document.body.classList.add('has-error');
+            });
+    </script>
+</body>
+</html>
