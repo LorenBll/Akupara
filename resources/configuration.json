@@ -1,9 +1,20 @@
 {
   "port": 49155,
-  "password": "",
   "sort_order": [
+    "bind_address",
     "port",
     "name",
-    "pid"
-  ]
+    "hostname",
+    "pid",
+    "status"
+  ],
+  "original_sort_order": [
+    "port",
+    "name",
+    "bind_address",
+    "hostname",
+    "pid",
+    "status"
+  ],
+  "group_by": "bind_address"
 }

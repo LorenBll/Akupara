@@ -9,7 +9,7 @@
 <body>
     <div class="page">
         <div class="hero">
-            <h1 class="title">PortHandler</h1>
+            <h1 class="title"><a href="https://www.github.com/LorenBll/PortHandler" target="_blank" class="title-link">PortHandler</a></h1>
             <div class="pill" id="pill">
                 <div class="pill-item"><span class="pill-label">bind address</span><span class="pill-value">--</span></div>
                 <div class="pill-item"><span class="pill-label">hostname</span><span class="pill-value">--</span></div>
@@ -24,10 +24,19 @@
             <input type="text" id="searchInput" placeholder="Search service...">
         </div>
         <div class="sidebar hidden" id="sidebar">
-            <button class="sort-decoration" data-label="Sort">
+            <button class="sort-decoration hidden" data-label="Sort">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
             </button>
             <div class="sort-items-casing" id="sortItemsCasing">
+                <div class="sort-groupby-zone" id="sortGroupbyZone">
+                    <div class="sort-groupby-placeholder" id="sortGroupbyPlaceholder">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></svg>
+                    </div>
+                    <div class="sort-groupby-item" id="sortGroupbyItem">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></svg>
+                    </div>
+                </div>
+                <div class="sort-separator"></div>
                 <div class="sort-item" draggable="true" data-key="name" data-label="Service Name">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
                 </div>
@@ -37,15 +46,58 @@
                 <div class="sort-item" draggable="true" data-key="pid" data-label="Service PID">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
                 </div>
+                <div class="sort-item" draggable="true" data-key="bind_address" data-label="Bind IP Address">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8c0 4.5-6 11-6 11s-6-6.5-6-11a6 6 0 0 1 12 0"/><circle cx="12" cy="8" r="2.5"/><path d="M8 18c-2 0-4 1-4 3h16c0-2-2-3-4-3"/></svg>
+                </div>
+                <div class="sort-item" draggable="true" data-key="hostname" data-label="Hostname">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                </div>
+                <div class="sort-item" draggable="true" data-key="status" data-label="Service Status">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
             </div>
+        </div>
+        <div class="health-button hidden" id="healthButton">
+            <button class="health-decoration" data-label="Check Services' Health">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>
+            </button>
+            <button class="health-decoration broken-forget-btn hidden" data-label="Forget All Broken Services">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>
+            </button>
+            <button class="health-decoration broken-restart-btn hidden" data-label="Restart All Broken Services">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+            </button>
         </div>
     </div>
 
     <script>
-        var sortOrder = ['name', 'port', 'pid'];
+        var sortOrder = ['name', 'port', 'pid', 'bind_address', 'hostname', 'status'];
         var currentClients = [];
+        var brokenClients = [];
+        var forgottenHashes = {};
         var sidebar = document.getElementById('sidebar');
-
+        var groupByKey = null;
+        var originalSortOrder = null;
+        var _isFirstAnim = true;
+        var _expandTimeout = null;
+        function toggleSortHealthBtn(el, show) {
+            if (!el) return;
+            if (show) {
+                if (el.classList.contains('hidden')) {
+                    el.classList.remove('hidden');
+                    void el.offsetWidth;
+                    el.classList.add('anim-in');
+                    if (_isFirstAnim) el.classList.add('fla');
+                    el.addEventListener('animationend', function handler() {
+                        el.classList.remove('anim-in', 'fla');
+                        el.removeEventListener('animationend', handler);
+                    }, { once: true });
+                }
+            } else {
+                el.classList.add('hidden');
+                el.classList.remove('anim-in', 'fla');
+            }
+        }
         function levenshtein(a, b) {
             var m = a.length, n = b.length;
             var dp = [];
@@ -68,21 +120,111 @@
             return dist <= 2 || dist <= lowerQuery.length * 0.3;
         }
 
+        function setSortMenuOpen(open) {
+            var btn = document.querySelector('.sort-decoration');
+            if (!btn) return;
+            var casing = document.getElementById('sortItemsCasing');
+            var items = document.querySelectorAll('.sort-item');
+            var svg = btn.querySelector('svg');
+            if (open) {
+                if (btn.classList.contains('is-x')) return;
+                items.forEach(function(item, i) {
+                    item.style.transitionDelay = (i * 0.05) + 's';
+                    item.classList.add('visible');
+                });
+                casing.classList.add('visible');
+                btn.classList.add('is-x');
+                if (svg) {
+                    svg.innerHTML = '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>';
+                }
+                animateGroupByZone();
+                return;
+            }
+            if (!btn.classList.contains('is-x')) return;
+            items.forEach(function(item, i) {
+                item.style.transitionDelay = (i * 0.05) + 's';
+                item.classList.remove('visible', 'dragging');
+            });
+            casing.classList.remove('visible');
+            btn.classList.remove('is-x');
+            if (svg) {
+                svg.innerHTML = '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>';
+            }
+        }
+
         function filterCards() {
             var query = document.getElementById('searchInput').value;
             var cards = document.querySelectorAll('.service-card');
+            var content = document.getElementById('content');
+            var existingMsg = content.querySelector('.search-empty');
+            if (existingMsg) existingMsg.remove();
+            content.classList.remove('no-results');
+            var visible = 0;
             cards.forEach(function(card) {
                 var name = card.querySelector('.card-name').textContent;
                 var metaItems = card.querySelectorAll('.card-meta-value');
-                var port = metaItems[0] ? metaItems[0].textContent : '';
-                var pid = metaItems[1] ? metaItems[1].textContent : '';
-                if (!query || matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query)) {
+                var bindAddr = metaItems[0] ? metaItems[0].textContent : '';
+                var host = metaItems[1] ? metaItems[1].textContent : '';
+                var port = metaItems[2] ? metaItems[2].textContent : '';
+                var pid = metaItems[3] ? metaItems[3].textContent : '';
+                if (!query || matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query) || matchesQuery(bindAddr, query) || matchesQuery(host, query)) {
                     card.style.display = '';
-                    card.classList.remove('animate');
+                    visible++;
                 } else {
                     card.style.display = 'none';
                 }
             });
+            content.querySelectorAll('.group-section').forEach(function(section) {
+                var hasVisible = false;
+                section.querySelectorAll('.service-card').forEach(function(c) {
+                    if (c.style.display !== 'none') hasVisible = true;
+                });
+                section.style.display = hasVisible ? '' : 'none';
+            });
+            if (visible === 0 && cards.length > 0 && query) {
+                var msg = document.createElement('div');
+                msg.className = 'search-empty';
+                msg.textContent = 'No Service Matching Research Found';
+                content.appendChild(msg);
+                content.classList.add('no-results');
+            }
+            var totalCount = cards.length;
+            document.querySelectorAll('#pill .pill-item').forEach(function(pi) {
+                if (pi.querySelector('.pill-label').textContent === 'registered clients') {
+                    pi.querySelector('.pill-value').textContent = String(totalCount);
+                }
+            });
+            var expandedEl = document.querySelector('.service-card.expanded');
+            var searchBar = document.getElementById('searchBar');
+            var sidebarEl = document.getElementById('sidebar');
+            var sortBtn = document.querySelector('.sort-decoration');
+            var healthButton = document.getElementById('healthButton');
+            var brokenForgetBtn = healthButton.querySelector('.broken-forget-btn');
+            var brokenRestartBtn = healthButton.querySelector('.broken-restart-btn');
+            var sortItemsCasing = document.getElementById('sortItemsCasing');
+
+            var searchVisible = totalCount >= 2 && !expandedEl;
+            var sidebarVisible = visible >= 2 && !expandedEl;
+            var sortVisible = visible >= 2 && !expandedEl;
+            var healthVisible = visible > 0;
+            var visibleBrokenCount = 0;
+            document.querySelectorAll('.service-card').forEach(function(c) {
+                if (c.style.display === 'none') return;
+                if (c.classList.contains('service-card-unhealthy')) visibleBrokenCount++;
+            });
+            var brokenVisible = visibleBrokenCount > 0 && !expandedEl;
+
+            toggleSortHealthBtn(searchBar, searchVisible);
+            sidebarEl.classList.toggle('hidden', !sidebarVisible);
+            if (!sidebarVisible && sortBtn && sortBtn.classList.contains('is-x')) {
+                setSortMenuOpen(false);
+            }
+            toggleSortHealthBtn(sortBtn, sortVisible);
+            toggleSortHealthBtn(healthButton, healthVisible);
+            toggleSortHealthBtn(brokenForgetBtn, brokenVisible);
+            toggleSortHealthBtn(brokenRestartBtn, brokenVisible);
+            _isFirstAnim = false;
+            sortItemsCasing.classList.toggle('single-service', visible < 2);
         }
 
         function loadSortOrder() {
@@ -91,19 +233,22 @@
                 .then(function(d) {
                     if (d.sort_order && d.sort_order.length) {
                         sortOrder = d.sort_order;
+                        if (sortOrder.indexOf('status') === -1) sortOrder.push('status');
                         applySortOrderToSidebar();
                         if (currentClients.length) buildCards(currentClients, false);
+                    }
+                    if (d.group_by) {
+                        groupByKey = d.group_by;
+                        originalSortOrder = d.original_sort_order || null;
+                        applyGroupByFromLoad();
                     }
                 })
                 .catch(function() {});
         }
 
         function saveSortOrder(order) {
-            fetch('/api/sort-settings', {
-                method: 'PUT',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({sort_order: order})
-            }).catch(function() {});
+            sortOrder = order;
+            saveSortSettings();
         }
 
         function applySortOrderToSidebar() {
@@ -115,33 +260,227 @@
             sorted.forEach(function(el) { casing.appendChild(el); });
         }
 
+        function animateGroupByZone() {
+        }
+
+        function applyGroupByFromLoad() {
+            if (!groupByKey) return;
+            var zone = document.getElementById('sortGroupbyZone');
+            var placeholder = document.getElementById('sortGroupbyPlaceholder');
+            var item = document.getElementById('sortGroupbyItem');
+            var sortItem = document.querySelector('.sort-item[data-key="' + groupByKey + '"]');
+            zone.classList.add('filled');
+            placeholder.classList.add('hidden');
+            item.classList.add('visible');
+            if (sortItem) {
+                sortItem.classList.add('group-by');
+                sortItem.setAttribute('draggable', 'false');
+                var svg = sortItem.querySelector('svg');
+                if (svg) {
+                    item.innerHTML = svg.outerHTML;
+                }
+                item.setAttribute('data-label', sortItem.getAttribute('data-label') || '');
+                zone.setAttribute('data-label', sortItem.getAttribute('data-label') || '');
+            }
+        }
+
+        function setGroupBy(key) {
+            groupByKey = key;
+            originalSortOrder = sortOrder.slice();
+            var idx = sortOrder.indexOf(key);
+            if (idx > 0) {
+                sortOrder.splice(idx, 1);
+                sortOrder.unshift(key);
+            }
+            var zone = document.getElementById('sortGroupbyZone');
+            var placeholder = document.getElementById('sortGroupbyPlaceholder');
+            var item = document.getElementById('sortGroupbyItem');
+            var sortItem = document.querySelector('.sort-item[data-key="' + key + '"]');
+            zone.classList.add('filled');
+            placeholder.classList.add('hidden');
+            item.classList.add('visible');
+            if (sortItem) {
+                sortItem.classList.add('group-by');
+                sortItem.setAttribute('draggable', 'false');
+                var svg = sortItem.querySelector('svg');
+                if (svg) {
+                    item.innerHTML = svg.outerHTML;
+                }
+                item.setAttribute('data-label', sortItem.getAttribute('data-label') || '');
+                zone.setAttribute('data-label', sortItem.getAttribute('data-label') || '');
+            }
+            animateGroupByZone();
+            applySortOrderToSidebar();
+            saveSortSettings();
+        }
+
+        function clearGroupBy() {
+            var key = groupByKey;
+            if (!key) return;
+            groupByKey = null;
+            if (originalSortOrder) {
+                sortOrder = originalSortOrder;
+                originalSortOrder = null;
+            }
+            var zone = document.getElementById('sortGroupbyZone');
+            var placeholder = document.getElementById('sortGroupbyPlaceholder');
+            var item = document.getElementById('sortGroupbyItem');
+            var sortItem = document.querySelector('.sort-item[data-key="' + key + '"]');
+            zone.classList.remove('filled');
+            placeholder.classList.remove('hidden');
+            item.classList.remove('visible');
+            if (sortItem) { sortItem.classList.remove('group-by'); sortItem.setAttribute('draggable', 'true'); }
+            applySortOrderToSidebar();
+            saveSortSettings();
+        }
+
+        function saveSortSettings() {
+            var body = {sort_order: sortOrder};
+            if (groupByKey) {
+                body.group_by = groupByKey;
+                if (originalSortOrder) body.original_sort_order = originalSortOrder;
+            } else {
+                body.group_by = null;
+                body.original_sort_order = sortOrder.slice();
+            }
+            fetch('/api/sort-settings', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            }).then(function(r) {
+                if (!r.ok) console.error('Save sort settings failed:', r.status, r.statusText);
+            }).catch(function(e) { console.error('Save sort settings error:', e); });
+        }
+
+        function refreshPageVisibility(totalCount, visibleCount, firstLoad) {
+            var searchBar = document.getElementById('searchBar');
+            var sidebarEl = document.getElementById('sidebar');
+            var healthButton = document.getElementById('healthButton');
+            var brokenForgetBtn = healthButton.querySelector('.broken-forget-btn');
+            var brokenRestartBtn = healthButton.querySelector('.broken-restart-btn');
+            var sortItemsCasing = document.getElementById('sortItemsCasing');
+            var sortBtn = document.querySelector('.sort-decoration');
+            var expanded = document.querySelector('.service-card.expanded');
+            var visibleBrokenCount = 0;
+
+            document.querySelectorAll('.service-card').forEach(function(card) {
+                if (card.style.display === 'none') return;
+                if (card.classList.contains('service-card-unhealthy')) visibleBrokenCount++;
+            });
+
+            var searchVisible = totalCount >= 2 && !expanded;
+            var sidebarVisible = visibleCount >= 2 && !expanded;
+            var sortVisible = visibleCount >= 2 && !expanded;
+            var healthVisible = visibleCount > 0;
+            var brokenVisible = visibleBrokenCount > 0 && !expanded;
+
+            toggleSortHealthBtn(searchBar, searchVisible);
+            sidebarEl.classList.toggle('hidden', !sidebarVisible);
+            toggleSortHealthBtn(sortBtn, sortVisible);
+            toggleSortHealthBtn(healthButton, healthVisible);
+            toggleSortHealthBtn(brokenForgetBtn, brokenVisible);
+            toggleSortHealthBtn(brokenRestartBtn, brokenVisible);
+            _isFirstAnim = false;
+
+            if (visibleCount >= 2) {
+                sortItemsCasing.classList.remove('single-service');
+            } else {
+                sortItemsCasing.classList.add('single-service');
+            }
+
+            if (!sidebarVisible && sortBtn && sortBtn.classList.contains('is-x')) {
+                setSortMenuOpen(false);
+            }
+        }
+
         function item(label, value, cls) {
             return '<div class="pill-item' + (cls ? ' ' + cls : '') + '"><span class="pill-label">' + label + '</span><span class="pill-value">' + value + '</span></div>';
         }
 
-        function cardHTML(name, port, pid, healthy) {
+        function refreshPills() {
+            fetch('/api/health').then(function(r) { return r.json(); }).then(function(h) {
+                document.getElementById('pill').innerHTML =
+                    item('bind address', h.bind_address) +
+                    item('hostname', h.hostname) +
+                    item('port', h.port) +
+                    (h.status === 'ok' ? item('status', h.status.toUpperCase(), 'status-ok') : item('status', h.status.toUpperCase(), 'status-error')) +
+                    item('registered clients', h.registered_clients);
+            }).catch(function() {});
+        }
+
+        function populateExpandedContent(card, healthData) {
+            var excluded = ['service', 'bind_address', 'hostname', 'port', 'pid'];
+            var container = card.querySelector('.card-expanded-content');
+            if (!container) return;
+            container.innerHTML = '';
+            var parts = [];
+            Object.keys(healthData).forEach(function(k) {
+                if (excluded.indexOf(k) >= 0) return;
+                var v = healthData[k];
+                if (v === null || v === undefined) return;
+                var label = k.replace(/_/g, ' ');
+                label = label.charAt(0).toUpperCase() + label.slice(1);
+                var valClass = '';
+                if (k === 'status') {
+                    v = String(v).toUpperCase();
+                    valClass = v === 'OK' ? ' expand-status-ok' : ' expand-status-error';
+                }
+                parts.push('<div class="expand-info-item"><span class="expand-info-label">' + label + '</span><span class="expand-info-value' + valClass + '">' + v + '</span></div>');
+            });
+            container.innerHTML = parts.join('') + '<div class="expand-empty">No Other Information to Display</div>';
+        }
+
+        function updateCardButtonLabels(card) {
+            var isBroken = card.classList.contains('service-card-unhealthy');
+            var btns = card.querySelectorAll('.card-buttons .card-btn');
+            if (btns.length >= 2) {
+                btns[0].setAttribute('data-label', isBroken ? 'Forget Broken Service' : 'Terminate Service');
+                btns[1].setAttribute('data-label', isBroken ? 'Restart Broken Service' : 'Restart Service');
+            }
+        }
+
+        function showExpandError(card, serviceName) {
+            var container = card.querySelector('.card-expanded-content');
+            if (!container) return;
+            container.innerHTML = '<div class="expand-empty expand-error">' + serviceName + ' Health Fetch Failed</div>';
+            card.classList.add('service-card-unhealthy');
+            updateCardButtonLabels(card);
+        }
+
+        function cardHTML(name, port, pid, healthy, bind_address, hostname) {
             var bg = healthy ? '' : ' service-card-unhealthy';
             return '<div class="service-card' + bg + '">' +
                 '<div class="card-top">' +
                 '<div class="card-name">' + name + '</div>' +
-                '<button class="card-btn card-btn-blue" title="info">' +
-                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' +
+                '<button class="card-btn card-btn-blue" data-label="Expand Information">' +
+                '<svg class="icon-info" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' +
+                '<svg class="icon-x" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' +
                 '</button>' +
                 '</div>' +
-                '<div class="card-meta">' +
+                '<div class="card-meta-row">' +
+                '<span class="card-meta-item"><span class="card-meta-label">BIND</span><span class="card-meta-value">' + (bind_address || '') + '</span></span>' +
+                '<span class="card-meta-item"><span class="card-meta-label">HOST</span><span class="card-meta-value">' + (hostname || '') + '</span></span>' +
+                '</div>' +
+                '<div class="card-meta-row">' +
                 '<span class="card-meta-item"><span class="card-meta-label">PORT</span><span class="card-meta-value">' + port + '</span></span>' +
                 '<span class="card-meta-item"><span class="card-meta-label">PID</span><span class="card-meta-value">' + pid + '</span></span>' +
                 '</div>' +
+                '<div class="card-expanded-content"><div class="expand-loader"><div class="spinner"></div></div></div>' +
                 '<div class="card-buttons">' +
-                '<button class="card-btn card-btn-red">' +
-                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10M6 6a8 8 0 1 0 12 0"/></svg>' +
-                '</button>' +
-                '<button class="card-btn card-btn-red">' +
-                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
-                '</button>' +
-                '<button class="card-btn card-btn-yellow">' +
-                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
-                '</button>' +
+                (healthy
+                    ? '<button class="card-btn card-btn-red" data-label="Terminate Service">' +
+                      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>' +
+                      '</button>'
+                    : '<button class="card-btn card-btn-red" data-label="Forget Broken Service">' +
+                      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>' +
+                      '</button>') +
+                (healthy
+                    ? '<button class="card-btn card-btn-yellow" data-label="Restart Service">' +
+                      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
+                      '</button>'
+                    : '<button class="card-btn card-btn-yellow" data-label="Restart Broken Service">' +
+                      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
+                      '</button>') +
                 '</div>' +
                 '</div>';
         }
@@ -151,6 +490,13 @@
             clients.sort(function(a, b) {
                 for (var k = 0; k < keys.length; k++) {
                     var key = keys[k];
+                    if (key === 'status') {
+                        var bA = brokenClients.some(function(bc) { return bc.hash === a.hash; });
+                        var bB = brokenClients.some(function(bc) { return bc.hash === b.hash; });
+                        if (bA && !bB) return 1;
+                        if (!bA && bB) return -1;
+                        continue;
+                    }
                     var va = a[key];
                     var vb = b[key];
                     if (typeof va === 'number' && typeof vb === 'number') {
@@ -169,62 +515,196 @@
 
         function buildCards(clients, animate) {
             currentClients = clients;
-            sortClients(clients);
-            if (clients.length <= 1) {
-                sidebar.classList.add('hidden');
-                document.getElementById('searchBar').classList.add('hidden');
-                var btn = document.querySelector('.sort-decoration');
-                if (btn.classList.contains('is-x')) {
-                    btn.classList.remove('is-x');
-                    btn.querySelector('svg').innerHTML = '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>';
-                    document.querySelectorAll('.sort-item').forEach(function(item) { item.classList.remove('visible'); });
-                    document.getElementById('sortItemsCasing').classList.remove('visible');
-                }
-            } else {
-                sidebar.classList.remove('hidden');
-                document.getElementById('searchBar').classList.remove('hidden');
-            }
+            var brokenHashes = {};
+            brokenClients.forEach(function(bc) { brokenHashes[bc.hash] = true; });
+            var healthyClients = [];
+            clients.forEach(function(c) {
+                if (!brokenHashes[c.hash] && !forgottenHashes[c.hash]) healthyClients.push(c);
+            });
+            sortClients(healthyClients);
             var content = document.getElementById('content');
+            var expandedCard = content.querySelector('.service-card.expanded');
+            var hadExpanded = expandedCard ? {
+                hash: expandedCard.getAttribute('data-hash'),
+                name: expandedCard.querySelector('.card-name').textContent
+            } : null;
+            content.classList.remove('expanded');
+            content.style.height = '';
+            content.querySelectorAll('.service-card').forEach(function(c) {
+                c.classList.remove('expanded', 'expanded-active', 'expanded-buttons');
+                c.style.top = '';
+                c.style.left = '';
+                c.style.width = '';
+                c.style.height = '';
+                c.style.position = '';
+                c.style.pointerEvents = '';
+                c.style.zIndex = '';
+                c.style.minHeight = '';
+                c.style.gridColumn = '';
+            });
+            var placeholder = content.querySelector('.expand-placeholder');
+            if (placeholder) placeholder.remove();
+            document.getElementById('searchInput').disabled = false;
             content.innerHTML = '';
-            if (clients.length === 0) {
-                content.innerHTML = '<div class="empty-state">No Service Registered</div>';
+            if (healthyClients.length === 0 && brokenClients.length === 0) {
+                var emptyEl = document.createElement('div');
+                emptyEl.className = 'empty-state';
+                emptyEl.textContent = 'No Service Registered';
+                emptyEl.classList.add('anim-in');
+                if (_isFirstAnim) {
+                    emptyEl.style.setProperty('--card-delay', '0.45s');
+                    emptyEl.classList.add('fla');
+                }
+                emptyEl.addEventListener('animationend', function handler() {
+                    emptyEl.classList.remove('anim-in', 'fla');
+                    emptyEl.style.removeProperty('--card-delay');
+                    emptyEl.removeEventListener('animationend', handler);
+                }, { once: true });
+                content.appendChild(emptyEl);
+                updateVisibility(0, 0, animate);
                 return;
             }
-            clients.forEach(function(c, i) {
+
+            function createCardElement(c, idx, broken) {
                 var cardDiv = document.createElement('div');
-                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', true);
+                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', !broken, c.bind_address, c.hostname);
                 var card = cardDiv.firstElementChild;
                 card.setAttribute('data-hash', c.hash || '');
-                if (animate) {
-                    card.style.animationDelay = (0.30 + i * 0.15) + 's';
-                    card.classList.add('animate');
-                }
-                content.appendChild(card);
-                var hc = new XMLHttpRequest();
-                hc.open('GET', 'http://127.0.0.1:' + c.port + '/api/health', true);
-                hc.timeout = 3000;
-                hc.onload = function() {
-                    if (hc.status === 200) {
-                        try {
-                            var data = JSON.parse(hc.responseText);
-                            if (data.status !== 'ok') {
-                                card.classList.add('service-card-unhealthy');
-                            }
-                        } catch(e) {
-                            card.classList.add('service-card-unhealthy');
-                        }
-                    } else {
+                card.setAttribute('data-port', c.port || '');
+                card.setAttribute('data-starting-script', c.starting_script || '');
+                card.setAttribute('data-pid', c.pid !== undefined && c.pid !== '' ? String(c.pid) : '');
+                if (!broken) {
+                    var alreadyBroken = brokenClients.some(function(bc) { return bc.hash === c.hash; });
+                    if (alreadyBroken) {
                         card.classList.add('service-card-unhealthy');
+                        updateCardButtonLabels(card);
+                    } else {
+                    var hc = new XMLHttpRequest();
+                    hc.open('GET', 'http://127.0.0.1:' + c.port + '/api/health', true);
+                    hc.timeout = 3000;
+                    hc.onload = function() {
+                        if (hc.status === 200) {
+                            try {
+                                var data = JSON.parse(hc.responseText);
+                                if (data.status !== 'ok') {
+                                    card.classList.add('service-card-unhealthy');
+                                    addBrokenClient(c);
+                                    updateCardButtonLabels(card);
+                                }
+                            } catch(e) {
+                                card.classList.add('service-card-unhealthy');
+                                addBrokenClient(c);
+                                updateCardButtonLabels(card);
+                            }
+                        } else {
+                            card.classList.add('service-card-unhealthy');
+                            addBrokenClient(c);
+                            updateCardButtonLabels(card);
+                        }
+                    };
+                    hc.ontimeout = function() {
+                        card.classList.add('service-card-unhealthy');
+                        addBrokenClient(c);
+                        updateCardButtonLabels(card);
+                    };
+                    hc.onerror = function() {
+                        card.classList.add('service-card-unhealthy');
+                        addBrokenClient(c);
+                        updateCardButtonLabels(card);
+                    };
+                    hc.send();
                     }
-                };
-                hc.ontimeout = function() {
-                    card.classList.add('service-card-unhealthy');
-                };
-                hc.onerror = function() {
-                    card.classList.add('service-card-unhealthy');
-                };
-                hc.send();
-            });
+                }
+                card.classList.add('anim-in');
+                if (_isFirstAnim) {
+                    card.style.setProperty('--card-delay', (0.45 + idx * 0.15) + 's');
+                    card.classList.add('fla');
+                }
+                card.addEventListener('animationend', function handler() {
+                    card.classList.remove('anim-in', 'fla');
+                    card.style.removeProperty('--card-delay');
+                    card.removeEventListener('animationend', handler);
+                }, { once: true });
+                return card;
+            }
+
+            var cardIndex = 0;
+            var allClients = healthyClients.concat(brokenClients.filter(function(bc) { return !forgottenHashes[bc.hash]; }));
+            if (groupByKey && allClients.length > 1) {
+                var groups = {};
+                allClients.forEach(function(c) {
+                    var val;
+                    if (groupByKey === 'status') {
+                        val = brokenClients.some(function(bc) { return bc.hash === c.hash; }) ? 'Broken' : 'Operational';
+                    } else {
+                        val = c[groupByKey];
+                    }
+                    var key = val !== undefined && val !== null ? String(val) : '';
+                    if (!groups[key]) groups[key] = [];
+                    groups[key].push(c);
+                });
+                var groupKeys = Object.keys(groups).sort(function(a, b) {
+                    if (a === '') return 1;
+                    if (b === '') return -1;
+                    var na = Number(a), nb = Number(b);
+                    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                    return a.localeCompare(b);
+                });
+                var groupLabel = '';
+                var sortItem = document.querySelector('.sort-item[data-key="' + groupByKey + '"]');
+                if (sortItem) groupLabel = sortItem.getAttribute('data-label') || groupByKey;
+                groupKeys.forEach(function(gk) {
+                    var section = document.createElement('div');
+                    section.className = 'group-section';
+                    var header = document.createElement('div');
+                    header.className = 'group-header';
+                    header.textContent = groupLabel + ' : ' + (gk || '(empty)');
+                    header.classList.add('anim-in');
+                    if (_isFirstAnim) header.classList.add('fla');
+                    header.addEventListener('animationend', function handler() {
+                        header.classList.remove('anim-in', 'fla');
+                        header.removeEventListener('animationend', handler);
+                    }, { once: true });
+                    section.appendChild(header);
+                    var gIdx = 0;
+                    groups[gk].forEach(function(c) {
+                        var isBroken = brokenClients.some(function(bc) { return bc.hash === c.hash; });
+                        section.appendChild(createCardElement(c, gIdx++, isBroken));
+                    });
+                    content.appendChild(section);
+                });
+            } else {
+                allClients.forEach(function(c) {
+                    var isBroken = brokenClients.some(function(bc) { return bc.hash === c.hash; });
+                    content.appendChild(createCardElement(c, cardIndex++, isBroken));
+                });
+            }
+            if (hadExpanded) {
+                var stillExists = clients.some(function(c) { return (c.hash || '') === hadExpanded.hash; }) || brokenClients.some(function(c) { return (c.hash || '') === hadExpanded.hash; });
+                if (!stillExists) {
+                    var ghostDiv = document.createElement('div');
+                    ghostDiv.innerHTML = cardHTML(hadExpanded.name, '--', '--', false, '', '');
+                    var ghostCard = ghostDiv.firstElementChild;
+                    ghostCard.style.position = 'absolute';
+                    ghostCard.style.top = '0';
+                    ghostCard.style.left = '0';
+                    ghostCard.style.width = '100%';
+                    ghostCard.style.height = '100%';
+                    ghostCard.style.zIndex = '10';
+                    ghostCard.style.minHeight = '0';
+                    ghostCard.style.gridColumn = '1 / -1';
+                    ghostCard.classList.add('expanded', 'expanded-active', 'expanded-buttons');
+                    var overlay = document.createElement('div');
+                    overlay.className = 'expand-overlay';
+                    overlay.innerHTML = '<span class="expand-overlay-text">' + hadExpanded.name + ' is not reachable any longer</span>';
+                    ghostCard.appendChild(overlay);
+                    content.style.height = content.getBoundingClientRect().height + 'px';
+                    content.classList.add('expanded');
+                    content.appendChild(ghostCard);
+                }
+            }
+
+            updateVisibility(content.querySelectorAll('.service-card').length, undefined, animate);
         }
 
         var draggedItem = null;
@@ -232,6 +712,7 @@
         sidebar.addEventListener('dragstart', function(e) {
             var item = e.target.closest('.sort-item');
             if (!item) return;
+            if (item.classList.contains('group-by')) { e.preventDefault(); return; }
             draggedItem = item;
             e.dataTransfer.effectAllowed = 'move';
             setTimeout(function() { item.classList.add('dragging'); }, 0);
@@ -247,7 +728,7 @@
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
             var target = e.target.closest('.sort-item');
-            if (!target || target === draggedItem) return;
+            if (!target || target === draggedItem || target.classList.contains('group-by')) return;
             var casing = document.getElementById('sortItemsCasing');
             var items = Array.from(casing.querySelectorAll('.sort-item'));
             var fromIdx = items.indexOf(draggedItem);
@@ -270,45 +751,660 @@
                 }
         });
 
-        function closeSortMenu() {
-            var btn = document.querySelector('.sort-decoration');
-            if (!btn.classList.contains('is-x')) return;
-            btn.classList.remove('is-x');
-            btn.querySelector('svg').innerHTML = '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>';
-            document.querySelectorAll('.sort-item').forEach(function(item) { item.classList.remove('visible'); });
-            document.getElementById('sortItemsCasing').classList.remove('visible');
-        }
+        var groupbyZone = document.getElementById('sortGroupbyZone');
 
-        document.querySelector('.sort-decoration').addEventListener('click', function() {
-            this.classList.toggle('is-x');
-            var svg = this.querySelector('svg');
-            var casing = document.getElementById('sortItemsCasing');
-            if (this.classList.contains('is-x')) {
-                svg.innerHTML = '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>';
-                casing.classList.add('visible');
-                document.querySelectorAll('.sort-item').forEach(function(item, i) {
-                    setTimeout(function() { item.classList.add('visible'); }, i * 60);
-                });
-            } else {
-                svg.innerHTML = '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>';
-                document.querySelectorAll('.sort-item').forEach(function(item) { item.classList.remove('visible'); });
-                casing.classList.remove('visible');
+        groupbyZone.addEventListener('dragenter', function(e) {
+            if (!draggedItem) return;
+            this.classList.add('drag-over');
+        });
+
+        groupbyZone.addEventListener('dragleave', function(e) {
+            if (this.contains(e.relatedTarget)) return;
+            this.classList.remove('drag-over');
+        });
+
+        groupbyZone.addEventListener('dragover', function(e) {
+            if (!draggedItem) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+
+        groupbyZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.classList.remove('drag-over');
+            if (!draggedItem) return;
+            var key = draggedItem.getAttribute('data-key');
+            if (key === groupByKey) return;
+            var prevKey = groupByKey;
+            clearGroupBy();
+            setGroupBy(key);
+            if (currentClients.length) {
+                buildCards(currentClients, false);
             }
         });
 
+        document.getElementById('sortGroupbyItem').addEventListener('click', function() {
+            clearGroupBy();
+            if (currentClients.length) {
+                buildCards(currentClients, false);
+            }
+        });
+
+        function closeSortMenu() {
+            setSortMenuOpen(false);
+            document.getElementById('sortGroupbyZone').classList.remove('drag-over');
+            draggedItem = null;
+        }
+
+        document.querySelector('.sort-decoration').addEventListener('click', function() {
+            setSortMenuOpen(!this.classList.contains('is-x'));
+        });
+
         document.addEventListener('click', function(e) {
+            var expandedCard = document.querySelector('.service-card.expanded');
+            if (expandedCard) {
+                if (!e.target.closest('.service-card.expanded') && !e.target.closest('.health-decoration')) {
+                    collapseExpandedCard(expandedCard, document.getElementById('content'), false);
+                }
+            }
             if (!document.querySelector('.sort-decoration.is-x')) return;
             if (!e.target.closest('#sidebar')) closeSortMenu();
         });
 
-        document.getElementById('searchInput').addEventListener('input', filterCards);
-        document.getElementById('searchInput').addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') this.blur();
+        document.querySelector('.health-decoration').addEventListener('click', function() {
+            var btn = this;
+            btn.classList.remove('health-fetch-error');
+            var expandedCard = document.querySelector('.service-card.expanded');
+            if (expandedCard) {
+                var ec = expandedCard.querySelector('.card-expanded-content');
+                if (ec) ec.innerHTML = '<div class="expand-loader"><div class="spinner"></div></div>';
+                var hash = expandedCard.getAttribute('data-hash');
+                var cardPort = expandedCard.getAttribute('data-port');
+                if (hash) {
+                    fetch('/api/health/check/' + hash, { method: 'POST' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            if (d.healthy) {
+                                expandedCard.classList.remove('service-card-unhealthy');
+                                removeBrokenClient(hash);
+                                updateCardButtonLabels(expandedCard);
+                            } else {
+                                expandedCard.classList.add('service-card-unhealthy');
+                                updateCardButtonLabels(expandedCard);
+                                var metaVals = expandedCard.querySelectorAll('.card-meta-value');
+                                addBrokenClient({
+                                    hash: hash,
+                                    name: expandedCard.querySelector('.card-name').textContent,
+                                    port: cardPort,
+                                    pid: expandedCard.getAttribute('data-pid'),
+                                    starting_script: expandedCard.getAttribute('data-starting-script'),
+                                    bind_address: metaVals[0] ? metaVals[0].textContent : '',
+                                    hostname: metaVals[1] ? metaVals[1].textContent : ''
+                                });
+                            }
+                            if (cardPort) {
+                                return new Promise(function(resolve, reject) {
+                                    var hxhr = new XMLHttpRequest();
+                                    hxhr.open('GET', 'http://127.0.0.1:' + cardPort + '/api/health', true);
+                                    hxhr.timeout = 3000;
+                                    hxhr.onload = function() {
+                                        if (hxhr.status === 200) {
+                                            try { resolve(JSON.parse(hxhr.responseText)); return; } catch(e) {}
+                                        }
+                                        reject();
+                                    };
+                                    hxhr.onerror = reject;
+                                    hxhr.ontimeout = reject;
+                                    hxhr.send();
+                                }).then(function(hd) {
+                                    populateExpandedContent(expandedCard, hd);
+                                }).catch(function() {
+                                    showExpandError(expandedCard, expandedCard.querySelector('.card-name').textContent);
+                                });
+                            } else {
+                                showExpandError(expandedCard, expandedCard.querySelector('.card-name').textContent);
+                            }
+                        })
+                        .catch(function() {
+                            showExpandError(expandedCard, expandedCard.querySelector('.card-name').textContent);
+                        });
+                }
+            } else {
+                var content = document.getElementById('content');
+                var loader = document.createElement('div');
+                loader.className = 'content-loader';
+                loader.innerHTML = '<div class="spinner"></div>';
+                content.appendChild(loader);
+                fetch('/api/health/check', { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (d.unhealthy) {
+                            d.unhealthy.forEach(function(u) { addBrokenClient(u); });
+                        }
+                        return fetch('/api/clients').then(function(r) { return r.json(); });
+                    })
+                    .then(function(d) {
+                        var recovered = [];
+                        brokenClients.forEach(function(bc) {
+                            var found = d.clients.some(function(rc) { return rc.hash === bc.hash; });
+                            if (found) recovered.push(bc.hash);
+                        });
+                        recovered.forEach(function(h) { removeBrokenClient(h); });
+                        buildCards(d.clients, false);
+                        refreshPills();
+                    })
+                    .catch(function() {
+                        var l = content.querySelector('.content-loader');
+                        if (l) l.remove();
+                        btn.classList.add('health-fetch-error');
+                    });
+            }
         });
 
+        document.querySelector('.broken-forget-btn').addEventListener('click', function() {
+            var toForget = brokenClients.slice();
+            if (toForget.length === 0) return;
+            toForget.forEach(function(bc) { forgottenHashes[bc.hash] = true; });
+            var content = document.getElementById('content');
+            var expandedCard = content.querySelector('.service-card.expanded');
+            if (expandedCard) {
+                if (expandedCard.querySelector('.expand-overlay')) {
+                    collapseExpandedCard(expandedCard, content, true);
+                } else {
+                    collapseExpandedCard(expandedCard, content, false);
+                }
+            }
+            var removedHashes = {};
+            toForget.forEach(function(bc) { removedHashes[bc.hash] = true; });
+            var pendingTerm = toForget.length;
+            var terminatedHashes = {};
+            toForget.forEach(function(bc) { terminatedHashes[bc.hash] = true; });
+            function tryFinish() {
+                if (pendingTerm > 0) return;
+                content.querySelectorAll('.service-card').forEach(function(c) {
+                    if (removedHashes[c.getAttribute('data-hash')]) {
+                        c.remove();
+                    }
+                });
+                brokenClients = [];
+                updateBrokenButtons();
+                updateVisibility(content.querySelectorAll('.service-card').length);
+                fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                    var filtered = d.clients.filter(function(c) { return !terminatedHashes[c.hash]; });
+                    if (filtered.length) reconcileCards(filtered);
+                }).catch(function() {});
+            }
+            toForget.forEach(function(bc) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/broken/forget', true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onloadend = function() {
+                    if (--pendingTerm <= 0) tryFinish();
+                };
+                xhr.send(JSON.stringify({ hash: bc.hash }));
+            });
+        });
 
+        document.querySelector('.broken-restart-btn').addEventListener('click', function() {
+            var toRestart = brokenClients.slice();
+            if (toRestart.length === 0) return;
+            toRestart.forEach(function(bc) { forgottenHashes[bc.hash] = true; });
+            var content = document.getElementById('content');
+            var expandedCard = content.querySelector('.service-card.expanded');
+            if (expandedCard) {
+                if (expandedCard.querySelector('.expand-overlay')) {
+                    collapseExpandedCard(expandedCard, content, true);
+                } else {
+                    collapseExpandedCard(expandedCard, content, false);
+                }
+            }
+            var removedHashes = {};
+            toRestart.forEach(function(bc) { removedHashes[bc.hash] = true; });
+            var terminatedHashes = {};
+            toRestart.forEach(function(bc) { terminatedHashes[bc.hash] = true; });
+            var pendingTerm = toRestart.length;
+            function tryFinish() {
+                if (pendingTerm > 0) return;
+                content.querySelectorAll('.service-card').forEach(function(c) {
+                    if (removedHashes[c.getAttribute('data-hash')]) {
+                        c.remove();
+                    }
+                });
+                brokenClients = [];
+                updateBrokenButtons();
+                updateVisibility(content.querySelectorAll('.service-card').length);
+                toRestart.forEach(function(bc) {
+                    if (bc.starting_script) {
+                        fetch('/api/broken/restart', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({hash: bc.hash, starting_script: bc.starting_script})
+                        }).catch(function() {});
+                    }
+                });
+                fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                    var filtered = d.clients.filter(function(c) { return !terminatedHashes[c.hash]; });
+                    if (filtered.length) reconcileCards(filtered);
+                }).catch(function() {});
+            }
+            toRestart.forEach(function(bc) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/broken/forget', true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onloadend = function() {
+                    if (--pendingTerm <= 0) tryFinish();
+                };
+                xhr.send(JSON.stringify({ hash: bc.hash }));
+            });
+        });
+
+        function collapseExpandedCard(card, content, immediate, onComplete) {
+            var searchInput = document.getElementById('searchInput');
+            var overlay = card.querySelector('.expand-overlay');
+            if (overlay) {
+                if (!immediate) {
+                    document.body.classList.add('collapsing');
+                }
+                var s = card.closest('.group-section');
+                if (s) s.style.height = '';
+                card.remove();
+                content.classList.remove('expanded');
+                content.style.height = '';
+                if (searchInput) searchInput.disabled = false;
+                document.getElementById('sidebar').classList.remove('hidden');
+                document.getElementById('searchBar').classList.remove('hidden');
+                document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
+                document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
+                updateBrokenButtons();
+                if (!immediate) {
+                    void document.body.offsetWidth;
+                    document.body.classList.remove('collapsing');
+                    var targets = document.querySelectorAll('.sort-decoration, .search-bar, .service-card, .group-header, .empty-state, .broken-forget-btn, .broken-restart-btn');
+                    var fiCount = 0;
+                    targets.forEach(function(el) {
+                        if (el.classList.contains('hidden')) return;
+                        fiCount++;
+                        el.classList.remove('anim-in', 'fla');
+                        el.classList.add('anim-in');
+                        el.addEventListener('animationend', function handler() {
+                            el.classList.remove('anim-in', 'fla');
+                            el.removeEventListener('animationend', handler);
+                            fiCount--;
+                            if (fiCount <= 0 && onComplete) onComplete();
+                        }, { once: true });
+                    });
+                    if (fiCount === 0 && onComplete) onComplete();
+                } else {
+                    if (onComplete) onComplete();
+                }
+                return;
+            }
+            var btn = card.querySelector('.card-btn-blue');
+            if (!immediate) {
+                document.body.classList.add('collapsing');
+                card.classList.add('card-col-anchored');
+                card.classList.remove('expanded-active', 'expanded-buttons');
+                var p = content.querySelector('.expand-placeholder');
+                setTimeout(function() {
+                    if (!card.parentNode || !card.classList.contains('expanded')) {
+                        document.body.classList.remove('collapsing');
+                        if (onComplete) onComplete();
+                        return;
+                    }
+                    if (p && p.parentNode) {
+                        var phRect = p.getBoundingClientRect();
+                        var cRect = content.getBoundingClientRect();
+                        card.classList.add('expanding');
+                        card.style.top = (phRect.top - cRect.top) + 'px';
+                        card.style.left = (phRect.left - cRect.left) + 'px';
+                        card.style.width = phRect.width + 'px';
+                        card.style.height = phRect.height + 'px';
+                        setTimeout(function() {
+                            if (!card.parentNode) { if (onComplete) onComplete(); return; }
+                            var sect = card.closest('.group-section');
+                            if (sect) sect.style.height = '';
+                            if (p && p.parentNode) p.remove();
+                            card.style.top = '';
+                            card.style.left = '';
+                            card.style.width = '';
+                            card.style.height = '';
+                            card.classList.remove('expanded', 'expanding', 'card-col-1', 'card-col-2', 'card-col-3', 'card-col-anchored');
+                            if (btn) btn.setAttribute('data-label', 'Expand Information');
+                            if (searchInput) searchInput.disabled = false;
+                            document.getElementById('sidebar').classList.remove('hidden');
+                            document.getElementById('searchBar').classList.remove('hidden');
+                            document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
+                            var ec = card.querySelector('.card-expanded-content');
+                            if (ec) ec.innerHTML = '';
+                            document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
+                            updateBrokenButtons();
+                            content.classList.remove('expanded');
+                            content.style.height = '';
+                            void document.body.offsetWidth;
+                            document.body.classList.remove('collapsing');
+                            var targets = document.querySelectorAll('.sort-decoration, .search-bar, .service-card, .group-header, .empty-state, .broken-forget-btn, .broken-restart-btn');
+                            var fiCount = 0;
+                            targets.forEach(function(el) {
+                                if (el.classList.contains('hidden') || el === card) return;
+                                fiCount++;
+                                el.classList.remove('anim-in', 'fla');
+                                el.classList.add('anim-in');
+                                el.addEventListener('animationend', function handler() {
+                                    el.classList.remove('anim-in', 'fla');
+                                    el.removeEventListener('animationend', handler);
+                                    fiCount--;
+                                    if (fiCount <= 0 && onComplete) onComplete();
+                                }, { once: true });
+                            });
+                            if (fiCount === 0 && onComplete) onComplete();
+                        }, 350);
+                    } else {
+                        if (onComplete) onComplete();
+                    }
+                }, 80);
+            } else {
+                var section = card.closest('.group-section');
+                if (section) section.style.height = '';
+                if (btn) btn.setAttribute('data-label', 'Expand Information');
+                if (searchInput) searchInput.disabled = false;
+                document.getElementById('sidebar').classList.remove('hidden');
+                document.getElementById('searchBar').classList.remove('hidden');
+                document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
+                var p = content.querySelector('.expand-placeholder');
+                if (p) p.remove();
+                var ec = card.querySelector('.card-expanded-content');
+                if (ec) ec.innerHTML = '';
+                document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
+                card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons', 'card-col-1', 'card-col-2', 'card-col-3', 'card-col-anchored');
+                updateBrokenButtons();
+                card.style.top = '';
+                card.style.left = '';
+                card.style.width = '';
+                card.style.height = '';
+                content.classList.remove('expanded');
+                content.style.height = '';
+                if (onComplete) onComplete();
+            }
+        }
+
+        function apiCall(url, data, onSuccess) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200 && onSuccess) onSuccess();
+            };
+            xhr.send(JSON.stringify(data));
+        }
+
+        function reconcileCards(clients) {
+            if (groupByKey) {
+                buildCards(clients, false);
+                return;
+            }
+            var content = document.getElementById('content');
+            var brokenHashes = {};
+            brokenClients.forEach(function(bc) { brokenHashes[bc.hash] = true; });
+            var clientHashMap = {};
+            clients.forEach(function(c) { clientHashMap[c.hash] = c; });
+            var stale = [];
+            content.querySelectorAll('.service-card').forEach(function(c) {
+                var h = c.getAttribute('data-hash');
+                if (forgottenHashes[h] || (!clientHashMap[h] && !brokenHashes[h])) stale.push(c);
+            });
+            stale.forEach(function(c) { c.remove(); });
+            var existingHashes = {};
+            content.querySelectorAll('.service-card').forEach(function(c) {
+                existingHashes[c.getAttribute('data-hash')] = c;
+            });
+            clients.forEach(function(c) {
+                if (!existingHashes[c.hash] && !brokenHashes[c.hash] && !forgottenHashes[c.hash]) {
+                    var cardDiv = document.createElement('div');
+                    cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', true, c.bind_address, c.hostname);
+                    var card = cardDiv.firstElementChild;
+                    card.setAttribute('data-hash', c.hash || '');
+                    card.setAttribute('data-port', c.port || '');
+                    card.setAttribute('data-starting-script', c.starting_script || '');
+                    card.setAttribute('data-pid', c.pid !== undefined && c.pid !== '' ? String(c.pid) : '');
+                    content.appendChild(card);
+                }
+            });
+            updateVisibility(content.querySelectorAll('.service-card').length);
+        }
+
+        function updateVisibility(totalCount, visibleCount, firstLoad) {
+            if (visibleCount === undefined) visibleCount = totalCount;
+            refreshPageVisibility(totalCount, visibleCount, !!firstLoad);
+            document.querySelectorAll('#pill .pill-item').forEach(function(pi) {
+                if (pi.querySelector('.pill-label').textContent === 'registered clients') {
+                    pi.querySelector('.pill-value').textContent = String(totalCount);
+                }
+            });
+        }
+
+        function addBrokenClient(c) {
+            var hash = c.hash || '';
+            if (!hash || forgottenHashes[hash]) return;
+            for (var i = 0; i < brokenClients.length; i++) {
+                if (brokenClients[i].hash === hash) return;
+            }
+            brokenClients.push(c);
+            updateBrokenButtons();
+        }
+
+        function removeBrokenClient(hash) {
+            var newList = [];
+            for (var i = 0; i < brokenClients.length; i++) {
+                if (brokenClients[i].hash !== hash) newList.push(brokenClients[i]);
+            }
+            brokenClients = newList;
+            delete forgottenHashes[hash];
+            updateBrokenButtons();
+        }
+
+        function updateBrokenButtons() {
+            refreshPageVisibility(currentClients.length + brokenClients.length, document.querySelectorAll('.service-card:not([style*="display: none"])').length, false);
+        }
+
+        function removeCardWithFLIP(card, content) {
+            card.remove();
+            updateVisibility(content.querySelectorAll('.service-card').length);
+        }
+
+        document.getElementById('content').addEventListener('click', function(e) {
+            function afterTerminate(terminatedHash) {
+                return function() {
+                    fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                        var filtered = d.clients.filter(function(c) { return c.hash !== terminatedHash; });
+                        if (filtered.length === 0) {
+                            buildCards(filtered, false);
+                        } else {
+                            reconcileCards(filtered);
+                        }
+                    }).catch(function() {});
+                };
+            }
+            function afterRestart() {
+                fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) { reconcileCards(d.clients); }).catch(function() {});
+            }
+            function handleActionBtn(card, data, apiPath, onDone) {
+                var content = document.getElementById('content');
+                if (card.classList.contains('expanded')) {
+                    collapseExpandedCard(card, content, false, function() {
+                        removeCardWithFLIP(card, content);
+                        apiCall(apiPath, data, onDone);
+                    });
+                } else {
+                    removeCardWithFLIP(card, content);
+                    apiCall(apiPath, data, onDone);
+                }
+            }
+
+            var redBtn = e.target.closest('.card-btn-red');
+            if (redBtn) {
+                var card = redBtn.closest('.service-card');
+                if (!card) return;
+                var termHash = card.getAttribute('data-hash');
+                if (termHash) forgottenHashes[termHash] = true;
+                var isBroken = card.classList.contains('service-card-unhealthy');
+                handleActionBtn(card, {
+                    hash: termHash,
+                    pid: card.getAttribute('data-pid')
+                }, isBroken ? '/api/broken/forget' : '/api/terminate', afterTerminate(termHash));
+                return;
+            }
+            var yellowBtn = e.target.closest('.card-btn-yellow');
+            if (yellowBtn) {
+                var card = yellowBtn.closest('.service-card');
+                if (!card) return;
+                var scriptPath = card.getAttribute('data-starting-script');
+                if (!scriptPath) return;
+                var hash = card.getAttribute('data-hash');
+                if (hash) forgottenHashes[hash] = true;
+                brokenClients = brokenClients.filter(function(bc) { return bc.hash !== hash; });
+                updateBrokenButtons();
+                var isBroken = card.classList.contains('service-card-unhealthy');
+                handleActionBtn(card, {
+                    hash: hash,
+                    pid: card.getAttribute('data-pid'),
+                    starting_script: scriptPath
+                }, isBroken ? '/api/broken/restart' : '/api/restart', afterTerminate(hash));
+                return;
+            }
+            var btn = e.target.closest('.card-btn-blue');
+            if (!btn) return;
+            var card = btn.closest('.service-card');
+            if (!card) return;
+            var content = this;
+            var isExpanding = !card.classList.contains('expanded');
+            if (isExpanding) {
+                if (_expandTimeout) {
+                    clearTimeout(_expandTimeout);
+                    _expandTimeout = null;
+                    var prevExpanding = content.querySelector('.service-card.expanding');
+                    if (prevExpanding) prevExpanding.classList.remove('expanding');
+                    document.body.classList.remove('expanding');
+                }
+                var prev = content.querySelector('.service-card.expanded');
+                if (prev) collapseExpandedCard(prev, content, true);
+                card.classList.remove('card-col-1', 'card-col-2', 'card-col-3', 'card-col-anchored');
+                card.classList.add('expanding');
+                document.body.classList.add('expanding');
+                document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', 'Check Service Health');
+                _expandTimeout = setTimeout(function() {
+                    _expandTimeout = null;
+                    var contentRect = content.getBoundingClientRect();
+                    var cardRect = card.getBoundingClientRect();
+                    var relTop = cardRect.top - contentRect.top;
+                    var relLeft = cardRect.left - contentRect.left;
+                    var parentNode = card.parentNode;
+                    var allCards = parentNode.querySelectorAll('.service-card');
+                    var cardIndex = Array.prototype.indexOf.call(allCards, card);
+                    var col = (cardIndex % 3) + 1;
+                    var row = Math.floor(cardIndex / 3) + 1;
+                    card.classList.add('card-col-' + col, 'card-col-anchored');
+                    var section = parentNode.classList.contains('group-section') ? parentNode : null;
+                    if (section) row += 1;
+                    if (section) {
+                        section.style.height = section.getBoundingClientRect().height + 'px';
+                    }
+                    content.style.height = contentRect.height + 'px';
+                    content.classList.add('expanded');
+                    document.getElementById('searchInput').disabled = true;
+                    document.getElementById('sidebar').classList.add('hidden');
+                    var sb = document.getElementById('searchBar');
+                    sb.classList.add('hidden');
+                    var placeholder = document.createElement('div');
+                    placeholder.className = 'expand-placeholder';
+                    placeholder.style.gridRow = row + ' / ' + (row + 1);
+                    placeholder.style.gridColumn = col + ' / ' + (col + 1);
+                    placeholder.style.visibility = 'hidden';
+                    placeholder.style.pointerEvents = 'none';
+                    placeholder.style.justifySelf = 'start';
+                    placeholder.style.width = cardRect.width + 'px';
+                    placeholder.style.minHeight = cardRect.height + 'px';
+                    card.parentNode.insertBefore(placeholder, card);
+                    var self = card;
+                    self.classList.add('expanded');
+                    self.style.top = relTop + 'px';
+                    self.style.left = relLeft + 'px';
+                    self.style.width = cardRect.width + 'px';
+                    self.style.height = cardRect.height + 'px';
+                    void self.offsetWidth;
+                    self.style.top = '0';
+                    self.style.left = '0';
+                    self.style.width = '100%';
+                    self.style.height = '100%';
+                    setTimeout(function() {
+                        if (!self.parentNode || !self.classList.contains('expanded')) return;
+                        self.classList.add('expanded-active', 'expanded-buttons');
+                        if (btn) btn.setAttribute('data-label', 'Collapse');
+                        updateBrokenButtons();
+                        document.body.classList.remove('expanding');
+                        var cardPort = card.getAttribute('data-port');
+                        if (cardPort) {
+                            var hxhr = new XMLHttpRequest();
+                            hxhr.open('GET', 'http://127.0.0.1:' + cardPort + '/api/health', true);
+                            hxhr.timeout = 3000;
+                            hxhr.onload = function() {
+                                if (hxhr.status === 200) {
+                                    try { populateExpandedContent(card, JSON.parse(hxhr.responseText)); return; } catch(e) {}
+                                }
+                                showExpandError(card, card.querySelector('.card-name').textContent);
+                            };
+                            hxhr.onerror = function() { showExpandError(card, card.querySelector('.card-name').textContent); };
+                            hxhr.ontimeout = function() { showExpandError(card, card.querySelector('.card-name').textContent); };
+                            hxhr.send();
+                        }
+                    }, 80);
+                    setTimeout(function() {
+                        if (self.parentNode) self.classList.remove('expanding');
+                    }, 400);
+                }, 150);
+            } else {
+                collapseExpandedCard(card, content, false);
+            }
+        });
+
+        document.getElementById('searchInput').addEventListener('input', filterCards);
+        document.getElementById('searchInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' || e.key === 'Enter') { this.blur(); return; }
+            if (e.key === 'Backspace' && e.ctrlKey) {
+                var start = this.selectionStart, end = this.selectionEnd;
+                if (start !== end) {
+                    this.value = this.value.substring(0, start) + this.value.substring(end);
+                    this.selectionStart = this.selectionEnd = start;
+                } else {
+                    var val = this.value, pos = start;
+                    while (pos > 0 && val[pos - 1] === ' ') pos--;
+                    while (pos > 0 && val[pos - 1] !== ' ') pos--;
+                    this.value = val.substring(0, pos) + val.substring(start);
+                    this.selectionStart = this.selectionEnd = pos;
+                }
+                filterCards();
+            }
+        });
 
         document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                var expanded = document.querySelector('.service-card.expanded');
+                if (expanded) {
+                    collapseExpandedCard(expanded, document.getElementById('content'), false);
+                    return;
+                }
+                if (document.querySelector('.sort-decoration.is-x')) {
+                    closeSortMenu();
+                    return;
+                }
+            }
+            if (e.key === 'Enter') {
+                if (document.querySelector('.service-card.expanded')) { e.preventDefault(); return; }
+                var searchInput = document.getElementById('searchInput');
+                if (document.activeElement === searchInput) return;
+                if (searchInput.offsetParent === null) return;
+                searchInput.focus();
+                return;
+            }
             if (e.ctrlKey || e.altKey || e.metaKey) return;
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
             if (e.key.length === 1) {
@@ -318,6 +1414,7 @@
             }
         });
 
+        document.getElementById('searchInput').value = '';
         loadSortOrder();
 
         fetch('/api/health')
@@ -334,6 +1431,7 @@
                 content.style.width = pw + 'px';
                 document.getElementById('searchBar').style.width = ((pw - 10) / 2) + 'px';
                 document.getElementById('sidebar').style.top = content.offsetTop + 'px';
+                document.getElementById('healthButton').style.top = content.offsetTop + 'px';
                 if (d.status !== 'ok') {
                     document.body.classList.add('has-error');
                 }
@@ -354,8 +1452,11 @@
                 content.style.width = pw + 'px';
                 document.getElementById('searchBar').style.width = ((pw - 10) / 2) + 'px';
                 document.getElementById('sidebar').style.top = content.offsetTop + 'px';
+                document.getElementById('healthButton').style.top = content.offsetTop + 'px';
                 document.body.classList.add('has-error');
             });
+
+
     </script>
 </body>
 </html>

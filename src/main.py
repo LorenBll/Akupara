@@ -6,7 +6,10 @@ import hashlib
 import ipaddress
 import json
 import logging
+import os
 import socket
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -20,13 +23,19 @@ from models import PostResponse
 
 logger = logging.getLogger(__name__)
 
+
+def _kill_pid(pid: int) -> None:
+    is_win = sys.platform.startswith("win")
+    cmd = ["taskkill", "/F", "/PID", str(pid)] if is_win else ["kill", "-9", str(pid)]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+
 SERVICE_HOST = None
 SERVICE_PORT = None
 
 REGISTERED_CLIENTS: dict[str, dict] = {}
 REGISTERED_CLIENTS_LOCK = threading.Lock()
 
-HEALTH_CHECK_INTERVAL_SECONDS = 30
+HEALTH_CHECK_INTERVAL_SECONDS = 15
 
 
 def _load_configuration() -> dict:
@@ -142,30 +151,28 @@ def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
         return False
 
 
+def _run_health_check() -> list[dict]:
+    with REGISTERED_CLIENTS_LOCK:
+        current_clients = dict(REGISTERED_CLIENTS)
+
+    unhealthy = []
+    for client_hash, client_data in current_clients.items():
+        ip = client_data.get("ip", "127.0.0.1")
+        port = client_data.get("port", 0)
+        if not _ping_health(ip, port):
+            unhealthy.append(client_data)
+            logger.info(
+                f"Client '{client_data.get('name', 'unknown')}' "
+                f"({client_hash[:8]}...) unhealthy (health check failed)"
+            )
+
+    return unhealthy
+
+
 def _health_check_worker() -> None:
     while True:
         try:
-            with REGISTERED_CLIENTS_LOCK:
-                current_clients = dict(REGISTERED_CLIENTS)
-
-            to_remove = []
-            for client_hash, client_data in current_clients.items():
-                ip = client_data.get("ip", "127.0.0.1")
-                port = client_data.get("port", 0)
-                if not _ping_health(ip, port):
-                    to_remove.append(client_hash)
-
-            if to_remove:
-                with REGISTERED_CLIENTS_LOCK:
-                    for client_hash in to_remove:
-                        REGISTERED_CLIENTS.pop(client_hash, None)
-                for client_hash in to_remove:
-                    entry = current_clients.get(client_hash, {})
-                    logger.info(
-                        f"Client '{entry.get('name', 'unknown')}' "
-                        f"({client_hash[:8]}...) removed (health check failed)"
-                    )
-
+            _run_health_check()
         except Exception as exc:
             logger.error(f"Health check error: {exc}")
 
@@ -267,6 +274,8 @@ def register():
     port = payload.get("port") if isinstance(payload, dict) else None
     starting_script = payload.get("starting_script") if isinstance(payload, dict) else None
     pid = payload.get("pid") if isinstance(payload, dict) else None
+    bind_address = payload.get("bind_address") if isinstance(payload, dict) else None
+    hostname_val = payload.get("hostname") if isinstance(payload, dict) else None
 
     if not isinstance(name, str) or not name.strip():
         return _error_response("A non-empty name is required.")
@@ -288,6 +297,11 @@ def register():
             pid = int(pid)
         if not isinstance(pid, int):
             return _error_response("PID must be a number.")
+
+    if bind_address is not None and not isinstance(bind_address, str):
+        return _error_response("Bind address must be a string.")
+    if hostname_val is not None and not isinstance(hostname_val, str):
+        return _error_response("Hostname must be a string.")
 
     client_ip = request.remote_addr or "127.0.0.1"
 
@@ -328,6 +342,8 @@ def register():
         "port": port,
         "starting_script": starting_script.strip() if isinstance(starting_script, str) else "",
         "pid": pid if isinstance(pid, int) else "",
+        "bind_address": bind_address.strip() if isinstance(bind_address, str) else "",
+        "hostname": hostname_val.strip() if isinstance(hostname_val, str) else "",
         "ip": client_ip,
         "timestamp": timestamp,
     }
@@ -414,6 +430,26 @@ def health():
     )
 
 
+@app.route("/api/health/check/<hash>", methods=["POST"])
+def health_check_single(hash):
+    with REGISTERED_CLIENTS_LOCK:
+        client = REGISTERED_CLIENTS.get(hash)
+    if not client:
+        return _error_response("Client not found.", 404)
+    ip = client.get("ip", "127.0.0.1")
+    port = client.get("port", 0)
+    healthy = _ping_health(ip, port)
+    if not healthy:
+        logger.info(f"Client '{client.get('name', 'unknown')}' ({hash[:8]}...) unhealthy (health check failed)")
+    return _success_response({"hash": hash, "healthy": healthy})
+
+
+@app.route("/api/health/check", methods=["POST"])
+def health_check_trigger():
+    unhealthy = _run_health_check()
+    return _success_response({"checked": True, "unhealthy": unhealthy})
+
+
 @app.route("/api/clients", methods=["GET", "HEAD", "OPTIONS"])
 def clients():
     if request.method == "OPTIONS":
@@ -442,8 +478,15 @@ def sort_order():
 
     if request.method == "GET":
         config = _load_configuration()
-        order = config.get("sort_order", ["name", "port", "pid"])
-        return _success_response({"sort_order": order})
+        order = config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status"])
+        group_by = config.get("group_by")
+        original_sort_order = config.get("original_sort_order")
+        resp = {"sort_order": order}
+        if group_by is not None:
+            resp["group_by"] = group_by
+        if original_sort_order is not None:
+            resp["original_sort_order"] = original_sort_order
+        return _success_response(resp)
 
     payload = request.get_json(silent=True) or {}
     new_order = payload.get("sort_order") if isinstance(payload, dict) else None
@@ -459,13 +502,235 @@ def sort_order():
 
     config["sort_order"] = new_order
 
+    group_by = payload.get("group_by") if isinstance(payload, dict) else None
+    original_sort_order = payload.get("original_sort_order") if isinstance(payload, dict) else None
+
+    if group_by is not None:
+        config["group_by"] = group_by
+    else:
+        config.pop("group_by", None)
+
+    if original_sort_order is not None:
+        config["original_sort_order"] = original_sort_order
+    else:
+        config.pop("original_sort_order", None)
+
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
     except Exception:
         return _error_response("Failed to write configuration.", 500)
 
-    return _success_response({"sort_order": new_order})
+    resp = {"sort_order": new_order}
+    if group_by is not None:
+        resp["group_by"] = group_by
+    if original_sort_order is not None:
+        resp["original_sort_order"] = original_sort_order
+    return _success_response(resp)
+
+
+@app.route("/api/terminate", methods=["POST", "HEAD", "OPTIONS"])
+def terminate():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+    raw_pid = payload.get("pid") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    pid = None
+    if raw_pid is not None and str(raw_pid).strip().isdigit():
+        pid = int(raw_pid)
+    else:
+        with REGISTERED_CLIENTS_LOCK:
+            client_data = REGISTERED_CLIENTS.get(client_hash.strip())
+        if client_data is not None:
+            stored = client_data.get("pid")
+            if isinstance(stored, int) or (isinstance(stored, str) and stored.strip().isdigit()):
+                pid = int(stored)
+
+    if pid is None:
+        return _error_response("No PID available for this service.", 400)
+
+    try:
+        _kill_pid(pid)
+    except subprocess.CalledProcessError as exc:
+        logger.error(f"Failed to kill PID {pid}: {exc.stderr}")
+        return _error_response(f"Failed to terminate process: {exc.stderr}", 500)
+
+    with REGISTERED_CLIENTS_LOCK:
+        REGISTERED_CLIENTS.pop(client_hash.strip(), None)
+
+    logger.info(f"Terminated PID {pid} (hash {client_hash[:16]}...)")
+
+    return _success_response({"status": "terminated", "hash": client_hash.strip(), "pid": pid})
+
+
+@app.route("/api/restart", methods=["POST", "HEAD", "OPTIONS"])
+def restart():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+    script_path = payload.get("starting_script") if isinstance(payload, dict) else None
+    raw_pid = payload.get("pid") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    if not isinstance(script_path, str) or not script_path.strip():
+        return _error_response("A starting_script path is required.")
+
+    pid = None
+    if raw_pid is not None and str(raw_pid).strip().isdigit():
+        pid = int(raw_pid)
+    else:
+        with REGISTERED_CLIENTS_LOCK:
+            client_data = REGISTERED_CLIENTS.get(client_hash.strip())
+        if client_data is not None:
+            stored = client_data.get("pid")
+            if isinstance(stored, int) or (isinstance(stored, str) and stored.strip().isdigit()):
+                pid = int(stored)
+
+    if pid is None:
+        return _error_response("No PID available for this service.", 400)
+
+    try:
+        _kill_pid(pid)
+    except subprocess.CalledProcessError as exc:
+        logger.error(f"Failed to kill PID {pid}: {exc.stderr}")
+        return _error_response(f"Failed to terminate process: {exc.stderr}", 500)
+
+    with REGISTERED_CLIENTS_LOCK:
+        REGISTERED_CLIENTS.pop(client_hash.strip(), None)
+
+    logger.info(f"Terminated PID {pid} (hash {client_hash[:16]}...)")
+
+    try:
+        path = script_path.strip()
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".py":
+            cmd = [sys.executable, path]
+        elif ext in (".bat", ".cmd"):
+            cmd = ["cmd", "/c", path]
+        elif ext == ".ps1":
+            cmd = ["powershell", "-File", path]
+        else:
+            cmd = [path]
+        subprocess.Popen(
+            cmd,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
+    except Exception as exc:
+        logger.error(f"Failed to start script '{script_path}': {exc}")
+        return _error_response(f"Failed to start script: {exc}", 500)
+
+    logger.info(f"Restarted with script '{script_path}' (hash {client_hash[:16]}...)")
+
+    return _success_response({"status": "restarted", "hash": client_hash.strip()})
+
+
+@app.route("/api/broken/forget", methods=["POST", "HEAD", "OPTIONS"])
+def broken_forget():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    hash_val = client_hash.strip()
+
+    pid = None
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(hash_val)
+        if client_data is not None:
+            stored = client_data.get("pid")
+            if isinstance(stored, int) or (isinstance(stored, str) and stored.strip().isdigit()):
+                pid = int(stored)
+            REGISTERED_CLIENTS.pop(hash_val, None)
+
+    if pid is not None:
+        try:
+            _kill_pid(pid)
+        except subprocess.CalledProcessError:
+            logger.warning(f"Could not kill PID {pid} during forget (hash {hash_val[:16]}...)")
+
+    logger.info(f"Forgotten broken service hash {hash_val[:16]}...")
+
+    return _success_response({"status": "forgotten", "hash": hash_val})
+
+
+@app.route("/api/broken/restart", methods=["POST", "HEAD", "OPTIONS"])
+def broken_restart():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+    script_path = payload.get("starting_script") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    if not isinstance(script_path, str) or not script_path.strip():
+        return _error_response("A starting_script path is required.")
+
+    hash_val = client_hash.strip()
+
+    pid = None
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(hash_val)
+        if client_data is not None:
+            stored = client_data.get("pid")
+            if isinstance(stored, int) or (isinstance(stored, str) and stored.strip().isdigit()):
+                pid = int(stored)
+            REGISTERED_CLIENTS.pop(hash_val, None)
+
+    if pid is not None:
+        try:
+            _kill_pid(pid)
+        except subprocess.CalledProcessError:
+            logger.warning(f"Could not kill PID {pid} during broken restart (hash {hash_val[:16]}...)")
+
+    try:
+        path = script_path.strip()
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".py":
+            cmd = [sys.executable, path]
+        elif ext in (".bat", ".cmd"):
+            cmd = ["cmd", "/c", path]
+        elif ext == ".ps1":
+            cmd = ["powershell", "-File", path]
+        else:
+            cmd = [path]
+        subprocess.Popen(
+            cmd,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
+    except Exception as exc:
+        logger.error(f"Failed to start script '{script_path}': {exc}")
+        return _error_response(f"Failed to start script: {exc}", 500)
+
+    logger.info(f"Restarted broken service with script '{script_path}' (hash {hash_val[:16]}...)")
+
+    return _success_response({"status": "restarted", "hash": hash_val})
 
 
 if __name__ == "__main__":
