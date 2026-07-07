@@ -775,6 +775,7 @@ body.has-error::before {
 
 .service-card.service-card-unhealthy {
     background: #fef2f2;
+    border-color: #dc2626;
 }
 
 .card-top {
@@ -837,14 +838,6 @@ body.has-error::before {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     transition: font-size 0.3s ease-out;
-}
-
-.service-card.card-col-anchored.card-col-3 .card-meta-row {
-    justify-content: flex-start;
-}
-
-.service-card.expanded-active.card-col-anchored.card-col-3 .card-meta-row {
-    justify-content: flex-end;
 }
 
 .service-card.expanded-active .card-meta-label {

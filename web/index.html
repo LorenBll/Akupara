@@ -907,32 +907,20 @@
             if (toForget.length === 0) return;
             toForget.forEach(function(bc) { forgottenHashes[bc.hash] = true; });
             var content = document.getElementById('content');
+            var loader = document.createElement('div');
+            loader.className = 'content-loader';
+            loader.innerHTML = '<div class="spinner"></div>';
+            content.appendChild(loader);
             var expandedCard = content.querySelector('.service-card.expanded');
-            if (expandedCard) {
-                if (expandedCard.querySelector('.expand-overlay')) {
-                    collapseExpandedCard(expandedCard, content, true);
-                } else {
-                    collapseExpandedCard(expandedCard, content, false);
-                }
-            }
-            var removedHashes = {};
-            toForget.forEach(function(bc) { removedHashes[bc.hash] = true; });
+            if (expandedCard) collapseExpandedCard(expandedCard, content, true);
             var pendingTerm = toForget.length;
             var terminatedHashes = {};
             toForget.forEach(function(bc) { terminatedHashes[bc.hash] = true; });
             function tryFinish() {
                 if (pendingTerm > 0) return;
-                content.querySelectorAll('.service-card').forEach(function(c) {
-                    if (removedHashes[c.getAttribute('data-hash')]) {
-                        c.remove();
-                    }
-                });
                 brokenClients = [];
-                updateBrokenButtons();
-                updateVisibility(content.querySelectorAll('.service-card').length);
                 fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
-                    var filtered = d.clients.filter(function(c) { return !terminatedHashes[c.hash]; });
-                    if (filtered.length) reconcileCards(filtered);
+                    buildCards(d.clients.filter(function(c) { return !terminatedHashes[c.hash]; }), false);
                 }).catch(function() {});
             }
             toForget.forEach(function(bc) {
@@ -951,29 +939,18 @@
             if (toRestart.length === 0) return;
             toRestart.forEach(function(bc) { forgottenHashes[bc.hash] = true; });
             var content = document.getElementById('content');
+            var loader = document.createElement('div');
+            loader.className = 'content-loader';
+            loader.innerHTML = '<div class="spinner"></div>';
+            content.appendChild(loader);
             var expandedCard = content.querySelector('.service-card.expanded');
-            if (expandedCard) {
-                if (expandedCard.querySelector('.expand-overlay')) {
-                    collapseExpandedCard(expandedCard, content, true);
-                } else {
-                    collapseExpandedCard(expandedCard, content, false);
-                }
-            }
-            var removedHashes = {};
-            toRestart.forEach(function(bc) { removedHashes[bc.hash] = true; });
+            if (expandedCard) collapseExpandedCard(expandedCard, content, true);
             var terminatedHashes = {};
             toRestart.forEach(function(bc) { terminatedHashes[bc.hash] = true; });
             var pendingTerm = toRestart.length;
             function tryFinish() {
                 if (pendingTerm > 0) return;
-                content.querySelectorAll('.service-card').forEach(function(c) {
-                    if (removedHashes[c.getAttribute('data-hash')]) {
-                        c.remove();
-                    }
-                });
                 brokenClients = [];
-                updateBrokenButtons();
-                updateVisibility(content.querySelectorAll('.service-card').length);
                 toRestart.forEach(function(bc) {
                     if (bc.starting_script) {
                         fetch('/api/broken/restart', {
@@ -984,8 +961,7 @@
                     }
                 });
                 fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
-                    var filtered = d.clients.filter(function(c) { return !terminatedHashes[c.hash]; });
-                    if (filtered.length) reconcileCards(filtered);
+                    buildCards(d.clients.filter(function(c) { return !terminatedHashes[c.hash]; }), false);
                 }).catch(function() {});
             }
             toRestart.forEach(function(bc) {
@@ -1043,7 +1019,6 @@
             var btn = card.querySelector('.card-btn-blue');
             if (!immediate) {
                 document.body.classList.add('collapsing');
-                card.classList.add('card-col-anchored');
                 card.classList.remove('expanded-active', 'expanded-buttons');
                 var p = content.querySelector('.expand-placeholder');
                 setTimeout(function() {
@@ -1069,7 +1044,7 @@
                             card.style.left = '';
                             card.style.width = '';
                             card.style.height = '';
-                            card.classList.remove('expanded', 'expanding', 'card-col-1', 'card-col-2', 'card-col-3', 'card-col-anchored');
+                            card.classList.remove('expanded', 'expanding');
                             if (btn) btn.setAttribute('data-label', 'Expand Information');
                             if (searchInput) searchInput.disabled = false;
                             document.getElementById('sidebar').classList.remove('hidden');
@@ -1116,7 +1091,7 @@
                 var ec = card.querySelector('.card-expanded-content');
                 if (ec) ec.innerHTML = '';
                 document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
-                card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons', 'card-col-1', 'card-col-2', 'card-col-3', 'card-col-anchored');
+                card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons');
                 updateBrokenButtons();
                 card.style.top = '';
                 card.style.left = '';
@@ -1149,15 +1124,21 @@
             var clientHashMap = {};
             clients.forEach(function(c) { clientHashMap[c.hash] = c; });
             var stale = [];
-            content.querySelectorAll('.service-card').forEach(function(c) {
+            var existingCards = Array.from(content.querySelectorAll('.service-card'));
+            existingCards.forEach(function(c) {
                 var h = c.getAttribute('data-hash');
                 if (forgottenHashes[h] || (!clientHashMap[h] && !brokenHashes[h])) stale.push(c);
             });
             stale.forEach(function(c) { c.remove(); });
+            existingCards = Array.from(content.querySelectorAll('.service-card'));
             var existingHashes = {};
-            content.querySelectorAll('.service-card').forEach(function(c) {
-                existingHashes[c.getAttribute('data-hash')] = c;
-            });
+            existingCards.forEach(function(c) { existingHashes[c.getAttribute('data-hash')] = c; });
+
+            // Build sorted list of all clients to determine insertion positions
+            var sortedAll = clients.slice();
+            sortClients(sortedAll);
+
+            var hit = false;
             clients.forEach(function(c) {
                 if (!existingHashes[c.hash] && !brokenHashes[c.hash] && !forgottenHashes[c.hash]) {
                     var cardDiv = document.createElement('div');
@@ -1167,7 +1148,88 @@
                     card.setAttribute('data-port', c.port || '');
                     card.setAttribute('data-starting-script', c.starting_script || '');
                     card.setAttribute('data-pid', c.pid !== undefined && c.pid !== '' ? String(c.pid) : '');
-                    content.appendChild(card);
+                    card.setAttribute('data-new', '1');
+
+                    // FLIP: record old positions of existing cards
+                    var oldRects = {};
+                    existingCards.forEach(function(ec) {
+                        oldRects[ec.getAttribute('data-hash')] = ec.getBoundingClientRect();
+                    });
+
+                    // Find insertion index in sorted list
+                    var idx = -1;
+                    for (var si = 0; si < sortedAll.length; si++) {
+                        if (sortedAll[si].hash === c.hash) { idx = si; break; }
+                    }
+                    // Find which existing card this new card should go before
+                    var insertBefore = null;
+                    for (var si = idx + 1; si < sortedAll.length; si++) {
+                        var afterHash = sortedAll[si].hash;
+                        if (existingHashes[afterHash]) {
+                            insertBefore = existingHashes[afterHash];
+                            break;
+                        }
+                    }
+                    if (insertBefore) {
+                        content.insertBefore(card, insertBefore);
+                    } else {
+                        content.appendChild(card);
+                    }
+
+                    // Record new positions of existing cards
+                    existingCards.forEach(function(ec) {
+                        var hash = ec.getAttribute('data-hash');
+                        if (oldRects[hash]) {
+                            var newRect = ec.getBoundingClientRect();
+                            var dx = oldRects[hash].left - newRect.left;
+                            var dy = oldRects[hash].top - newRect.top;
+                            if (dx !== 0 || dy !== 0) {
+                                ec.style.transition = 'none';
+                                ec.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+                            }
+                        }
+                    });
+
+                    // Prepare new card for fade-in
+                    card.style.opacity = '0';
+                    var animEnd = function() {
+                        card.classList.remove('anim-in');
+                        card.removeAttribute('data-new');
+                        card.style.opacity = '';
+                        card.removeEventListener('animationend', animEnd);
+                    };
+                    card.addEventListener('animationend', animEnd, { once: true });
+
+                    // Force reflow
+                    void content.offsetWidth;
+
+                    // Play FLIP: remove transforms with transition
+                    existingCards.forEach(function(ec) {
+                        if (ec.style.transform && ec.style.transform !== 'none' && ec.style.transform !== 'translate(0px, 0px)') {
+                            ec.style.transition = 'transform 0.35s ease-out';
+                            ec.style.transform = '';
+                        }
+                    });
+
+                    // Play FI: fade in new card
+                    card.style.opacity = '';
+                    card.classList.add('anim-in');
+
+                    // Update references for next new card
+                    existingCards = Array.from(content.querySelectorAll('.service-card'));
+                    existingCards = existingCards.filter(function(ec) { return ec.getAttribute('data-new') !== '1' || ec === card; });
+                    existingHashes[card.getAttribute('data-hash')] = card;
+
+                    // Cleanup transitions
+                    var cleanup = function() {
+                        existingCards.forEach(function(ec) {
+                            ec.style.transition = '';
+                            ec.style.transform = '';
+                        });
+                    };
+                    setTimeout(cleanup, 400);
+
+                    hit = true;
                 }
             });
             updateVisibility(content.querySelectorAll('.service-card').length);
@@ -1208,36 +1270,26 @@
             refreshPageVisibility(currentClients.length + brokenClients.length, document.querySelectorAll('.service-card:not([style*="display: none"])').length, false);
         }
 
-        function removeCardWithFLIP(card, content) {
-            card.remove();
-            updateVisibility(content.querySelectorAll('.service-card').length);
-        }
-
         document.getElementById('content').addEventListener('click', function(e) {
             function afterTerminate(terminatedHash) {
                 return function() {
                     fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
-                        var filtered = d.clients.filter(function(c) { return c.hash !== terminatedHash; });
-                        if (filtered.length === 0) {
-                            buildCards(filtered, false);
-                        } else {
-                            reconcileCards(filtered);
-                        }
+                        buildCards(d.clients.filter(function(c) { return c.hash !== terminatedHash; }), false);
                     }).catch(function() {});
                 };
-            }
-            function afterRestart() {
-                fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) { reconcileCards(d.clients); }).catch(function() {});
             }
             function handleActionBtn(card, data, apiPath, onDone) {
                 var content = document.getElementById('content');
                 if (card.classList.contains('expanded')) {
                     collapseExpandedCard(card, content, false, function() {
-                        removeCardWithFLIP(card, content);
+                        card.remove();
+                        var loader = document.createElement('div');
+                        loader.className = 'content-loader';
+                        loader.innerHTML = '<div class="spinner"></div>';
+                        content.appendChild(loader);
                         apiCall(apiPath, data, onDone);
                     });
                 } else {
-                    removeCardWithFLIP(card, content);
                     apiCall(apiPath, data, onDone);
                 }
             }
@@ -1289,7 +1341,6 @@
                 }
                 var prev = content.querySelector('.service-card.expanded');
                 if (prev) collapseExpandedCard(prev, content, true);
-                card.classList.remove('card-col-1', 'card-col-2', 'card-col-3', 'card-col-anchored');
                 card.classList.add('expanding');
                 document.body.classList.add('expanding');
                 document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', 'Check Service Health');
@@ -1304,7 +1355,6 @@
                     var cardIndex = Array.prototype.indexOf.call(allCards, card);
                     var col = (cardIndex % 3) + 1;
                     var row = Math.floor(cardIndex / 3) + 1;
-                    card.classList.add('card-col-' + col, 'card-col-anchored');
                     var section = parentNode.classList.contains('group-section') ? parentNode : null;
                     if (section) row += 1;
                     if (section) {
