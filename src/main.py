@@ -424,6 +424,7 @@ def health():
             "service": "PortHandler",
             "bind_address": SERVICE_HOST,
             "port": SERVICE_PORT,
+            "pid": os.getpid(),
             "hostname": socket.gethostname(),
             "registered_clients": client_count,
         }

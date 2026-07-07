@@ -403,6 +403,7 @@
                     item('bind address', h.bind_address) +
                     item('hostname', h.hostname) +
                     item('port', h.port) +
+                    item('pid', h.pid) +
                     (h.status === 'ok' ? item('status', h.status.toUpperCase(), 'status-ok') : item('status', h.status.toUpperCase(), 'status-error')) +
                     item('registered clients', h.registered_clients);
             }).catch(function() {});
@@ -1425,6 +1426,7 @@
                     item('bind address', d.bind_address) +
                     item('hostname', d.hostname) +
                     item('port', d.port) +
+                    item('pid', d.pid) +
                     (d.status === 'ok' ? item('status', d.status.toUpperCase(), 'status-ok') : item('status', d.status.toUpperCase(), 'status-error')) +
                     item('registered clients', d.registered_clients);
                 var content = document.getElementById('content');
@@ -1446,6 +1448,7 @@
                     item('bind address', 'error') +
                     item('hostname', 'error') +
                     item('port', 'error') +
+                    item('pid', 'error') +
                     item('status', 'ERROR', 'status-error') +
                     item('registered clients', 'error');
                 var content = document.getElementById('content');
