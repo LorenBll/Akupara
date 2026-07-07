@@ -1,7 +1,5 @@
 # PortHandler
 
-![Dashboard screenshot](docs/images/screenshot.png)
-
 PortHandler is a local web service registry with a web UI. It solves the problem of registering named services on the local machine so clients can look up each other by name, port, and metadata through a small HTTP API.
 
 ## About
@@ -163,6 +161,10 @@ Checks the health of a specific client by hash.
 
 ### `GET /` (root)
 Serves the web UI dashboard (`web/index.html`).
+
+---
+
+![Dashboard screenshot](docs/images/screenshot.png)
 
 ## License
 - [LICENSE](LICENSE)
