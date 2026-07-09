@@ -13,9 +13,9 @@ The web UI (`web/index.html`) displays a dashboard with a status pill, a searcha
 - **Filter panel** — expandable filter menu with text inputs per column and a status dropdown (Any / Operational / Broken). Tab navigates in column-major order (top-to-bottom, then next column). Shift+Tab from the search input returns focus to the last filter.
 - **Sort & Group-by** — drag-to-reorder sort columns; group by a selected key; sort order persisted across restarts. The group-by zone is always visible regardless of card count.
 - **Status grouping** — services are automatically tagged as Operational or Broken; can be sorted/grouped by status.
-- **Card expansion/collapse** — click a card to expand with a cascading animation: sibling fade-out, horizontal stretch, vertical stretch, then internal element transitions. Collapse reverses the chain.
+- **Card expansion/collapse** — click a card to expand it with full metadata; collapse returns the card to its grid position.
 - **Health check** — global button re-checks all services (shows a spinner, then reloads the grid with the active search/filter applied). Per-card health endpoint refreshes expanded content in-place.
-- **Broken service management** — broken services shown with red styling immediately. "Forget All Broken Services" and "Restart All Broken Services" buttons for bulk actions. These buttons fade out during card expansion and reappear on collapse.
+- **Broken service management** — broken services shown with red styling immediately. "Forget All Broken Services" and "Restart All Broken Services" buttons for bulk actions.
 - **Keyboard shortcuts** — search auto-focused on load. Escape closes expanded card, sort menu, or filter menu. Tab navigates filter inputs in column-major order.
 - **Accuracy slider** — adjustable fuzzy matching threshold (0-100%, default 30%). Persisted across restarts alongside sort settings.
 
