@@ -8,6 +8,7 @@
     "pid",
     "status"
   ],
+  "accuracy": 30,
   "original_sort_order": [
     "port",
     "name",

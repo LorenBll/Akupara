@@ -250,14 +250,22 @@ def set_connection_header(response):
     return response
 
 
-@app.route("/")
+@app.route("/", methods=["GET", "HEAD", "OPTIONS"])
 def index():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
     web_dir = Path(__file__).parent.parent / "web"
     return send_from_directory(web_dir, "index.html")
 
 
-@app.route("/css/<path:filename>")
+@app.route("/css/<path:filename>", methods=["GET", "HEAD", "OPTIONS"])
 def css_files(filename):
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
     css_dir = Path(__file__).parent.parent / "web" / "css"
     return send_from_directory(css_dir, filename)
 
@@ -431,8 +439,12 @@ def health():
     )
 
 
-@app.route("/api/health/check/<hash>", methods=["POST"])
+@app.route("/api/health/check/<hash>", methods=["POST", "HEAD", "OPTIONS"])
 def health_check_single(hash):
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
     with REGISTERED_CLIENTS_LOCK:
         client = REGISTERED_CLIENTS.get(hash)
     if not client:
@@ -445,8 +457,12 @@ def health_check_single(hash):
     return _success_response({"hash": hash, "healthy": healthy})
 
 
-@app.route("/api/health/check", methods=["POST"])
+@app.route("/api/health/check", methods=["POST", "HEAD", "OPTIONS"])
 def health_check_trigger():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
     unhealthy = _run_health_check()
     return _success_response({"checked": True, "unhealthy": unhealthy})
 
@@ -482,18 +498,16 @@ def sort_order():
         order = config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status"])
         group_by = config.get("group_by")
         original_sort_order = config.get("original_sort_order")
+        accuracy = config.get("accuracy", 30)
         resp = {"sort_order": order}
         if group_by is not None:
             resp["group_by"] = group_by
         if original_sort_order is not None:
             resp["original_sort_order"] = original_sort_order
+        resp["accuracy"] = accuracy
         return _success_response(resp)
 
     payload = request.get_json(silent=True) or {}
-    new_order = payload.get("sort_order") if isinstance(payload, dict) else None
-
-    if not isinstance(new_order, list) or not new_order:
-        return _error_response("sort_order must be a non-empty list.")
 
     try:
         with open(config_path, "r", encoding="utf-8-sig") as f:
@@ -501,10 +515,15 @@ def sort_order():
     except Exception:
         return _error_response("Failed to read configuration.", 500)
 
-    config["sort_order"] = new_order
-
+    new_order = payload.get("sort_order") if isinstance(payload, dict) else None
     group_by = payload.get("group_by") if isinstance(payload, dict) else None
     original_sort_order = payload.get("original_sort_order") if isinstance(payload, dict) else None
+    has_accuracy = "accuracy" in payload
+
+    if new_order is not None:
+        if not isinstance(new_order, list) or not new_order:
+            return _error_response("sort_order must be a non-empty list.")
+        config["sort_order"] = new_order
 
     if group_by is not None:
         config["group_by"] = group_by
@@ -516,17 +535,27 @@ def sort_order():
     else:
         config.pop("original_sort_order", None)
 
+    if has_accuracy:
+        acc_val = payload["accuracy"]
+        if acc_val is not None:
+            config["accuracy"] = acc_val
+        else:
+            config.pop("accuracy", None)
+
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
     except Exception:
         return _error_response("Failed to write configuration.", 500)
 
-    resp = {"sort_order": new_order}
-    if group_by is not None:
-        resp["group_by"] = group_by
-    if original_sort_order is not None:
-        resp["original_sort_order"] = original_sort_order
+    resp = {"sort_order": config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status"])}
+    current_group_by = config.get("group_by")
+    if current_group_by is not None:
+        resp["group_by"] = current_group_by
+    current_original = config.get("original_sort_order")
+    if current_original is not None:
+        resp["original_sort_order"] = current_original
+    resp["accuracy"] = config.get("accuracy", 30)
     return _success_response(resp)
 
 
