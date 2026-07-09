@@ -16,7 +16,6 @@ The web UI (`web/index.html`) displays a dashboard with a status pill, a searcha
 - **Card expansion/collapse** — click a card to expand with a cascading animation: sibling fade-out, horizontal stretch, vertical stretch, then internal element transitions. Collapse reverses the chain.
 - **Health check** — global button re-checks all services (shows a spinner, then reloads the grid with the active search/filter applied). Per-card health endpoint refreshes expanded content in-place.
 - **Broken service management** — broken services shown with red styling immediately. "Forget All Broken Services" and "Restart All Broken Services" buttons for bulk actions. These buttons fade out during card expansion and reappear on collapse.
-- **Animations** — staggered first-load animation (title, pill, controls, cards). All expand/collapse and filter menu transitions are fast. Tooltips are suppressed while any element or ancestor is animating.
 - **Keyboard shortcuts** — search auto-focused on load. Escape closes expanded card, sort menu, or filter menu. Tab navigates filter inputs in column-major order.
 - **Accuracy slider** — adjustable fuzzy matching threshold (0-100%, default 30%). Persisted across restarts alongside sort settings.
 
