@@ -297,7 +297,7 @@ def index():
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-    web_dir = Path(__file__).parent.parent / "web"
+    web_dir = Path(__file__).parent.parent / "ui" / "pages"
     return send_from_directory(web_dir, "index.html")
 
 
@@ -307,7 +307,7 @@ def css_files(filename):
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-    css_dir = Path(__file__).parent.parent / "web" / "css"
+    css_dir = Path(__file__).parent.parent / "ui" / "css"
     return send_from_directory(css_dir, filename)
 
 
