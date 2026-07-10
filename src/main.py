@@ -354,11 +354,35 @@ def register():
         return _error_response("A hostname is required.")
 
     client_ip = request.remote_addr or "127.0.0.1"
+    name_to_check = name.strip()
+    hostname_to_check = hostname_val.strip()
+
+    with REGISTERED_CLIENTS_LOCK:
+        for existing in REGISTERED_CLIENTS.values():
+            existing_name = existing.get("name")
+            existing_ip = existing.get("ip")
+            existing_port = existing.get("port")
+            existing_hostname = existing.get("hostname")
+
+            if (
+                existing_name == name_to_check
+                and existing_ip == client_ip
+                and existing_port == port
+            ):
+                return _error_response(
+                    f"A service with name '{name_to_check}', IP '{client_ip}' "
+                    f"and port '{port}' is already registered.", 409
+                )
+
+            if existing_ip == client_ip and existing_hostname != hostname_to_check:
+                return _error_response(
+                    f"IP '{client_ip}' is already associated with hostname "
+                    f"'{existing_hostname}', cannot register with hostname "
+                    f"'{hostname_to_check}'.", 409
+                )
 
     if not _ping_health(client_ip, port):
         return _error_response("Client health endpoint is not reachable.", 400)
-
-    name_to_check = name.strip()
 
     with REGISTERED_CLIENTS_LOCK:
         existing_client = None
