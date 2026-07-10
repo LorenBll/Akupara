@@ -10,12 +10,17 @@
     <div class="page">
         <div class="hero">
             <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/PortHandler" target="_blank" class="title-link">PortHandler</a></h1>
-            <div class="pill init-hidden" id="pill">
-                <div class="pill-item"><span class="pill-label">bind address</span><span class="pill-value">--</span></div>
-                <div class="pill-item"><span class="pill-label">hostname</span><span class="pill-value">--</span></div>
-                <div class="pill-item"><span class="pill-label">port</span><span class="pill-value">--</span></div>
-                <div class="pill-item"><span class="pill-label">status</span><span class="pill-value">--</span></div>
-                <div class="pill-item"><span class="pill-label">registered clients</span><span class="pill-value">--</span></div>
+            <div class="pill-row">
+                <div class="pill init-hidden" id="pill">
+                    <div class="pill-item"><span class="pill-label">bind address</span><span class="pill-value">--</span></div>
+                    <div class="pill-item"><span class="pill-label">hostname</span><span class="pill-value">--</span></div>
+                    <div class="pill-item"><span class="pill-label">port</span><span class="pill-value">--</span></div>
+                    <div class="pill-item"><span class="pill-label">status</span><span class="pill-value">--</span></div>
+                    <div class="pill-item"><span class="pill-label">registered clients</span><span class="pill-value">--</span></div>
+                </div>
+                <button class="health-decoration shutdown-btn init-hidden" data-label="Shut Down PortHandler">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+                </button>
             </div>
         </div>
         <div class="content" id="content"></div>
@@ -1106,6 +1111,10 @@
             }
         });
 
+        document.querySelector('.shutdown-btn').addEventListener('click', function() {
+            fetch('/api/shutdown', { method: 'POST' }).catch(function() {});
+        });
+
         document.querySelector('.broken-forget-btn').addEventListener('click', function() {
             var toForget = brokenClients.slice();
             if (toForget.length === 0) return;
@@ -1421,6 +1430,7 @@
 
             items.push({ el: document.querySelector('.title'), delay: 0 });
             items.push({ el: document.getElementById('pill'), delay: 0.15 });
+            items.push({ el: document.querySelector('.shutdown-btn'), delay: 0.15 });
             items.push({ el: document.querySelector('.sort-decoration'), delay: 0.3 });
             items.push({ el: document.querySelector('#healthButton > .health-decoration:first-child'), delay: 0.3 });
             items.push({ el: document.querySelector('.broken-forget-btn'), delay: 0.45 });
@@ -1960,7 +1970,11 @@
                     item('registered clients', d.registered_clients);
                 var content = document.getElementById('content');
                 var pw = document.querySelector('.pill').offsetWidth;
-                content.style.width = pw + 'px';
+                var shutBtn = document.querySelector('.shutdown-btn');
+                var btnW = shutBtn ? shutBtn.offsetWidth : 42;
+                var rowW = pw + 10 + btnW;
+                content.style.width = rowW + 'px';
+                document.querySelector('.pill-row').style.width = rowW + 'px';
                 document.getElementById('searchBar').style.width = ((pw - 10) / 2) + 'px';
                 document.getElementById('sidebar').style.top = content.offsetTop + 'px';
                 document.getElementById('healthButton').style.top = content.offsetTop + 'px';
@@ -1988,7 +2002,11 @@
                     item('registered clients', 'error');
                 var content = document.getElementById('content');
                 var pw = document.querySelector('.pill').offsetWidth;
-                content.style.width = pw + 'px';
+                var shutBtn = document.querySelector('.shutdown-btn');
+                var btnW = shutBtn ? shutBtn.offsetWidth : 42;
+                var rowW = pw + 10 + btnW;
+                content.style.width = rowW + 'px';
+                document.querySelector('.pill-row').style.width = rowW + 'px';
                 document.getElementById('searchBar').style.width = ((pw - 10) / 2) + 'px';
                 document.getElementById('sidebar').style.top = content.offsetTop + 'px';
                 document.getElementById('healthButton').style.top = content.offsetTop + 'px';

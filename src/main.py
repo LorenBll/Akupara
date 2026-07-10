@@ -1273,6 +1273,26 @@ def api_key_reject():
     )
 
 
+@app.route("/api/shutdown", methods=["POST", "HEAD", "OPTIONS"])
+def shutdown():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    environ = request.environ
+
+    def _shutdown():
+        time.sleep(0.5)
+        func = environ.get("werkzeug.server.shutdown")
+        if func:
+            func()
+        else:
+            os._exit(0)
+
+    threading.Thread(target=_shutdown, daemon=True).start()
+    return _success_response({"status": "shutdown"})
+
 if __name__ == "__main__":
     try:
         logging.basicConfig(

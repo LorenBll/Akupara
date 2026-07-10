@@ -236,6 +236,14 @@ body.has-error::before {
     text-transform: capitalize;
 }
 
+.shutdown-btn {
+    color: #dc2626;
+}
+
+.shutdown-btn:hover {
+    color: #dc2626;
+}
+
 .sort-items-casing {
     position: relative;
     border-radius: 12px;
@@ -1024,11 +1032,18 @@ body.has-error::before {
     text-decoration: none;
 }
 
+.pill-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 .pill {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 48px;
-    padding: 14px 64px;
+    padding: 14px 30px;
     border: 1px solid #d1d5db;
     border-radius: 999px;
     background: #f9fafb;
@@ -1039,8 +1054,8 @@ body.has-error::before {
 .pill-item {
     display: flex;
     flex-direction: row;
-    align-items: baseline;
-    gap: 8px;
+    align-items: center;
+    gap: 4px;
     cursor: default;
 }
 
