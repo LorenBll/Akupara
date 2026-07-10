@@ -97,6 +97,7 @@
         var currentClients = [];
         var brokenClients = [];
         var forgottenHashes = {};
+        var apiAskerHashes = {};
         var sidebar = document.getElementById('sidebar');
         var groupByKey = null;
         var originalSortOrder = null;
@@ -176,13 +177,14 @@
                 pid: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>',
                 bind_address: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8c0 4.5-6 11-6 11s-6-6.5-6-11a6 6 0 0 1 12 0"/><circle cx="12" cy="8" r="2.5"/><path d="M8 18c-2 0-4 1-4 3h16c0-2-2-3-4-3"/></svg>',
                 hostname: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
-                status: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>'
+                status: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>',
+                api_asker: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>'
             };
             return icons[key] || '';
         }
 
         function getFilterLabel(key) {
-            var m = { name: 'Service Name', port: 'Port', pid: 'PID', bind_address: 'Bind IP Address', hostname: 'Hostname', status: 'Service Status' };
+            var m = { name: 'Service Name', port: 'Port', pid: 'PID', bind_address: 'Bind IP Address', hostname: 'Hostname', status: 'Service Status', api_asker: 'API Asker' };
             return m[key] || key;
         }
 
@@ -217,7 +219,7 @@
                     var label = getFilterLabel(k);
                     var icon = getFilterSvg(k);
                     if (k === 'status') {
-                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="status"><option value="any">Any</option><option value="operational">Operational</option><option value="broken">Broken</option></select></span>';
+                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="status"><option value="any">Any</option><option value="operational">Operational</option><option value="api_asker">API Asker</option><option value="broken">Broken</option></select></span>';
                     }
                     return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><input type="text" class="filter-input" data-key="' + k + '" placeholder="' + randomExample(k) + '"></span>';
                 }
@@ -306,8 +308,14 @@
                 var cv = '';
                 if (key === 'name') {
                     cv = card.querySelector('.card-name').textContent;
-                } else if (key === 'status') {
-                    cv = card.classList.contains('service-card-unhealthy') ? 'broken' : 'operational';
+                } else                 if (key === 'status') {
+                    if (card.classList.contains('service-card-unhealthy')) {
+                        cv = 'broken';
+                    } else if (card.classList.contains('service-card-api-asker')) {
+                        cv = 'api_asker';
+                    } else {
+                        cv = 'operational';
+                    }
                 } else if (key === 'bind_address') {
                     cv = metaItems[0] ? metaItems[0].textContent : '';
                 } else if (key === 'hostname') {
@@ -404,7 +412,7 @@
         }
 
         function loadSortOrder() {
-            fetch('/api/sort-settings')
+            fetch('/ui/sort-settings')
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     if (d.sort_order && d.sort_order.length) {
@@ -533,7 +541,7 @@
                 body.group_by = null;
                 body.original_sort_order = sortOrder.slice();
             }
-            fetch('/api/sort-settings', {
+            fetch('/ui/sort-settings', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
@@ -632,8 +640,15 @@
             updateCardButtonLabels(card);
         }
 
-        function cardHTML(name, port, pid, healthy, bind_address, hostname) {
+        function cardHTML(name, port, pid, healthy, bind_address, hostname, startingScript, isApiAsker) {
             var bg = healthy ? '' : ' service-card-unhealthy';
+            if (isApiAsker) bg += ' service-card-api-asker';
+            var apiKeyButtons = isApiAsker
+                ? '<div class="card-api-key-buttons">' +
+                  '<button class="card-btn card-btn-green card-btn-grant">Grant API Key Registration</button>' +
+                  '<button class="card-btn card-btn-gray card-btn-reject">Reject API Key Registration</button>' +
+                  '</div>'
+                : '';
             return '<div class="service-card' + bg + '">' +
                 '<div class="card-top">' +
                 '<div class="card-name">' + name + '</div>' +
@@ -652,6 +667,7 @@
                 '</div>' +
                 '<div class="card-expanded-content"><div class="expand-loader"><div class="spinner"></div></div></div>' +
                 '<div class="card-buttons">' +
+                apiKeyButtons +
                 (healthy
                     ? '<button class="card-btn card-btn-red" data-label="Terminate Service">' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>' +
@@ -660,10 +676,12 @@
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>' +
                       '</button>') +
                 (healthy
-                    ? '<button class="card-btn card-btn-yellow" data-label="Restart Service">' +
+                    ? '<button class="card-btn card-btn-yellow" data-label="Restart Service"' +
+                      (startingScript ? '' : ' disabled') + '>' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
                       '</button>'
-                    : '<button class="card-btn card-btn-yellow" data-label="Restart Broken Service">' +
+                    : '<button class="card-btn card-btn-yellow" data-label="Restart Broken Service"' +
+                      (startingScript ? '' : ' disabled') + '>' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
                       '</button>') +
                 '</div>' +
@@ -676,10 +694,15 @@
                 for (var k = 0; k < keys.length; k++) {
                     var key = keys[k];
                     if (key === 'status') {
-                        var bA = brokenClients.some(function(bc) { return bc.hash === a.hash; });
-                        var bB = brokenClients.some(function(bc) { return bc.hash === b.hash; });
-                        if (bA && !bB) return 1;
-                        if (!bA && bB) return -1;
+                        function statusRank(client) {
+                            if (brokenClients.some(function(bc) { return bc.hash === client.hash; })) return 2;
+                            if (apiAskerHashes[client.hash]) return 1;
+                            return 0;
+                        }
+                        var rA = statusRank(a);
+                        var rB = statusRank(b);
+                        if (rA < rB) return -1;
+                        if (rA > rB) return 1;
                         continue;
                     }
                     var va = a[key];
@@ -740,10 +763,12 @@
                 return;
             }
 
-            function createCardElement(c, idx, broken) {
+            function createCardElement(c, idx, broken, firstLoad) {
                 var cardDiv = document.createElement('div');
-                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', !broken, c.bind_address, c.hostname);
+                var isAsker = !broken && (apiAskerHashes[c.hash] || false);
+                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', !broken, c.bind_address, c.hostname, c.starting_script, isAsker);
                 var card = cardDiv.firstElementChild;
+                if (firstLoad) card.classList.add('init-hidden');
                 card.setAttribute('data-hash', c.hash || '');
                 card.setAttribute('data-port', c.port || '');
                 card.setAttribute('data-starting-script', c.starting_script || '');
@@ -800,7 +825,13 @@
                 allClients.forEach(function(c) {
                     var val;
                     if (groupByKey === 'status') {
-                        val = brokenClients.some(function(bc) { return bc.hash === c.hash; }) ? 'Broken' : 'Operational';
+                        if (brokenClients.some(function(bc) { return bc.hash === c.hash; })) {
+                            val = 'Broken';
+                        } else if (apiAskerHashes[c.hash]) {
+                            val = 'API Asker';
+                        } else {
+                            val = 'Operational';
+                        }
                     } else {
                         val = c[groupByKey];
                     }
@@ -828,21 +859,21 @@
                     var gIdx = 0;
                     groups[gk].forEach(function(c) {
                         var isBroken = brokenClients.some(function(bc) { return bc.hash === c.hash; });
-                        section.appendChild(createCardElement(c, gIdx++, isBroken));
+                        section.appendChild(createCardElement(c, gIdx++, isBroken, animate));
                     });
                     content.appendChild(section);
                 });
             } else {
                 allClients.forEach(function(c) {
                     var isBroken = brokenClients.some(function(bc) { return bc.hash === c.hash; });
-                    content.appendChild(createCardElement(c, cardIndex++, isBroken));
+                    content.appendChild(createCardElement(c, cardIndex++, isBroken, animate));
                 });
             }
             if (hadExpanded) {
                 var stillExists = clients.some(function(c) { return (c.hash || '') === hadExpanded.hash; }) || brokenClients.some(function(c) { return (c.hash || '') === hadExpanded.hash; });
                 if (!stillExists) {
                     var ghostDiv = document.createElement('div');
-                    ghostDiv.innerHTML = cardHTML(hadExpanded.name, '--', '--', false, '', '');
+                    ghostDiv.innerHTML = cardHTML(hadExpanded.name, '--', '--', false, '', '', '', false);
                     var ghostCard = ghostDiv.firstElementChild;
                     ghostCard.style.position = 'absolute';
                     ghostCard.style.top = '0';
@@ -957,6 +988,10 @@
         }
 
         document.querySelector('.sort-decoration').addEventListener('click', function() {
+            if (this.classList.contains('animating')) return;
+            this.classList.add('animating');
+            var self = this;
+            setTimeout(function() { self.classList.remove('animating'); }, 350);
             setSortMenuOpen(!this.classList.contains('is-x'));
         });
 
@@ -989,7 +1024,7 @@
                 var hash = expandedCard.getAttribute('data-hash');
                 var cardPort = expandedCard.getAttribute('data-port');
                 if (hash) {
-                    fetch('/api/health/check/' + hash, { method: 'POST' })
+                    fetch('/api/health/check', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({hash: hash}) })
                         .then(function(r) { return r.json(); })
                         .then(function(d) {
                             if (d.healthy) {
@@ -1004,7 +1039,6 @@
                                     hash: hash,
                                     name: expandedCard.querySelector('.card-name').textContent,
                                     port: cardPort,
-                                    pid: expandedCard.getAttribute('data-pid'),
                                     starting_script: expandedCard.getAttribute('data-starting-script'),
                                     bind_address: metaVals[0] ? metaVals[0].textContent : '',
                                     hostname: metaVals[1] ? metaVals[1].textContent : ''
@@ -1052,15 +1086,17 @@
                         return fetch('/api/clients').then(function(r) { return r.json(); });
                     })
                     .then(function(d) {
-                        var recovered = [];
-                        brokenClients.forEach(function(bc) {
-                            var found = d.clients.some(function(rc) { return rc.hash === bc.hash; });
-                            if (found) recovered.push(bc.hash);
+                        return enrichClientsWithHashes(d.clients).then(function(clients) {
+                            var recovered = [];
+                            brokenClients.forEach(function(bc) {
+                                var found = clients.some(function(rc) { return rc.hash === bc.hash; });
+                                if (found) recovered.push(bc.hash);
+                            });
+                            recovered.forEach(function(h) { removeBrokenClient(h); });
+                            buildCards(clients, false);
+                            refreshPills();
+                            filterCards();
                         });
-                        recovered.forEach(function(h) { removeBrokenClient(h); });
-                        buildCards(d.clients, false);
-                        refreshPills();
-                        filterCards();
                     })
                     .catch(function() {
                         var l = content.querySelector('.content-loader');
@@ -1088,7 +1124,9 @@
                 if (pendingTerm > 0) return;
                 brokenClients = [];
                 fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
-                    buildCards(d.clients.filter(function(c) { return !terminatedHashes[c.hash]; }), false);
+                    enrichClientsWithHashes(d.clients).then(function(clients) {
+                        buildCards(clients.filter(function(c) { return !terminatedHashes[c.hash]; }), false);
+                    });
                 }).catch(function() {});
             }
             toForget.forEach(function(bc) {
@@ -1103,6 +1141,7 @@
         });
 
         document.querySelector('.broken-restart-btn').addEventListener('click', function() {
+            if (this.disabled) return;
             var toRestart = brokenClients.slice();
             if (toRestart.length === 0) return;
             toRestart.forEach(function(bc) { forgottenHashes[bc.hash] = true; });
@@ -1120,16 +1159,16 @@
                 if (pendingTerm > 0) return;
                 brokenClients = [];
                 toRestart.forEach(function(bc) {
-                    if (bc.starting_script) {
-                        fetch('/api/broken/restart', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({hash: bc.hash, starting_script: bc.starting_script})
-                        }).catch(function() {});
-                    }
+                    fetch('/api/broken/restart', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({hash: bc.hash})
+                    }).catch(function() {});
                 });
                 fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
-                    buildCards(d.clients.filter(function(c) { return !terminatedHashes[c.hash]; }), false);
+                    enrichClientsWithHashes(d.clients).then(function(clients) {
+                        buildCards(clients.filter(function(c) { return !terminatedHashes[c.hash]; }), false);
+                    });
                 }).catch(function() {});
             }
             toRestart.forEach(function(bc) {
@@ -1241,17 +1280,24 @@
             }
         }
 
-        function apiCall(url, data, onSuccess) {
+        function apiCall(url, data, onSuccess, onError) {
             var xhr = new XMLHttpRequest();
             xhr.open('POST', url, true);
             xhr.setRequestHeader('Content-Type', 'application/json');
             xhr.onload = function() {
-                if (xhr.status === 200 && onSuccess) onSuccess();
+                if (xhr.status === 200) {
+                    if (onSuccess) onSuccess();
+                } else {
+                    if (onError) onError(xhr.status, xhr.responseText);
+                }
             };
+            xhr.onerror = function() { if (onError) onError(0, 'Network error'); };
+            xhr.ontimeout = function() { if (onError) onError(0, 'Timeout'); };
             xhr.send(JSON.stringify(data));
         }
 
         function reconcileCards(clients) {
+            currentClients = clients;
             if (groupByKey) {
                 buildCards(clients, false);
                 return;
@@ -1280,7 +1326,8 @@
             clients.forEach(function(c) {
                 if (!existingHashes[c.hash] && !brokenHashes[c.hash] && !forgottenHashes[c.hash]) {
                     var cardDiv = document.createElement('div');
-                    cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', true, c.bind_address, c.hostname);
+                    var isAsker = apiAskerHashes[c.hash] || false;
+                    cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', true, c.bind_address, c.hostname, c.starting_script, isAsker);
                     var card = cardDiv.firstElementChild;
                     card.setAttribute('data-hash', c.hash || '');
                     card.setAttribute('data-port', c.port || '');
@@ -1338,6 +1385,15 @@
                 if (brokenClients[i].hash === hash) return;
             }
             brokenClients.push(c);
+            if (apiAskerHashes[hash]) {
+                delete apiAskerHashes[hash];
+                var card = document.querySelector('.service-card[data-hash="' + hash + '"]');
+                if (card) {
+                    card.classList.remove('service-card-api-asker');
+                    var akb = card.querySelector('.card-api-key-buttons');
+                    if (akb) akb.remove();
+                }
+            }
             updateBrokenButtons();
         }
 
@@ -1353,6 +1409,11 @@
 
         function updateBrokenButtons() {
             refreshPageVisibility(currentClients.length + brokenClients.length, document.querySelectorAll('.service-card:not([style*="display: none"])').length, false);
+            var restartBtn = document.querySelector('.broken-restart-btn');
+            if (restartBtn) {
+                var canRestartAny = brokenClients.some(function(bc) { return bc.starting_script; });
+                restartBtn.disabled = !canRestartAny;
+            }
         }
 
         function triggerLoadInAnimation() {
@@ -1387,14 +1448,6 @@
                 });
             }
 
-            items.forEach(function(item) {
-                if (!item.el) return;
-                if (item.el.classList.contains('hidden')) return;
-                if (item.el.style.display === 'none') return;
-                if (!item.el.offsetParent) return;
-                item.el.classList.add('init-hidden');
-            });
-
             requestAnimationFrame(function() {
                 items.forEach(function(item) {
                     if (!item.el) return;
@@ -1412,16 +1465,136 @@
             });
         }
 
+        function apiKeyAction(btn, hash, action) {
+            var origHTML = btn.innerHTML;
+            btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;margin:0 auto"></div>';
+            btn.disabled = true;
+            var url = action === 'grant' ? '/api/api-key/grant' : '/api/api-key/reject';
+            var card = document.querySelector('.service-card[data-hash="' + hash + '"]');
+            var akb = card ? card.querySelector('.card-api-key-buttons') : null;
+            var finished = false;
+            function restore() {
+                if (finished) return;
+                finished = true;
+                btn.innerHTML = origHTML;
+                btn.disabled = false;
+            }
+            function finish() {
+                if (finished) return;
+                finished = true;
+                if (akb) akb.remove();
+                if (card) card.classList.remove('service-card-api-asker');
+                delete apiAskerHashes[hash];
+                if (card) {
+                    var empty = card.querySelector('.expand-empty');
+                    if (empty) empty.classList.add('expand-empty-drop');
+                }
+            }
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    if (akb) {
+                        akb.classList.add('api-key-fade-out');
+                        akb.addEventListener('animationend', finish, { once: true });
+                        setTimeout(finish, 600);
+                    } else {
+                        finish();
+                    }
+                } else {
+                    restore();
+                    var err = document.getElementById('content');
+                    if (err) {
+                        var el = document.createElement('div');
+                        el.className = 'empty-state';
+                        el.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#dc2626;z-index:20;background:rgba(255,255,255,0.85)';
+                        el.textContent = 'Action failed (HTTP ' + xhr.status + ')';
+                        err.appendChild(el);
+                        setTimeout(function() { el.remove(); }, 3000);
+                    }
+                }
+            };
+            xhr.onerror = function() {
+                restore();
+                var err = document.getElementById('content');
+                if (err) {
+                    var el = document.createElement('div');
+                    el.className = 'empty-state';
+                    el.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#dc2626;z-index:20;background:rgba(255,255,255,0.85)';
+                    el.textContent = 'Network error';
+                    err.appendChild(el);
+                    setTimeout(function() { el.remove(); }, 3000);
+                }
+            };
+            xhr.send(JSON.stringify({hash: hash}));
+        }
+
+        function refreshPendingApiKeyHashes() {
+            return fetch('/api/api-key/pending-hashes')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var newHashes = {};
+                    if (d.hashes) {
+                        d.hashes.forEach(function(h) { newHashes[h] = true; });
+                    }
+                    var changed = false;
+                    for (var h in apiAskerHashes) { if (!newHashes[h]) { changed = true; break; } }
+                    if (!changed) { for (var h in newHashes) { if (!apiAskerHashes[h]) { changed = true; break; } } }
+                    apiAskerHashes = newHashes;
+                    if (changed) {
+                        var allCards = document.querySelectorAll('.service-card');
+                        allCards.forEach(function(c) {
+                            if (c.querySelector('.card-api-key-buttons.api-key-fade-out')) return;
+                            var h = c.getAttribute('data-hash');
+                            var isAsker = !!apiAskerHashes[h];
+                            c.classList.toggle('service-card-api-asker', isAsker);
+                            var existingBtns = c.querySelector('.card-api-key-buttons');
+                            if (isAsker && !existingBtns) {
+                                var wrapper = document.createElement('div');
+                                wrapper.innerHTML =
+                                  '<div class="card-api-key-buttons">' +
+                                  '<button class="card-btn card-btn-green card-btn-grant">Grant API Key Registration</button>' +
+                                  '<button class="card-btn card-btn-gray card-btn-reject">Reject API Key Registration</button>' +
+                                  '</div>';
+                                var btns = wrapper.firstElementChild;
+                                var cardButtons = c.querySelector('.card-buttons');
+                                if (cardButtons) cardButtons.insertBefore(btns, cardButtons.firstChild);
+                            } else if (!isAsker && existingBtns) {
+                                existingBtns.remove();
+                            }
+                        });
+                    }
+                })
+                .catch(function() {});
+        }
+
+        setInterval(refreshPendingApiKeyHashes, 5000);
+
         document.getElementById('content').addEventListener('click', function(e) {
             function afterTerminate(terminatedHash) {
                 return function() {
                     fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
-                        buildCards(d.clients.filter(function(c) { return c.hash !== terminatedHash; }), false);
+                        enrichClientsWithHashes(d.clients).then(function(clients) {
+                            buildCards(clients.filter(function(c) { return c.hash !== terminatedHash; }), false);
+                        });
                     }).catch(function() {});
                 };
             }
             function handleActionBtn(card, data, apiPath, onDone) {
                 var content = document.getElementById('content');
+                function cleanup(status, text) {
+                    var loader = content.querySelector('.content-loader');
+                    if (loader) loader.remove();
+                    if (status && status !== 200) {
+                        var err = document.createElement('div');
+                        err.className = 'empty-state';
+                        err.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#dc2626;z-index:20;background:rgba(255,255,255,0.85)';
+                        err.textContent = 'Action failed (HTTP ' + status + ')';
+                        content.appendChild(err);
+                        setTimeout(function() { err.remove(); }, 3000);
+                    }
+                }
                 if (card.classList.contains('expanded')) {
                     collapseExpandedCard(card, content, false, function() {
                         card.remove();
@@ -1429,41 +1602,55 @@
                         loader.className = 'content-loader';
                         loader.innerHTML = '<div class="spinner"></div>';
                         content.appendChild(loader);
-                        apiCall(apiPath, data, onDone);
+                        apiCall(apiPath, data, onDone, cleanup);
                     });
                 } else {
-                    apiCall(apiPath, data, onDone);
+                    apiCall(apiPath, data, onDone, cleanup);
                 }
             }
 
+            var grantBtn = e.target.closest('.card-btn-grant');
+            if (grantBtn) {
+                var card = grantBtn.closest('.service-card');
+                if (!card) return;
+                var gHash = card.getAttribute('data-hash');
+                if (gHash) apiKeyAction(grantBtn, gHash, 'grant');
+                return;
+            }
+            var rejectBtn = e.target.closest('.card-btn-reject');
+            if (rejectBtn) {
+                var card = rejectBtn.closest('.service-card');
+                if (!card) return;
+                var rHash = card.getAttribute('data-hash');
+                if (rHash) apiKeyAction(rejectBtn, rHash, 'reject');
+                return;
+            }
             var redBtn = e.target.closest('.card-btn-red');
             if (redBtn) {
                 var card = redBtn.closest('.service-card');
                 if (!card) return;
                 var termHash = card.getAttribute('data-hash');
+                var termPid = card.getAttribute('data-pid');
                 if (termHash) forgottenHashes[termHash] = true;
                 var isBroken = card.classList.contains('service-card-unhealthy');
                 handleActionBtn(card, {
                     hash: termHash,
-                    pid: card.getAttribute('data-pid')
+                    pid: termPid || undefined
                 }, isBroken ? '/api/broken/forget' : '/api/terminate', afterTerminate(termHash));
                 return;
             }
             var yellowBtn = e.target.closest('.card-btn-yellow');
             if (yellowBtn) {
+                if (yellowBtn.disabled) return;
                 var card = yellowBtn.closest('.service-card');
                 if (!card) return;
-                var scriptPath = card.getAttribute('data-starting-script');
-                if (!scriptPath) return;
                 var hash = card.getAttribute('data-hash');
                 if (hash) forgottenHashes[hash] = true;
                 brokenClients = brokenClients.filter(function(bc) { return bc.hash !== hash; });
                 updateBrokenButtons();
                 var isBroken = card.classList.contains('service-card-unhealthy');
                 handleActionBtn(card, {
-                    hash: hash,
-                    pid: card.getAttribute('data-pid'),
-                    starting_script: scriptPath
+                    hash: hash
                 }, isBroken ? '/api/broken/restart' : '/api/restart', afterTerminate(hash));
                 return;
             }
@@ -1471,6 +1658,8 @@
             if (!btn) return;
             var card = btn.closest('.service-card');
             if (!card) return;
+            if (document.body.classList.contains('expanding') || document.body.classList.contains('collapsing')) return;
+            if (_expandTimeout) return;
             var content = this;
             var isExpanding = !card.classList.contains('expanded');
             if (isExpanding) {
@@ -1570,6 +1759,10 @@
         });
 
         document.getElementById('searchToggle').addEventListener('click', function() {
+            if (this.classList.contains('animating')) return;
+            this.classList.add('animating');
+            var self = this;
+            setTimeout(function() { self.classList.remove('animating'); }, 200);
             var sb = document.getElementById('searchBar');
             if (sb.classList.contains('expanded-vertical')) {
                 sb.classList.remove('expanded-vertical');
@@ -1599,6 +1792,26 @@
             }
         });
 
+        function computeClientHash(name, port, timestamp) {
+            var raw = name + ':' + port + ':' + timestamp;
+            var encoder = new TextEncoder();
+            var data = encoder.encode(raw);
+            return crypto.subtle.digest('SHA-256', data).then(function(hashBuffer) {
+                var hashArray = Array.from(new Uint8Array(hashBuffer));
+                return hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+            });
+        }
+
+        function enrichClientsWithHashes(clients) {
+            return Promise.all(clients.map(function(c) {
+                if (c.hash) return Promise.resolve(c);
+                return computeClientHash(c.name, c.port, c.timestamp).then(function(h) {
+                    c.hash = h;
+                    return c;
+                });
+            }));
+        }
+
         function updateResetVisibility() {
             var reset = document.getElementById('filterTweakReset');
             var slider = document.getElementById('filterTweakSlider');
@@ -1617,7 +1830,7 @@
         });
 
         function saveAccuracy(val) {
-            fetch('/api/sort-settings', {
+            fetch('/ui/sort-settings', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({accuracy: val})
@@ -1756,9 +1969,14 @@
                 }
                 fetch('/api/clients')
                     .then(function(r) { return r.json(); })
-                    .then(function(cd) { buildCards(cd.clients, true); })
+                    .then(function(cd) { return enrichClientsWithHashes(cd.clients).then(function(clients) { buildCards(clients, true); }); })
                     .catch(function() {})
-                    .then(function() { triggerLoadInAnimation(); });
+                    .then(function() {
+                        return refreshPendingApiKeyHashes();
+                    })
+                    .then(function() {
+                        triggerLoadInAnimation();
+                    });
             })
             .catch(function() {
                 document.getElementById('pill').innerHTML =

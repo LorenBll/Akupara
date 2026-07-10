@@ -17,5 +17,6 @@
     "pid",
     "status"
   ],
+  "api_key_store_key_path": "",
   "group_by": "bind_address"
 }

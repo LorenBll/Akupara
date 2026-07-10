@@ -211,6 +211,12 @@ body.has-error::before {
     pointer-events: none;
 }
 
+.broken-restart-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 .health-decoration:not(.is-active):hover::after {
     content: attr(data-label);
     position: absolute;
@@ -568,18 +574,11 @@ body.has-error::before {
     animation: expandFadeIn 0.15s ease both;
 }
 
-.expand-info-item:nth-child(1) { animation-delay: 0s; }
-.expand-info-item:nth-child(2) { animation-delay: 0.05s; }
-.expand-info-item:nth-child(3) { animation-delay: 0.1s; }
-.expand-info-item:nth-child(4) { animation-delay: 0.15s; }
-.expand-info-item:nth-child(5) { animation-delay: 0.1s; }
-.expand-info-item:nth-child(6) { animation-delay: 0.12s; }
-.expand-info-item:nth-child(7) { animation-delay: 0.15s; }
-.expand-info-item:nth-child(8) { animation-delay: 0.35s; }
+
 
 @keyframes expandFadeIn {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 @keyframes slideUpFadeIn {
@@ -595,6 +594,7 @@ body.has-error::before {
 .init-hidden {
     opacity: 0;
     transform: translateY(20px);
+    transition: none;
 }
 
 .expand-info-label {
@@ -625,6 +625,15 @@ body.has-error::before {
     flex-grow: 1;
     color: #9ca3af;
     font-size: 1.5rem;
+}
+
+.expand-empty-drop {
+    animation: expandEmptyDrop 0.35s ease both;
+}
+
+@keyframes expandEmptyDrop {
+    from { transform: translateY(0); }
+    to   { transform: translateY(34px); }
 }
 
 .expand-error {
@@ -697,6 +706,10 @@ body.has-error::before {
 
 .card-buttons .card-btn svg {
     transition: width 0.12s ease, height 0.12s ease;
+}
+
+.service-card.expanded-buttons .card-buttons {
+    flex-wrap: wrap;
 }
 
 .service-card.expanded-buttons .card-buttons .card-btn {
@@ -887,6 +900,11 @@ body.has-error::before {
     background: rgba(0, 0, 0, 0.05);
 }
 
+.card-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
 .card-btn:hover::after {
     content: attr(data-label);
     position: absolute;
@@ -932,6 +950,26 @@ body.has-error::before {
 .card-btn-yellow {
     background: #fef9c3;
     color: #ca8a04;
+}
+
+.card-btn-green {
+    background: #bbf7d0;
+    color: #16a34a;
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0 10px;
+    white-space: nowrap;
+}
+
+.card-btn-gray {
+    background: #e5e7eb;
+    color: #6b7280;
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0 10px;
+    white-space: nowrap;
 }
 
 .card-btn-blue {
@@ -1444,4 +1482,82 @@ body.has-error::before {
 
 .search-bar.expanded-vertical .filter-select {
     font-family: 'Cascadia Code', monospace !important;
+}
+
+.service-card.service-card-api-asker {
+    background: #fefce8;
+    border-color: #eab308;
+}
+
+.service-card-api-asker.expanded-active .card-expanded-content {
+    margin-bottom: 82px;
+}
+
+.service-card.service-card-api-asker.service-card-unhealthy {
+    background: #fef2f2;
+    border-color: #dc2626;
+}
+
+.card-api-key-buttons {
+    display: none;
+    gap: 6px;
+    width: 100%;
+}
+
+.service-card.expanded-buttons .card-api-key-buttons {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    animation: apiKeyFadeIn 0.25s ease;
+}
+
+@keyframes apiKeyFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes apiKeyFadeOut {
+    from { opacity: 1; transform: translateY(0); }
+    to   { opacity: 0; transform: translateY(-4px); }
+}
+
+.card-api-key-buttons.api-key-fade-out {
+    animation: apiKeyFadeOut 0.3s ease both;
+}
+
+.card-api-key-buttons .card-btn {
+    flex: 1;
+}
+
+.service-card.expanded-buttons .card-api-key-buttons .card-btn {
+    flex-grow: 1;
+    border-radius: 999px;
+    padding: 14px 0;
+}
+
+.service-card.expanded-buttons .card-api-key-buttons .card-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+.card-btn-grant:hover::after,
+.card-btn-reject:hover::after {
+    display: none;
+}
+
+.card-btn-green:hover {
+    background: #86efac;
+}
+
+.card-btn-gray:hover {
+    background: #d1d5db;
+}
+
+.card-btn-green:hover::after,
+.card-btn-gray:hover::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
 }

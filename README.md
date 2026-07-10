@@ -23,8 +23,24 @@ The web UI (`web/index.html`) displays a dashboard with a status pill, a searcha
 
 ## Setup
 1. Install Python dependencies: `pip install -r requirements.txt`.
-2. Review `resources/configuration.json` if you want to change the port.
+2. Review `resources/configuration.json` if you want to change the port or set up API key encryption.
 3. Leave the project structure intact so the service can find `resources/` and `src/`.
+
+### API Key Encryption Setup (Optional)
+
+PortHandler can encrypt stored API keys using the Cipher and DiskIdentifier services. To enable:
+
+1. **Set the encryption key path** in `resources/configuration.json`:
+   ```json
+   "api_key_store_key_path": "<disk_id>\\path\\to\\encryption.key"
+   ```
+   - `<disk_id>` is a 64-character hex disk identifier resolved by DiskIdentifier.
+   - The path after the disk ID is relative to the disk root returned by DiskIdentifier.
+   - If left empty (`""`), API key registration is disabled.
+
+2. Ensure **DiskIdentifier** and **Cipher** services are running and registered with PortHandler before making any API key requests. These services are discovered automatically from the registered clients list.
+
+3. When a valid key path is configured and both services are available, PortHandler decrypts `resources/api_keys.json` on session initialization, stores the keys in memory, and re-encrypts the file. On each key grant, the file is updated with the new key and re-encrypted.
 
 ## Run
 1. Windows: run `scripts\run.bat`.
@@ -33,10 +49,15 @@ The web UI (`web/index.html`) displays a dashboard with a status pill, a searcha
 
 ## Access Control
 
-All `/api/*` endpoints are local-device only. Requests from non-local addresses are rejected with:
+All `/api/*` and `/ui/*` endpoints are local-device only. Requests from non-local addresses are rejected with:
 - `403` -> `{ "error": "Local device access only." }`
 - All endpoints also support `HEAD` and `OPTIONS`.
 - API responses use `Connection: close` for non-HTML responses.
+
+Sensitive endpoints (`/api/terminate`, `/api/restart`, `/api/broken/forget`, `/api/broken/restart`, `/api/health/check`) have additional restrictions:
+- By default, only requests from `127.0.0.1` or `::1` (strict localhost) are accepted.
+- A request from any IP can be authorized by including a valid `api_key` field in the request body. The API key is validated against PortHandler's stored API keys.
+- These restrictions apply to POST requests only; `HEAD` and `OPTIONS` are unaffected.
 
 ## API Endpoints
 
@@ -63,8 +84,10 @@ Registers a new client service and returns a SHA-256 hash. Before registering, P
 - Body (JSON object):
 	- `name` (string, required): name for the client service.
 	- `port` (number, required): port number the client listens on (1–65535).
+	- `pid` (number, required): process ID of the running client.
+	- `bind_address` (string, required): IP address the client binds to.
+	- `hostname` (string, required): hostname of the client machine.
 	- `starting_script` (string, optional): path to the client's startup script.
-	- `pid` (number, optional): process ID of the running client.
 
 	If a client with the same `name` is already registered, PortHandler checks whether that existing client is still alive. If it is, registration is rejected. If it is not, the stale registration is replaced.
 
@@ -78,6 +101,9 @@ Registers a new client service and returns a SHA-256 hash. Before registering, P
 	- `400` -> `{ "error": "A non-empty name is required." }`
 	- `400` -> `{ "error": "A port number is required." }`
 	- `400` -> `{ "error": "Port must be a number between 1 and 65535." }`
+	- `400` -> `{ "error": "A PID is required." }`
+	- `400` -> `{ "error": "A bind address is required." }`
+	- `400` -> `{ "error": "A hostname is required." }`
 	- `400` -> `{ "error": "Client health endpoint is not reachable." }`
 	- `409` -> `{ "error": "A client with name '...' is already registered." }`
 
@@ -131,7 +157,7 @@ Service health check with registration statistics.
 		```
 
 ### `GET /api/clients` (also `HEAD`, `OPTIONS`)
-Returns the list of all registered clients.
+Returns the list of all registered clients (without hashes and PIDs, unless the request comes from localhost).
 
 - Body: none
 - Returns:
@@ -140,19 +166,20 @@ Returns the list of all registered clients.
 		{
 			"clients": [
 				{
-					"hash": "<sha256>",
 					"name": "my-service",
 					"port": 8080,
-					"pid": 12345,
 					"ip": "127.0.0.1",
 					"timestamp": "2025-01-01T00:00:00",
-					"starting_script": "scripts/run.bat"
+					"starting_script": "scripts/run.bat",
+					"bind_address": "127.0.0.1",
+					"hostname": "my-host"
 				}
 			]
 		}
 		```
+	When the request originates from localhost (`127.0.0.1` or `::1`), the `hash` field is included for each client.
 
-### `GET /api/sort-settings` (also `HEAD`, `OPTIONS`)
+### `GET /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Returns the current column sort order, group-by key, and fuzzy accuracy threshold used by the web UI.
 
 - Body: none
@@ -167,7 +194,7 @@ Returns the current column sort order, group-by key, and fuzzy accuracy threshol
 		}
 		```
 
-### `PUT /api/sort-settings` (also `HEAD`, `OPTIONS`)
+### `PUT /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Updates the column sort order, group-by key, and/or fuzzy accuracy threshold.
 
 - Body (JSON object):
@@ -189,11 +216,12 @@ Updates the column sort order, group-by key, and/or fuzzy accuracy threshold.
 	- `500` -> `{ "error": "Failed to read/write configuration." }`
 
 ### `POST /api/terminate` (also `HEAD`, `OPTIONS`)
-Terminates a registered client process and unregisters it.
+Terminates a registered client process and unregisters it. Only accessible from localhost or with a valid API key.
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to terminate.
 	- `pid` (number, optional): process ID to kill. If omitted, the server looks up the stored PID for the client.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -205,15 +233,15 @@ Terminates a registered client process and unregisters it.
 		```
 	- `400` -> `{ "error": "A hash is required." }`
 	- `400` -> `{ "error": "No PID available for this service." }`
+	- `403` -> `{ "error": "Only localhost requests are allowed." }`
 	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 
 ### `POST /api/restart` (also `HEAD`, `OPTIONS`)
-Restarts a registered client process via its start script.
+Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data. Only accessible from localhost or with a valid API key.
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client.
-	- `starting_script` (string, required): path to the startup script.
-	- `pid` (number, optional): current process ID (killed before restart). If omitted, the server looks up the stored PID.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -223,16 +251,19 @@ Restarts a registered client process via its start script.
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
-	- `400` -> `{ "error": "A starting_script path is required." }`
+	- `400` -> `{ "error": "Client not found." }`
+	- `400` -> `{ "error": "No starting script available for this service." }`
 	- `400` -> `{ "error": "No PID available for this service." }`
+	- `403` -> `{ "error": "Only localhost requests are allowed." }`
 	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
 ### `POST /api/broken/forget` (also `HEAD`, `OPTIONS`)
-Removes a client from the broken list without requiring a termination. If the client is still registered, it is also unregistered and its process is killed if possible.
+Removes a client from the broken list without requiring a termination. If the client is still registered, it is also unregistered and its process is killed if possible. Only accessible from localhost or with a valid API key.
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the broken client.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -242,13 +273,14 @@ Removes a client from the broken list without requiring a termination. If the cl
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
+	- `403` -> `{ "error": "Only localhost requests are allowed." }`
 
 ### `POST /api/broken/restart` (also `HEAD`, `OPTIONS`)
-Forgets a client from the broken list, kills its process if still running, then restarts it via its start script.
+Forgets a client from the broken list, kills its process if still running, then restarts it via its start script. The starting script is looked up from the server's stored client data. Only accessible from localhost or with a valid API key.
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the broken client.
-	- `starting_script` (string, required): path to the startup script.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -258,39 +290,17 @@ Forgets a client from the broken list, kills its process if still running, then 
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
-	- `400` -> `{ "error": "A starting_script path is required." }`
+	- `400` -> `{ "error": "No starting script available for this service." }`
+	- `403` -> `{ "error": "Only localhost requests are allowed." }`
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
 ### `POST /api/health/check` (also `HEAD`, `OPTIONS`)
-Checks the health of all registered clients. For each registered client, PortHandler sends a `GET` request to `http://127.0.0.1:<client-port>/api/health`. Unresponsive or non-200 responses are marked as unhealthy.
+Checks the health of a specific client by hash, or all registered clients if no hash is given. Only accessible from localhost or with a valid API key.
 
-- Body: none (or empty JSON `{}`)
-- Returns:
-	- `200` ->
-		```json
-		{
-			"checked": true,
-			"unhealthy": [
-				{
-					"hash": "<sha256>",
-					"name": "my-service",
-					"port": 8080,
-					"pid": 12345,
-					"ip": "127.0.0.1",
-					"timestamp": "2025-01-01T00:00:00",
-					"starting_script": "scripts/run.bat"
-				}
-			]
-		}
-		```
-
-### `POST /api/health/check/<hash>` (also `HEAD`, `OPTIONS`)
-Checks the health of a specific client by hash.
-
-- Path parameters:
-	- `hash` (string, required): SHA-256 hash of the client to check.
-- Body: none
-- Returns:
+- Body (JSON object):
+	- `hash` (string, optional): SHA-256 hash of a specific client to check. If omitted, all registered clients are checked.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+- Returns (single client):
 	- `200` ->
 		```json
 		{
@@ -306,6 +316,27 @@ Checks the health of a specific client by hash.
 		}
 		```
 	- `404` -> `{ "error": "Client not found." }`
+- Returns (all clients):
+	- `200` ->
+		```json
+		{
+			"checked": true,
+			"unhealthy": [
+				{
+					"hash": "<sha256>",
+					"name": "my-service",
+					"port": 8080,
+					"pid": 12345,
+					"ip": "127.0.0.1",
+					"timestamp": "2025-01-01T00:00:00",
+					"starting_script": "scripts/run.bat",
+					"bind_address": "127.0.0.1",
+					"hostname": "my-host"
+				}
+			]
+		}
+		```
+	- `403` -> `{ "error": "Only localhost requests are allowed." }`
 
 ---
 

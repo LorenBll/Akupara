@@ -45,3 +45,4 @@ htmlcov/
 
 # Runtime data (not persisted)
 resources/clients.json
+resources/api_keys.json
