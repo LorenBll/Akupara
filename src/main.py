@@ -143,6 +143,21 @@ def _is_authorized(payload: dict) -> bool:
     return _is_localhost_request()
 
 
+def _check_authorization(payload):
+    """Returns (is_authorized, has_invalid_key) tuple.
+    is_authorized: True if valid key provided or request is from localhost.
+    has_invalid_key: True if an api_key was provided but didn't match.
+    """
+    api_key = payload.get("api_key") if isinstance(payload, dict) else None
+    if isinstance(api_key, str) and api_key.strip():
+        with API_KEYS_LOCK:
+            for data in API_KEYS_DATA.get("keys", {}).values():
+                if isinstance(data, dict) and data.get("api_key") == api_key.strip():
+                    return (True, False)
+        return (False, True)
+    return (_is_localhost_request(), False)
+
+
 def _initialize_service_config() -> None:
     global SERVICE_HOST, SERVICE_PORT
     global API_KEY_STORE_KEY_PATH
@@ -443,6 +458,10 @@ def question():
     if not isinstance(target_name, str) or not target_name.strip():
         return _error_response("The name of the target client is required.")
 
+    authorized, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+
     with REGISTERED_CLIENTS_LOCK:
         target = None
         for client in REGISTERED_CLIENTS.values():
@@ -452,6 +471,9 @@ def question():
 
     if target is None:
         return _error_response(f"No client found with name '{target_name}'.", 404)
+
+    if authorized:
+        return _success_response(target)
 
     return _success_response({"name": target["name"], "port": target["port"]})
 
@@ -464,6 +486,9 @@ def unregister():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
+    if not _is_authorized(payload):
+        return _error_response("API key is not valid.", 403)
+
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
     if not isinstance(client_hash, str) or not client_hash.strip():
@@ -541,10 +566,14 @@ def clients():
     if request.method == "HEAD":
         return _head_response()
 
-    include_hash = _is_localhost_request()
+    payload = request.get_json(silent=True) or {}
+    authorized, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+
     with REGISTERED_CLIENTS_LOCK:
         client_list = [
-            client if include_hash else {k: v for k, v in client.items() if k != "hash"}
+            client if authorized else {k: v for k, v in client.items() if k != "hash"}
             for client in REGISTERED_CLIENTS.values()
         ]
 
@@ -1118,6 +1147,10 @@ def api_key_pending():
     if request.method == "HEAD":
         return _head_response()
 
+    payload = request.get_json(silent=True) or {}
+    if not _is_authorized(payload):
+        return _error_response("API key is not valid.", 403)
+
     with PENDING_API_KEY_REQUESTS_LOCK:
         pending_list = list(PENDING_API_KEY_REQUESTS.values())
 
@@ -1130,6 +1163,10 @@ def api_key_pending_hashes():
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    if not _is_authorized(payload):
+        return _error_response("API key is not valid.", 403)
 
     with PENDING_API_KEY_REQUESTS_LOCK:
         hashes = list(PENDING_API_KEY_REQUESTS.keys())
@@ -1147,6 +1184,9 @@ def api_key_grant():
             return _head_response()
 
         payload = request.get_json(silent=True) or {}
+        if not _is_authorized(payload):
+            return _error_response("API key is not valid.", 403)
+
         client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
         if not isinstance(client_hash, str) or not client_hash.strip():
@@ -1224,6 +1264,9 @@ def api_key_reject():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
+    if not _is_authorized(payload):
+        return _error_response("API key is not valid.", 403)
+
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
     if not isinstance(client_hash, str) or not client_hash.strip():
@@ -1279,6 +1322,10 @@ def shutdown():
         return _options_response(["POST", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    if not _is_authorized(payload):
+        return _error_response("Only localhost requests are allowed.", 403)
 
     environ = request.environ
 
