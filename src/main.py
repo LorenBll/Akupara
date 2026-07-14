@@ -133,14 +133,18 @@ def _is_localhost_request() -> bool:
     return request.remote_addr == "127.0.0.1" or request.remote_addr == "::1"
 
 
-def _is_authorized(payload: dict) -> bool:
+def _is_authorized_strict(payload: dict) -> bool:
     api_key = payload.get("api_key") if isinstance(payload, dict) else None
     if isinstance(api_key, str) and api_key.strip():
         with API_KEYS_LOCK:
             for data in API_KEYS_DATA.get("keys", {}).values():
                 if isinstance(data, dict) and data.get("api_key") == api_key.strip():
                     return True
-    return _is_localhost_request()
+    return False
+
+
+def _is_authorized(payload: dict) -> bool:
+    return _is_authorized_strict(payload) or _is_localhost_request()
 
 
 def _is_self_request(payload: dict) -> bool:
@@ -500,7 +504,7 @@ def unregister():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
+    if not _is_authorized_strict(payload):
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -552,8 +556,8 @@ def health_check():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        return _error_response("Only localhost requests are allowed.", 403)
+    if not _is_authorized_strict(payload):
+        return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
@@ -686,8 +690,8 @@ def terminate():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload) and not _is_self_request(payload):
-        return _error_response("Only localhost requests are allowed.", 403)
+    if not _is_authorized_strict(payload) and not _is_self_request(payload):
+        return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
     raw_pid = payload.get("pid") if isinstance(payload, dict) else None
@@ -728,8 +732,8 @@ def restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload) and not _is_self_request(payload):
-        return _error_response("Only localhost requests are allowed.", 403)
+    if not _is_authorized_strict(payload) and not _is_self_request(payload):
+        return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
     raw_pid = payload.get("pid") if isinstance(payload, dict) else None
@@ -802,8 +806,8 @@ def broken_forget():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        return _error_response("Only localhost requests are allowed.", 403)
+    if not _is_authorized_strict(payload):
+        return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
@@ -840,8 +844,8 @@ def broken_restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        return _error_response("Only localhost requests are allowed.", 403)
+    if not _is_authorized_strict(payload):
+        return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
@@ -1338,8 +1342,8 @@ def shutdown():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        return _error_response("Only localhost requests are allowed.", 403)
+    if not _is_authorized_strict(payload):
+        return _error_response("API key is not valid.", 403)
 
     environ = request.environ
 
