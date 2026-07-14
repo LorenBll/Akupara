@@ -143,6 +143,20 @@ def _is_authorized(payload: dict) -> bool:
     return _is_localhost_request()
 
 
+def _is_self_request(payload: dict) -> bool:
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return False
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(client_hash.strip())
+    if client_data is None:
+        return False
+    stored_ip = client_data.get("ip")
+    if not isinstance(stored_ip, str):
+        return False
+    return request.remote_addr == stored_ip
+
+
 def _check_authorization(payload):
     """Returns (is_authorized, has_invalid_key) tuple.
     is_authorized: True if valid key provided or request is from localhost.
@@ -672,7 +686,7 @@ def terminate():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
+    if not _is_authorized(payload) and not _is_self_request(payload):
         return _error_response("Only localhost requests are allowed.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -714,7 +728,7 @@ def restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
+    if not _is_authorized(payload) and not _is_self_request(payload):
         return _error_response("Only localhost requests are allowed.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None

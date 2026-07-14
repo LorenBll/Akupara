@@ -3,9 +3,9 @@
 PortHandler is a local web service registry with a web UI. It solves the problem of registering named services on the local machine so clients can look up each other by name, port, and metadata through a small HTTP API.
 
 ## About
-PortHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time PortHandler starts. A background health-check thread pings registered clients every 30 seconds and removes unreachable ones.
+PortHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time PortHandler starts. A background health-check thread pings registered clients every 15 seconds and removes unreachable ones.
 
-The web UI (`web/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking the sort order and group-by of columns, a health-check button, an accuracy slider for fuzzy search threshold, and checkbox-based batch selection for bulk actions.
+The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking the sort order and group-by of columns, a health-check button, an accuracy slider for fuzzy search threshold, and checkbox-based batch selection for bulk actions.
 
 **Features:**
 
@@ -64,24 +64,26 @@ Sensitive endpoints have additional restrictions — by default only `127.0.0.1`
 | **Strict localhost or valid API key** (POST + involving_api_keys) | `/api/api-key/grant`, `/api/api-key/reject` |
 | **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question`, `GET /api/clients` |
 
-When an invalid API key is explicitly provided, the response is `403` with `{ "error": "API key is not valid." }`. If the key is absent and the request is not from localhost, `403` with `{ "error": "Only localhost requests are allowed." }` is returned.
+Additionally, `POST /api/terminate` and `POST /api/restart` allow a registered service to terminate or restart itself by providing its own hash — no API key or localhost requirement needed. The request is recognized as self-service when the requesting IP matches the IP the service registered with.
+
+When an invalid API key is explicitly provided on `POST /api/question` or `GET /api/clients`, the response is `403` with `{ "error": "API key is not valid." }`. If the key is absent and the request is not from localhost, `403` with `{ "error": "Only localhost requests are allowed." }` is returned. For all other restricted endpoints, the response is always `403` with `{ "error": "Only localhost requests are allowed." }` on authorization failure.
 
 These restrictions apply to the main HTTP method only; `HEAD` and `OPTIONS` are unaffected.
 
 ## API Endpoints
 
 ### `GET /` (also `HEAD`, `OPTIONS`)
-Serves the web UI dashboard (`web/index.html`).
+Serves the web UI dashboard (`ui/pages/index.html`).
 
 - Body: none
 - Returns:
 	- `200` -> `text/html`
 
 ### `GET /css/<path:filename>` (also `HEAD`, `OPTIONS`)
-Serves static CSS files from the `web/css/` directory.
+Serves static CSS files from the `ui/css/` directory.
 
 - Path parameters:
-	- `filename` (string, required): path to a CSS file relative to `web/css/`.
+	- `filename` (string, required): path to a CSS file relative to `ui/css/`.
 - Body: none
 - Returns:
 	- `200` -> `text/css`
@@ -164,7 +166,7 @@ Unregisters a client by its hash. Only accessible from localhost or with a valid
 		}
 		```
 	- `400` -> `{ "error": "A hash is required to unregister." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "Only localhost requests are allowed." }`
 	- `404` -> `{ "error": "Hash not found." }`
 
 ### `GET /api/health` (also `HEAD`, `OPTIONS`)
@@ -179,6 +181,7 @@ Service health check with registration statistics.
 			"service": "PortHandler",
 			"bind_address": "127.0.0.1",
 			"port": 49155,
+			"pid": 12345,
 			"hostname": "workstation-name",
 			"registered_clients": 0
 		}
@@ -197,6 +200,7 @@ Returns the list of all registered clients. Client hashes are only included if t
 				{
 					"name": "my-service",
 					"port": 8080,
+					"pid": 12345,
 					"ip": "127.0.0.1",
 					"timestamp": "2025-01-01T00:00:00",
 					"starting_script": "scripts/run.bat",
@@ -264,7 +268,7 @@ Updates the column sort order, group-by key, and/or fuzzy accuracy threshold.
 	- `500` -> `{ "error": "Failed to read/write configuration." }`
 
 ### `POST /api/terminate` (also `HEAD`, `OPTIONS`)
-Terminates a registered client process and unregisters it. Only accessible from localhost or with a valid API key.
+Terminates a registered client process and unregisters it. Accessible from localhost, with a valid API key, or by a service terminating itself (request IP matches the service's registered IP).
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to terminate.
@@ -285,7 +289,7 @@ Terminates a registered client process and unregisters it. Only accessible from 
 	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 
 ### `POST /api/restart` (also `HEAD`, `OPTIONS`)
-Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data. Only accessible from localhost or with a valid API key.
+Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data. Accessible from localhost, with a valid API key, or by a service restarting itself (request IP matches the service's registered IP).
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client.
