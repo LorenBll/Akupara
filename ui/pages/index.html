@@ -24,27 +24,37 @@
             </div>
         </div>
         <div class="content" id="content"></div>
-        <div class="search-bar hidden" id="searchBar">
-            <div class="search-toggle" id="searchToggle" data-label="Expand Filter Options">
-                <svg class="search-funnel-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/></svg>
-                <svg class="search-x-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        <div class="search-area" id="searchArea">
+            <div class="search-bar hidden" id="searchBar">
+                <div class="search-toggle" id="searchToggle" data-label="Expand Filter Options">
+                    <svg class="search-funnel-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/></svg>
+                    <svg class="search-x-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </div>
+                <div class="search-filter-panel" id="searchFilterPanel">
+                </div>
+                <div class="search-input-row">
+                    <svg class="search-lens" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <input type="text" id="searchInput" placeholder="Search service...">
+                </div>
+                <div class="filter-tweak" id="filterTweak">
+                    <span class="filter-tweak-reset" id="filterTweakReset">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </span>
+                    <span class="filter-tweak-slider-wrap">
+                        <input type="range" class="filter-tweak-slider" id="filterTweakSlider" min="0" max="100" value="30">
+                    </span>
+                    <span class="filter-tweak-btn" id="filterTweakBtn">
+                        <svg class="filter-tweak-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="10" x2="20" y2="3"/><line x1="2" y1="14" x2="6" y2="14"/><line x1="10" y1="12" x2="14" y2="12"/><line x1="18" y1="16" x2="22" y2="16"/></svg>
+                    </span>
+                </div>
             </div>
-            <div class="search-filter-panel" id="searchFilterPanel">
-            </div>
-            <div class="search-input-row">
-                <svg class="search-lens" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                <input type="text" id="searchInput" placeholder="Search service...">
-            </div>
-            <div class="filter-tweak" id="filterTweak">
-                <span class="filter-tweak-reset" id="filterTweakReset">
+            <div class="checkbox-actions" id="checkboxActions">
+                <button class="card-btn card-btn-red" id="checkboxTerminateSelected" data-label="Terminate Selected Services">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>
+                </button>
+                <button class="card-btn card-btn-yellow" id="checkboxRestartSelected" data-label="Restart Selected Services">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                </span>
-                <span class="filter-tweak-slider-wrap">
-                    <input type="range" class="filter-tweak-slider" id="filterTweakSlider" min="0" max="100" value="30">
-                </span>
-                <span class="filter-tweak-btn" id="filterTweakBtn">
-                    <svg class="filter-tweak-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="2" y1="14" x2="6" y2="14"/><line x1="10" y1="12" x2="14" y2="12"/><line x1="18" y1="16" x2="22" y2="16"/></svg>
-                </span>
+                </button>
             </div>
         </div>
         <div class="sidebar hidden" id="sidebar">
@@ -108,6 +118,8 @@
         var originalSortOrder = null;
         var _expandTimeout = null;
         var _fuzzyThreshold = 0.3;
+        var _selectedCardHashes = {};
+        var _checkboxVisible = false;
         function toggleSortHealthBtn(el, show) {
             if (!el) return;
             if (show) {
@@ -645,7 +657,7 @@
             updateCardButtonLabels(card);
         }
 
-        function cardHTML(name, port, pid, healthy, bind_address, hostname, startingScript, isApiAsker) {
+        function cardHTML(name, port, pid, healthy, bind_address, hostname, startingScript, isApiAsker, hash) {
             var bg = healthy ? '' : ' service-card-unhealthy';
             if (isApiAsker) bg += ' service-card-api-asker';
             var apiKeyButtons = isApiAsker
@@ -689,8 +701,45 @@
                       (startingScript ? '' : ' disabled') + '>' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
                       '</button>') +
+                '<div class="card-checkbox" data-card-hash="' + (hash || '') + '">' +
+                '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+                '</div>' +
                 '</div>' +
                 '</div>';
+        }
+
+        function _syncCheckboxUI() {
+            var hasSelection = false;
+            Object.keys(_selectedCardHashes).forEach(function(h) {
+                if (_selectedCardHashes[h]) hasSelection = true;
+            });
+            var content = document.getElementById('content');
+            content.querySelectorAll('.card-checkbox').forEach(function(cb) {
+                var h = cb.getAttribute('data-card-hash');
+                cb.classList.toggle('visible', _checkboxVisible);
+                var checked = !!_selectedCardHashes[h];
+                cb.classList.toggle('checked', checked);
+                var card = cb.closest('.service-card');
+                if (card) card.classList.toggle('selected', checked);
+            });
+            document.body.classList.toggle('checkbox-active', hasSelection);
+            document.body.classList.toggle('checkbox-visible', hasSelection && !document.querySelector('.service-card.expanded'));
+
+            var brokenForgetBtn = document.querySelector('.broken-forget-btn');
+            var brokenRestartBtn = document.querySelector('.broken-restart-btn');
+            if (brokenForgetBtn) brokenForgetBtn.disabled = hasSelection;
+            if (brokenRestartBtn) brokenRestartBtn.disabled = hasSelection;
+
+            var healthBtn = document.querySelector('#healthButton > .health-decoration:first-child');
+            if (healthBtn && !document.querySelector('.service-card.expanded')) {
+                healthBtn.setAttribute('data-label', hasSelection ? "Check Selected Services' Health" : "Check Services' Health");
+            }
+        }
+
+        function _clearCheckboxSelection() {
+            _selectedCardHashes = {};
+            _checkboxVisible = false;
+            _syncCheckboxUI();
         }
 
         function sortClients(clients) {
@@ -771,7 +820,7 @@
             function createCardElement(c, idx, broken, firstLoad) {
                 var cardDiv = document.createElement('div');
                 var isAsker = !broken && (apiAskerHashes[c.hash] || false);
-                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', !broken, c.bind_address, c.hostname, c.starting_script, isAsker);
+                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', !broken, c.bind_address, c.hostname, c.starting_script, isAsker, c.hash);
                 var card = cardDiv.firstElementChild;
                 if (firstLoad) card.classList.add('init-hidden');
                 card.setAttribute('data-hash', c.hash || '');
@@ -878,7 +927,7 @@
                 var stillExists = clients.some(function(c) { return (c.hash || '') === hadExpanded.hash; }) || brokenClients.some(function(c) { return (c.hash || '') === hadExpanded.hash; });
                 if (!stillExists) {
                     var ghostDiv = document.createElement('div');
-                    ghostDiv.innerHTML = cardHTML(hadExpanded.name, '--', '--', false, '', '', '', false);
+                    ghostDiv.innerHTML = cardHTML(hadExpanded.name, '--', '--', false, '', '', '', false, '');
                     var ghostCard = ghostDiv.firstElementChild;
                     ghostCard.style.position = 'absolute';
                     ghostCard.style.top = '0';
@@ -901,6 +950,7 @@
 
             updateVisibility(content.querySelectorAll('.service-card').length, undefined, animate);
             if (document.getElementById('searchBar').classList.contains('expanded-vertical')) filterCards();
+            _syncCheckboxUI();
         }
 
         var draggedItem = null;
@@ -1077,6 +1127,57 @@
                         });
                 }
             } else {
+                var hasSelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
+                if (hasSelection) {
+                    var content = document.getElementById('content');
+                    var loader = document.createElement('div');
+                    loader.className = 'content-loader';
+                    loader.innerHTML = '<div class="spinner"></div>';
+                    content.appendChild(loader);
+                    var selectedHashes = Object.keys(_selectedCardHashes).filter(function(h) { return _selectedCardHashes[h]; });
+                    var pending = selectedHashes.length;
+                    selectedHashes.forEach(function(sHash) {
+                        fetch('/api/health/check', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({hash: sHash}) })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                if (!d.healthy) {
+                                    var card = document.querySelector('.service-card[data-hash="' + sHash + '"]');
+                                    if (card) {
+                                        card.classList.add('service-card-unhealthy');
+                                        updateCardButtonLabels(card);
+                                        var metaVals = card.querySelectorAll('.card-meta-value');
+                                        addBrokenClient({
+                                            hash: sHash,
+                                            name: card.querySelector('.card-name').textContent,
+                                            port: card.getAttribute('data-port'),
+                                            starting_script: card.getAttribute('data-starting-script'),
+                                            bind_address: metaVals[0] ? metaVals[0].textContent : '',
+                                            hostname: metaVals[1] ? metaVals[1].textContent : ''
+                                        });
+                                    }
+                                } else {
+                                    var card = document.querySelector('.service-card[data-hash="' + sHash + '"]');
+                                    if (card) {
+                                        card.classList.remove('service-card-unhealthy');
+                                        removeBrokenClient(sHash);
+                                        updateCardButtonLabels(card);
+                                    }
+                                }
+                                if (--pending <= 0) {
+                                    var l = content.querySelector('.content-loader');
+                                    if (l) l.remove();
+                                    _clearCheckboxSelection();
+                                }
+                            })
+                            .catch(function() {
+                                if (--pending <= 0) {
+                                    var l = content.querySelector('.content-loader');
+                                    if (l) l.remove();
+                                    _clearCheckboxSelection();
+                                }
+                            });
+                    });
+                } else {
                 var content = document.getElementById('content');
                 var loader = document.createElement('div');
                 loader.className = 'content-loader';
@@ -1109,6 +1210,7 @@
                         btn.classList.add('health-fetch-error');
                     });
             }
+        }
         });
 
         document.querySelector('.shutdown-btn').addEventListener('click', function() {
@@ -1336,7 +1438,7 @@
                 if (!existingHashes[c.hash] && !brokenHashes[c.hash] && !forgottenHashes[c.hash]) {
                     var cardDiv = document.createElement('div');
                     var isAsker = apiAskerHashes[c.hash] || false;
-                    cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', true, c.bind_address, c.hostname, c.starting_script, isAsker);
+                    cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', true, c.bind_address, c.hostname, c.starting_script, isAsker, c.hash);
                     var card = cardDiv.firstElementChild;
                     card.setAttribute('data-hash', c.hash || '');
                     card.setAttribute('data-port', c.port || '');
@@ -1375,6 +1477,7 @@
                 }
             });
             updateVisibility(content.querySelectorAll('.service-card').length);
+            _syncCheckboxUI();
         }
 
         function updateVisibility(totalCount, visibleCount, firstLoad) {
@@ -1581,6 +1684,27 @@
 
         setInterval(refreshPendingApiKeyHashes, 5000);
 
+        document.getElementById('content').addEventListener('mouseover', function(e) {
+            var card = e.target.closest('.service-card');
+            if (!card) return;
+            if (document.querySelector('.service-card.expanded')) return;
+            _checkboxVisible = true;
+            _syncCheckboxUI();
+        });
+
+        document.getElementById('content').addEventListener('mouseout', function(e) {
+            var card = e.target.closest('.service-card');
+            if (!card) return;
+            var related = e.relatedTarget;
+            if (related && card.contains(related)) return;
+            if (related && related.closest('.service-card')) return;
+            var hasSelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
+            if (!hasSelection) {
+                _checkboxVisible = false;
+                _syncCheckboxUI();
+            }
+        });
+
         document.getElementById('content').addEventListener('click', function(e) {
             function afterTerminate(terminatedHash) {
                 return function() {
@@ -1617,6 +1741,19 @@
                 } else {
                     apiCall(apiPath, data, onDone, cleanup);
                 }
+            }
+
+            var checkboxEl = e.target.closest('.card-checkbox');
+            if (checkboxEl) {
+                e.stopPropagation();
+                var hash = checkboxEl.getAttribute('data-card-hash');
+                if (hash) {
+                    _selectedCardHashes[hash] = !_selectedCardHashes[hash];
+                    if (!_selectedCardHashes[hash]) delete _selectedCardHashes[hash];
+                }
+                _checkboxVisible = true;
+                _syncCheckboxUI();
+                return;
             }
 
             var grantBtn = e.target.closest('.card-btn-grant');
@@ -1665,7 +1802,22 @@
                 return;
             }
             var btn = e.target.closest('.card-btn-blue');
-            if (!btn) return;
+            if (!btn) {
+                var hasAnySelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
+                if (hasAnySelection) {
+                    var clickedCard = e.target.closest('.service-card');
+                    if (clickedCard) {
+                        var h = clickedCard.getAttribute('data-hash');
+                        if (h) {
+                            _selectedCardHashes[h] = !_selectedCardHashes[h];
+                            if (!_selectedCardHashes[h]) delete _selectedCardHashes[h];
+                            _checkboxVisible = true;
+                            _syncCheckboxUI();
+                        }
+                    }
+                }
+                return;
+            }
             var card = btn.closest('.service-card');
             if (!card) return;
             if (document.body.classList.contains('expanding') || document.body.classList.contains('collapsing')) return;
@@ -1690,6 +1842,7 @@
                 if (prev) collapseExpandedCard(prev, content, true);
                 card.classList.add('expanding');
                 document.body.classList.add('expanding');
+                _clearCheckboxSelection();
                 document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', 'Check Service Health');
                 _expandTimeout = setTimeout(function() {
                     _expandTimeout = null;
@@ -1876,6 +2029,71 @@
             updateResetVisibility();
         })();
 
+        document.getElementById('checkboxTerminateSelected').addEventListener('click', function() {
+            var selected = Object.keys(_selectedCardHashes).filter(function(h) { return _selectedCardHashes[h]; });
+            if (selected.length === 0) return;
+            var content = document.getElementById('content');
+            var loader = document.createElement('div');
+            loader.className = 'content-loader';
+            loader.innerHTML = '<div class="spinner"></div>';
+            content.appendChild(loader);
+            var pending = selected.length;
+            selected.forEach(function(hash) {
+                var card = document.querySelector('.service-card[data-hash="' + hash + '"]');
+                var isBroken = card && card.classList.contains('service-card-unhealthy');
+                var pid = card ? card.getAttribute('data-pid') : '';
+                var apiPath = isBroken ? '/api/broken/forget' : '/api/terminate';
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', apiPath, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onloadend = function() {
+                    if (--pending <= 0) {
+                        var l = content.querySelector('.content-loader');
+                        if (l) l.remove();
+                        _clearCheckboxSelection();
+                        fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                            enrichClientsWithHashes(d.clients).then(function(clients) {
+                                buildCards(clients.filter(function(c) { return selected.indexOf(c.hash) === -1; }), false);
+                            });
+                        }).catch(function() { buildCards(currentClients, false); });
+                    }
+                };
+                xhr.send(JSON.stringify({hash: hash, pid: pid || undefined}));
+            });
+        });
+
+        document.getElementById('checkboxRestartSelected').addEventListener('click', function() {
+            var selected = Object.keys(_selectedCardHashes).filter(function(h) { return _selectedCardHashes[h]; });
+            if (selected.length === 0) return;
+            var content = document.getElementById('content');
+            var loader = document.createElement('div');
+            loader.className = 'content-loader';
+            loader.innerHTML = '<div class="spinner"></div>';
+            content.appendChild(loader);
+            var pending = selected.length;
+            selected.forEach(function(hash) {
+                var card = document.querySelector('.service-card[data-hash="' + hash + '"]');
+                var isBroken = card && card.classList.contains('service-card-unhealthy');
+                var apiPath = isBroken ? '/api/broken/restart' : '/api/restart';
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', apiPath, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onloadend = function() {
+                    if (--pending <= 0) {
+                        var l = content.querySelector('.content-loader');
+                        if (l) l.remove();
+                        _clearCheckboxSelection();
+                        fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                            enrichClientsWithHashes(d.clients).then(function(clients) {
+                                buildCards(clients, false);
+                            });
+                        }).catch(function() {});
+                    }
+                };
+                xhr.send(JSON.stringify({hash: hash}));
+            });
+        });
+
         document.getElementById('searchInput').addEventListener('input', filterCards);
         document.getElementById('searchInput').addEventListener('keydown', function(e) {
             if (e.key === 'Escape' || e.key === 'Enter') { this.blur(); return; }
@@ -1908,6 +2126,11 @@
 
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
+                var hasCheckboxSelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
+                if (hasCheckboxSelection) {
+                    _clearCheckboxSelection();
+                    return;
+                }
                 var isInput = e.target.matches('input, select, textarea');
                 var expanded = document.querySelector('.service-card.expanded');
                 if (expanded && !isInput) {
@@ -1975,7 +2198,12 @@
                 var rowW = pw + 10 + btnW;
                 content.style.width = rowW + 'px';
                 document.querySelector('.pill-row').style.width = rowW + 'px';
-                document.getElementById('searchBar').style.width = ((pw - 10) / 2) + 'px';
+                document.getElementById('searchArea').style.width = ((pw - 10) / 2) + 'px';
+                var cbActions = document.getElementById('checkboxActions');
+                cbActions.style.width = rowW + 'px';
+                var colW = (rowW - 20) / 3;
+                cbActions.style.paddingLeft = (colW / 2) + 'px';
+                cbActions.style.paddingRight = (rowW - (2 * colW + 10) - colW / 2) + 'px';
                 document.getElementById('sidebar').style.top = content.offsetTop + 'px';
                 document.getElementById('healthButton').style.top = content.offsetTop + 'px';
                 if (d.status !== 'ok') {
@@ -2007,13 +2235,17 @@
                 var rowW = pw + 10 + btnW;
                 content.style.width = rowW + 'px';
                 document.querySelector('.pill-row').style.width = rowW + 'px';
-                document.getElementById('searchBar').style.width = ((pw - 10) / 2) + 'px';
+                document.getElementById('searchArea').style.width = ((pw - 10) / 2) + 'px';
+                var cbActions = document.getElementById('checkboxActions');
+                cbActions.style.width = rowW + 'px';
+                var colW = (rowW - 20) / 3;
+                cbActions.style.paddingLeft = (colW / 2) + 'px';
+                cbActions.style.paddingRight = (rowW - (2 * colW + 10) - colW / 2) + 'px';
                 document.getElementById('sidebar').style.top = content.offsetTop + 'px';
                 document.getElementById('healthButton').style.top = content.offsetTop + 'px';
                 document.body.classList.add('has-error');
                 triggerLoadInAnimation();
             });
-
 
     </script>
 </body>

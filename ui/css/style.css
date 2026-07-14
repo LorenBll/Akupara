@@ -16,7 +16,8 @@ body.expanding .empty-state,
 body.expanding .content-loader,
 body.expanding .broken-forget-btn,
 body.expanding .broken-restart-btn,
-body.expanding .filter-tweak {
+body.expanding .filter-tweak,
+body.expanding .card-checkbox {
     opacity: 0 !important;
     pointer-events: none;
 }
@@ -29,7 +30,8 @@ body.collapsing .empty-state,
 body.collapsing .content-loader,
 body.collapsing .broken-forget-btn,
 body.collapsing .broken-restart-btn,
-body.collapsing .filter-tweak {
+body.collapsing .filter-tweak,
+body.collapsing .card-checkbox {
     opacity: 0 !important;
     pointer-events: none;
 }
@@ -115,6 +117,7 @@ body.has-error::before {
     cursor: pointer;
     font-family: inherit;
     font-size: inherit;
+    transition: opacity 0.2s ease;
 }
 
 .sort-decoration-icons {
@@ -211,7 +214,8 @@ body.has-error::before {
     pointer-events: none;
 }
 
-.broken-restart-btn:disabled {
+.broken-restart-btn:disabled,
+.broken-forget-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
     pointer-events: none;
@@ -653,6 +657,7 @@ body.has-error::before {
 }
 
 .service-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     padding: 14px 18px;
@@ -709,7 +714,7 @@ body.has-error::before {
 }
 
 .card-buttons .card-btn {
-    transition: flex-grow 0.12s ease, border-radius 0.12s ease, padding 0.12s ease;
+    transition: flex-grow 0.12s ease, border-radius 0.12s ease, padding 0.12s ease, opacity 0.12s ease;
 }
 
 .card-buttons .card-btn svg {
@@ -882,7 +887,9 @@ body.has-error::before {
 }
 
 .card-buttons {
+    position: relative;
     display: flex;
+    align-items: center;
     gap: 6px;
     margin-top: 2px;
 }
@@ -897,6 +904,7 @@ body.has-error::before {
     border: none;
     border-radius: 999px;
     cursor: pointer;
+    transition: opacity 0.12s ease;
 }
 
 .card-btn svg {
@@ -1080,8 +1088,19 @@ body.has-error::before {
     font-weight: 700;
 }
 
+.search-area {
+    position: relative;
+    margin-top: 20px;
+    transition: width 0.15s ease;
+}
+
+.search-area:has(.search-bar.hidden) {
+    display: none;
+}
+
 .search-bar {
     position: relative;
+    z-index: 2;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -1089,9 +1108,8 @@ body.has-error::before {
     border-radius: 16px;
     background: #f9fafb;
     padding: 0;
-    margin-top: 20px;
     color: #9ca3af;
-    transition: width 0.15s ease, opacity 0.1s ease;
+    transition: width 0.15s ease, opacity 0.2s ease;
 }
 
 .search-toggle {
@@ -1198,7 +1216,7 @@ body.has-error::before {
     display: none;
 }
 
-.search-bar.expanded {
+.search-area:has(.search-bar.expanded) {
     width: 75% !important;
 }
 
@@ -1228,7 +1246,7 @@ body.has-error::before {
     gap: 0;
     z-index: 1;
     pointer-events: none;
-    transition: opacity 0.1s ease;
+    transition: opacity 0.2s ease;
 }
 
 .filter-tweak-btn {
@@ -1495,6 +1513,56 @@ body.has-error::before {
     font-family: 'Cascadia Code', monospace;
 }
 
+.card-checkbox {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    border: 2px solid #9ca3af;
+    border-radius: 4px;
+    background: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.card-checkbox.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.card-checkbox.checked {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+
+.card-checkbox svg {
+    display: none;
+}
+
+.card-checkbox.checked svg {
+    display: block;
+}
+
+.service-card.selected {
+    border-color: #2563eb;
+}
+
+body.checkbox-active .search-bar,
+body.checkbox-active .filter-tweak,
+body.checkbox-active .sort-decoration,
+body.checkbox-active .service-card .card-btn,
+body.checkbox-active .service-card .card-btn-blue {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 .search-bar.expanded-vertical .filter-select {
     font-family: 'Cascadia Code', monospace !important;
 }
@@ -1574,5 +1642,46 @@ body.has-error::before {
     right: auto;
     top: auto;
     bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+}
+
+.checkbox-actions {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity 0.15s ease;
+}
+
+.checkbox-actions .card-btn {
+    flex: 1;
+    height: 46px;
+    border-radius: 999px;
+    width: auto;
+}
+
+.checkbox-actions .card-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+body.checkbox-visible .checkbox-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.15s ease 0.2s;
+}
+
+.checkbox-actions .card-btn-red:hover::after,
+.checkbox-actions .card-btn-yellow:hover::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: calc(100% + 8px);
     transform: translateX(-50%);
 }
