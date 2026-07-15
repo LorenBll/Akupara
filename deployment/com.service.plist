@@ -4,16 +4,16 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.porthandler</string>
+    <string>com.servicehandler</string>
     
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/PortHandler/.venv/bin/python</string>
-        <string>/path/to/PortHandler/src/main.py</string>
+        <string>/path/to/ServiceHandler/.venv/bin/python</string>
+        <string>/path/to/ServiceHandler/src/main.py</string>
     </array>
     
     <key>WorkingDirectory</key>
-    <string>/path/to/PortHandler</string>
+    <string>/path/to/ServiceHandler</string>
     
     <key>RunAtLoad</key>
     <true/>
@@ -22,9 +22,9 @@
     <true/>
     
     <key>StandardOutPath</key>
-    <string>/tmp/porthandler.log</string>
+    <string>/tmp/servicehandler.log</string>
     
     <key>StandardErrorPath</key>
-    <string>/tmp/porthandler.error.log</string>
+    <string>/tmp/servicehandler.error.log</string>
 </dict>
 </plist>

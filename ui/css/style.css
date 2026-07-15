@@ -117,7 +117,7 @@ body.has-error::before {
     cursor: pointer;
     font-family: inherit;
     font-size: inherit;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.2s ease 0.3s;
 }
 
 .sort-decoration-icons {
@@ -714,7 +714,7 @@ body.has-error::before {
 }
 
 .card-buttons .card-btn {
-    transition: flex-grow 0.12s ease, border-radius 0.12s ease, padding 0.12s ease, opacity 0.12s ease;
+    transition: flex-grow 0.12s ease, border-radius 0.12s ease, padding 0.12s ease, opacity 0.15s ease;
 }
 
 .card-buttons .card-btn svg {
@@ -991,6 +991,7 @@ body.has-error::before {
 .card-btn-blue {
     background: #dbeafe;
     color: #2563eb;
+    transition: opacity 0.15s ease;
 }
 
 .card-btn-blue svg {
@@ -1109,7 +1110,7 @@ body.has-error::before {
     background: #f9fafb;
     padding: 0;
     color: #9ca3af;
-    transition: width 0.15s ease, opacity 0.2s ease;
+    transition: width 0.15s ease, opacity 0.2s ease 0.3s;
 }
 
 .search-toggle {
@@ -1554,13 +1555,11 @@ body.has-error::before {
     border-color: #2563eb;
 }
 
-body.checkbox-active .search-bar,
-body.checkbox-active .filter-tweak,
-body.checkbox-active .sort-decoration,
 body.checkbox-active .service-card .card-btn,
 body.checkbox-active .service-card .card-btn-blue {
     opacity: 0 !important;
     pointer-events: none !important;
+    transition: opacity 0.15s ease !important;
 }
 
 .search-bar.expanded-vertical .filter-select {
@@ -1647,7 +1646,7 @@ body.checkbox-active .service-card .card-btn-blue {
 
 .checkbox-actions {
     position: absolute;
-    top: 0;
+    bottom: calc(100% + 10px);
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -1655,7 +1654,7 @@ body.checkbox-active .service-card .card-btn-blue {
     gap: 10px;
     opacity: 0;
     pointer-events: none;
-    z-index: 1;
+    z-index: 99999;
     transition: opacity 0.15s ease;
 }
 
@@ -1685,3 +1684,4 @@ body.checkbox-visible .checkbox-actions {
     bottom: calc(100% + 8px);
     transform: translateX(-50%);
 }
+

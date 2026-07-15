@@ -1,4 +1,4 @@
-"""PortHandler - Web Service Registry."""
+"""ServiceHandler - Web Service Registry."""
 
 from __future__ import annotations
 
@@ -538,7 +538,7 @@ def health():
     return _success_response(
         {
             "status": "ok",
-            "service": "PortHandler",
+            "service": "ServiceHandler",
             "bind_address": SERVICE_HOST,
             "port": SERVICE_PORT,
             "pid": os.getpid(),
@@ -1374,7 +1374,7 @@ if __name__ == "__main__":
 
     try:
         logger.info("=" * 50)
-        logger.info("  PortHandler - Web Service Registry")
+        logger.info("  ServiceHandler - Web Service Registry")
         logger.info("=" * 50)
         logger.info(f"Binding to: http://{SERVICE_HOST}:{SERVICE_PORT}")
         logger.info(f"Clients registered in memory: {len(REGISTERED_CLIENTS)}")

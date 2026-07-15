@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Start PortHandler.
+# Start ServiceHandler.
 
 set -euo pipefail
 
@@ -45,6 +45,6 @@ python -m pip install --quiet --upgrade pip
 python -m pip install --quiet -r requirements.txt
 [ $VERBOSE -eq 1 ] && echo "Dependencies installed."
 
-# Start PortHandler.
-[ $VERBOSE -eq 1 ] && echo "" && echo "PortHandler starting..." && echo ""
+# Start ServiceHandler.
+[ $VERBOSE -eq 1 ] && echo "" && echo "ServiceHandler starting..." && echo ""
 python src/main.py

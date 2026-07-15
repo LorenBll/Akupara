@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM Start PortHandler.
+REM Start ServiceHandler.
 
 set VERBOSE=0
 if "%1"=="--verbose" (
@@ -85,15 +85,15 @@ python -m pip install --quiet --upgrade pip >nul 2>&1
 python -m pip install --quiet -r requirements.txt >nul 2>&1
 if %VERBOSE% equ 1 echo Dependencies installed.
 
-REM Start PortHandler.
+REM Start ServiceHandler.
 if %VERBOSE% equ 1 (
   echo.
-  echo PortHandler starting...
+  echo ServiceHandler starting...
   echo.
   "%PYTHON_EXE%" src/main.py
 ) else (
   start "" /B "%PYTHON_EXE%" src/main.py >nul 2>&1
-  echo PortHandler started in background. Run 'run.bat --verbose' to see output.
+  echo ServiceHandler started in background. Run 'run.bat --verbose' to see output.
 )
 
 popd

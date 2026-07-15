@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM Set up PortHandler on Windows.
+REM Set up ServiceHandler on Windows.
 
 echo.
-echo PortHandler - Windows Setup
+echo ServiceHandler - Windows Setup
 echo.
 
 cd /d "%~dp0.."
@@ -104,14 +104,14 @@ echo Dependencies installed.
 echo.
 echo Checking configuration...
 if not exist "resources\configuration.json" (
-  echo WARNING: Create resources\configuration.json before running PortHandler.
+  echo WARNING: Create resources\configuration.json before running ServiceHandler.
 ) else (
   echo Configuration file found.
 )
 
 echo.
 echo ===============================================
-echo   PortHandler Setup Complete
+echo   ServiceHandler Setup Complete
 echo ===============================================
 echo.
 echo Next: scripts\run.bat

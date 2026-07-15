@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PortHandler</title>
+    <title>ServiceHandler</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
     <div class="page">
         <div class="hero">
-            <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/PortHandler" target="_blank" class="title-link">PortHandler</a></h1>
+            <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/ServiceHandler" target="_blank" class="title-link">ServiceHandler</a></h1>
             <div class="pill-row">
                 <div class="pill init-hidden" id="pill">
                     <div class="pill-item"><span class="pill-label">bind address</span><span class="pill-value">--</span></div>
@@ -18,7 +18,7 @@
                     <div class="pill-item"><span class="pill-label">status</span><span class="pill-value">--</span></div>
                     <div class="pill-item"><span class="pill-label">registered clients</span><span class="pill-value">--</span></div>
                 </div>
-                <button class="health-decoration shutdown-btn init-hidden" data-label="Shut Down PortHandler">
+                <button class="health-decoration shutdown-btn init-hidden" data-label="Shut Down ServiceHandler">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
                 </button>
             </div>
@@ -1803,17 +1803,14 @@
             }
             var btn = e.target.closest('.card-btn-blue');
             if (!btn) {
-                var hasAnySelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
-                if (hasAnySelection) {
-                    var clickedCard = e.target.closest('.service-card');
-                    if (clickedCard) {
-                        var h = clickedCard.getAttribute('data-hash');
-                        if (h) {
-                            _selectedCardHashes[h] = !_selectedCardHashes[h];
-                            if (!_selectedCardHashes[h]) delete _selectedCardHashes[h];
-                            _checkboxVisible = true;
-                            _syncCheckboxUI();
-                        }
+                var clickedCard = e.target.closest('.service-card');
+                if (clickedCard) {
+                    var h = clickedCard.getAttribute('data-hash');
+                    if (h) {
+                        _selectedCardHashes[h] = !_selectedCardHashes[h];
+                        if (!_selectedCardHashes[h]) delete _selectedCardHashes[h];
+                        _checkboxVisible = true;
+                        _syncCheckboxUI();
                     }
                 }
                 return;

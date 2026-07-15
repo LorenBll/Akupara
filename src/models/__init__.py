@@ -1,4 +1,4 @@
-"""Model classes for PortHandler."""
+"""Model classes for ServiceHandler."""
 
 from .get_request import GetRequest
 from .get_response import GetResponse

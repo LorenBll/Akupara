@@ -1,14 +1,14 @@
 # systemd unit for the service. Update user and paths before installation.
 
 [Unit]
-Description=PortHandler
+Description=ServiceHandler
 After=network.target
 
 [Service]
 Type=simple
 User=yourusername
-WorkingDirectory=/path/to/PortHandler
-ExecStart=/path/to/PortHandler/.venv/bin/python src/main.py
+WorkingDirectory=/path/to/ServiceHandler
+ExecStart=/path/to/ServiceHandler/.venv/bin/python src/main.py
 Restart=always
 RestartSec=10
 

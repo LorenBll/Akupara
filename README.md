@@ -1,9 +1,9 @@
-# PortHandler
+# ServiceHandler
 
-PortHandler is a local web service registry with a web UI. It solves the problem of registering named services on the local machine so clients can look up each other by name, port, and metadata through a small HTTP API.
+ServiceHandler is a local web service registry with a web UI. It solves the problem of registering named services on the local machine so clients can look up each other by name, port, and metadata through a small HTTP API.
 
 ## About
-PortHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time PortHandler starts. A background health-check thread pings registered clients every 15 seconds and removes unreachable ones.
+ServiceHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time ServiceHandler starts. A background health-check thread pings registered clients every 15 seconds and removes unreachable ones.
 
 The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking the sort order and group-by of columns, a health-check button, an accuracy slider for fuzzy search threshold, and checkbox-based batch selection for bulk actions.
 
@@ -20,7 +20,7 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 - **Keyboard shortcuts** — search auto-focused on load. Escape clears checkbox selection, closes expanded card, sort menu, or filter menu. Tab navigates filter inputs in column-major order.
 - **Accuracy slider** — adjustable fuzzy matching threshold (0-100%, default 30%). Persisted across restarts alongside sort settings.
 
-> **Safety notice**: PortHandler is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
+> **Safety notice**: ServiceHandler is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
 
 ## Setup
 1. Install Python dependencies: `pip install -r requirements.txt`.
@@ -29,7 +29,7 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 
 ### API Key Encryption Setup (Optional)
 
-PortHandler can encrypt stored API keys using the [Cipher](https://github.com/LorenBll/Cipher) and [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier) services. To enable:
+ServiceHandler can encrypt stored API keys using the [Cipher](https://github.com/LorenBll/Cipher) and [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier) services. To enable:
 
 1. **Set the encryption key path** in `resources/configuration.json`:
    ```json
@@ -39,9 +39,9 @@ PortHandler can encrypt stored API keys using the [Cipher](https://github.com/Lo
    - The path after the disk ID is relative to the disk root returned by [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier).
    - If left empty (`""`), API key registration is disabled.
 
-2. Ensure **[DiskIdentifier](https://github.com/LorenBll/DiskIdentifier)** and **[Cipher](https://github.com/LorenBll/Cipher)** services are running and registered with PortHandler before making any API key requests. These services are discovered automatically from the registered clients list.
+2. Ensure **[DiskIdentifier](https://github.com/LorenBll/DiskIdentifier)** and **[Cipher](https://github.com/LorenBll/Cipher)** services are running and registered with ServiceHandler before making any API key requests. These services are discovered automatically from the registered clients list.
 
-3. When a valid key path is configured and both services are available, PortHandler decrypts `resources/api_keys.json` on session initialization, stores the keys in memory, and re-encrypts the file. On each key grant, the file is updated with the new key and re-encrypted.
+3. When a valid key path is configured and both services are available, ServiceHandler decrypts `resources/api_keys.json` on session initialization, stores the keys in memory, and re-encrypts the file. On each key grant, the file is updated with the new key and re-encrypted.
 
 ## Run
 1. Windows: run `scripts\run.bat`.
@@ -90,7 +90,7 @@ Serves static CSS files from the `ui/css/` directory.
 	- `404` -> HTML error page
 
 ### `POST /api/register` (also `HEAD`, `OPTIONS`)
-Registers a new client service and returns a SHA-256 hash. Before registering, PortHandler probes the new client's health endpoint (`/api/health`) to confirm it is reachable.
+Registers a new client service and returns a SHA-256 hash. Before registering, ServiceHandler probes the new client's health endpoint (`/api/health`) to confirm it is reachable.
 
 - Body (JSON object):
 	- `name` (string, required): name for the client service.
@@ -100,7 +100,7 @@ Registers a new client service and returns a SHA-256 hash. Before registering, P
 	- `hostname` (string, required): hostname of the client machine.
 	- `starting_script` (string, optional): path to the client's startup script.
 
-	If a client with the same `name` is already registered, PortHandler checks whether that existing client is still alive. If it is, registration is rejected. If it is not, the stale registration is replaced.
+	If a client with the same `name` is already registered, ServiceHandler checks whether that existing client is still alive. If it is, registration is rejected. If it is not, the stale registration is replaced.
 
 	The recommended value for `starting_script` is the OS-appropriate run script — `scripts/run.bat` on Windows or `scripts/run.sh` on Unix — not the `main.py` file directly.
 
@@ -178,7 +178,7 @@ Service health check with registration statistics.
 		```json
 		{
 			"status": "ok",
-			"service": "PortHandler",
+			"service": "ServiceHandler",
 			"bind_address": "127.0.0.1",
 			"port": 49155,
 			"pid": 12345,
@@ -391,7 +391,7 @@ Checks the health of a specific client by hash, or all registered clients if no 
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/shutdown` (also `HEAD`, `OPTIONS`)
-Shuts down the PortHandler service. A valid API key is required.
+Shuts down the ServiceHandler service. A valid API key is required.
 
 - Body (JSON object):
 	- `api_key` (string, required): API key to authenticate the request.
