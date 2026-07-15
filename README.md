@@ -503,6 +503,9 @@ Rejects a pending API key request and notifies the requesting service. Only acce
 
 ![Dashboard screenshot](docs/images/screenshot.png)
 
+## Support
+- Open an issue on [GitHub](https://github.com/LorenBll/ServiceHandler/issues) for bug reports, feature requests, or help.
+
 ## License
 - [LICENSE](LICENSE)
 
