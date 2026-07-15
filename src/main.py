@@ -1342,7 +1342,7 @@ def shutdown():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    if not _is_authorized(payload):
         return _error_response("API key is not valid.", 403)
 
     environ = request.environ
