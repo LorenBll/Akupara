@@ -176,6 +176,17 @@ def _check_authorization(payload):
     return (_is_localhost_request(), False)
 
 
+def _check_authorization_all(payload):
+    """Returns (is_allowed, has_invalid_key) tuple.
+    is_allowed: True if valid API key, localhost, or self-service (hash + IP match).
+    has_invalid_key: True if an api_key was provided but didn't match.
+    """
+    allowed, invalid_key = _check_authorization(payload)
+    if allowed or invalid_key:
+        return allowed, invalid_key
+    return (_is_self_request(payload), False)
+
+
 def _initialize_service_config() -> None:
     global SERVICE_HOST, SERVICE_PORT
     global API_KEY_STORE_KEY_PATH
@@ -502,7 +513,10 @@ def unregister():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    allowed, invalid_key = _check_authorization_all(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -554,8 +568,10 @@ def health_check():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    authorized, invalid_key = _check_authorization(payload)
+    allowed, invalid_key = _check_authorization_all(payload)
     if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -804,10 +820,10 @@ def terminate():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    authorized, invalid_key = _check_authorization(payload)
+    allowed, invalid_key = _check_authorization_all(payload)
     if invalid_key:
         return _error_response("API key is not valid.", 403)
-    if not authorized and not _is_self_request(payload):
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -849,10 +865,10 @@ def restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    authorized, invalid_key = _check_authorization(payload)
+    allowed, invalid_key = _check_authorization_all(payload)
     if invalid_key:
         return _error_response("API key is not valid.", 403)
-    if not authorized and not _is_self_request(payload):
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -926,10 +942,10 @@ def broken_forget():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    authorized, invalid_key = _check_authorization(payload)
+    allowed, invalid_key = _check_authorization_all(payload)
     if invalid_key:
         return _error_response("API key is not valid.", 403)
-    if not authorized:
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -967,10 +983,10 @@ def broken_restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    authorized, invalid_key = _check_authorization(payload)
+    allowed, invalid_key = _check_authorization_all(payload)
     if invalid_key:
         return _error_response("API key is not valid.", 403)
-    if not authorized:
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
