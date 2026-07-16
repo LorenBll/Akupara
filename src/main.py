@@ -49,7 +49,45 @@ API_KEY_SESSION_READY: bool = False
 HEALTH_CHECK_INTERVAL_SECONDS = 15
 
 
+class _SimpleCache:
+    def __init__(self, default_ttl: float = 30.0):
+        self._data: dict[str, tuple[float, object]] = {}
+        self._lock = _threading.Lock()
+        self._default_ttl = default_ttl
+
+    def get(self, key: str) -> object | None:
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return None
+            expires_at, value = entry
+            if time.monotonic() > expires_at:
+                del self._data[key]
+                return None
+            return value
+
+    def set(self, key: str, value: object, ttl: float | None = None) -> None:
+        expires_at = time.monotonic() + (ttl if ttl is not None else self._default_ttl)
+        with self._lock:
+            self._data[key] = (expires_at, value)
+
+    def invalidate(self, key: str) -> None:
+        with self._lock:
+            self._data.pop(key, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+
+_CONFIG_CACHE = _SimpleCache(default_ttl=300.0)
+_HEALTH_CACHE = _SimpleCache(default_ttl=7.5)
+
+
 def _load_configuration() -> dict:
+    cached = _CONFIG_CACHE.get("config")
+    if cached is not None:
+        return cached
     script_dir = Path(__file__).parent
     config_path = script_dir.parent / "resources" / "configuration.json"
     if not config_path.exists():
@@ -69,6 +107,7 @@ def _load_configuration() -> dict:
             f"Failed to read configuration file at {config_path}: {exc}"
         ) from exc
 
+    _CONFIG_CACHE.set("config", config)
     return config
 
 
@@ -220,6 +259,10 @@ def _resolve_service(name: str, default_host: str, default_port: int) -> tuple[s
 
 
 def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
+    cache_key = f"health:{ip}:{port}"
+    cached = _HEALTH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError:
@@ -232,8 +275,11 @@ def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
     try:
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status == 200
+            result = resp.status == 200
+            _HEALTH_CACHE.set(cache_key, result)
+            return result
     except (urllib.error.URLError, OSError, ValueError):
+        _HEALTH_CACHE.set(cache_key, False)
         return False
 
 
@@ -797,6 +843,7 @@ def sort_order():
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
+        _CONFIG_CACHE.invalidate("config")
     except Exception:
         return _error_response("Failed to write configuration.", 500)
 
