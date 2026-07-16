@@ -604,31 +604,6 @@ body.has-error::before {
     background: #d1d5db;
 }
 
-.expand-endpoints-section {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding-top: 4px;
-}
-
-.expand-endpoint-pill {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    border-radius: 999px;
-    background-color: rgba(0, 0, 0, 0.02);
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    animation: expandFadeIn 0.15s ease both;
-    cursor: pointer;
-    transition: background-color 0.12s ease;
-}
-
-.expand-endpoint-pill:hover {
-    background-color: rgba(99, 102, 241, 0.06);
-    border-color: rgba(99, 102, 241, 0.15);
-}
-
 .expand-endpoint-verb {
     font-size: 0.65rem;
     font-weight: 700;
@@ -658,83 +633,35 @@ body.has-error::before {
     white-space: nowrap;
 }
 
-.card-expanded-content > .expand-info-row,
-.card-expanded-content > .expand-separator {
-    max-height: 300px;
-    opacity: 1;
-    overflow: hidden;
-    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease, margin 0.25s ease;
-}
-
-.card-expanded-content .expand-endpoint-pill {
-    max-height: 300px;
-    opacity: 1;
-    overflow: hidden;
-    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease, margin 0.25s ease, flex-grow 0.25s ease, border-radius 0.25s ease;
-}
-
-.card-expanded-content.endpoint-detail-active::before {
-    display: none !important;
-}
-
-.card-expanded-content.endpoint-detail-active {
-    gap: 0 !important;
-}
-
-.card-expanded-content.endpoint-detail-active > .expand-info-row,
-.card-expanded-content.endpoint-detail-active > .expand-separator {
-    max-height: 0 !important;
-    opacity: 0 !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    pointer-events: none !important;
-}
-
-.expand-endpoint-pill.ep-hidden {
-    max-height: 0 !important;
-    opacity: 0 !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    pointer-events: none !important;
-}
-
-.card-expanded-content.endpoint-detail-active > .expand-endpoints-section {
-    flex-grow: 1;
+.expand-endpoints-section {
     display: flex;
     flex-direction: column;
-    padding-top: 0;
+    gap: 6px;
+    padding-top: 6px;
 }
 
-.expand-endpoint-pill.active {
-    flex-grow: 1;
-    max-height: none;
+.expand-endpoint-card {
     display: flex;
     flex-direction: column;
-    align-items: stretch;
     border-radius: 12px;
-    pointer-events: none;
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    background-color: rgba(0, 0, 0, 0.02);
+    padding: 10px 16px;
+    gap: 8px;
+    animation: expandFadeIn 0.15s ease both;
 }
 
-.expand-endpoint-detail-header {
+.expand-endpoint-card-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-shrink: 0;
 }
 
-.expand-endpoint-detail-body {
-    flex-grow: 1;
-    min-height: 0;
-    overflow-y: auto;
+.expand-endpoint-card-body {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding-top: 8px;
-    transition: opacity 0.2s ease;
+    gap: 6px;
+    padding-top: 2px;
 }
 
 .expand-endpoint-section {

@@ -643,8 +643,6 @@
             var excluded = ['service', 'bind_address', 'hostname', 'port', 'pid'];
             var container = card.querySelector('.card-expanded-content');
             if (!container) return;
-            container.classList.remove('endpoint-detail-active');
-            container.removeAttribute('data-original-html');
             container.innerHTML = '';
             var items = [];
             Object.keys(healthData).forEach(function(k) {
@@ -665,15 +663,10 @@
                     var epHtml = '';
                     epHtml += '<div class="expand-endpoints-section">';
                     endpoints.forEach(function(ep) {
-                        epHtml += '<div class="expand-endpoint-pill" data-endpoint="' + encodeURIComponent(JSON.stringify(ep)) + '">' +
-                            '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
-                            '<span class="expand-endpoint-path">' + ep.path + '</span>' +
-                            '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
-                            '</div>';
+                        epHtml += buildEndpointCard(ep);
                     });
                     epHtml += '</div>';
                     container.innerHTML = epHtml;
-                    setupEndpointClicks(container);
                 } else {
                     container.innerHTML = '<div class="expand-empty">No Other Information to Display</div>';
                 }
@@ -716,103 +709,43 @@
             if (endpoints && endpoints.length) {
                 html += '<div class="expand-endpoints-section">';
                 endpoints.forEach(function(ep) {
-                    html += '<div class="expand-endpoint-pill" data-endpoint="' + encodeURIComponent(JSON.stringify(ep)) + '">' +
-                        '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
-                        '<span class="expand-endpoint-path">' + ep.path + '</span>' +
-                        '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
-                        '</div>';
+                    html += buildEndpointCard(ep);
                 });
                 html += '</div>';
             }
             container.innerHTML = html;
-            setupEndpointClicks(container);
         }
 
-        function setupEndpointClicks(container) {
-            container.onclick = function(e) {
-                if (container.classList.contains('endpoint-detail-active')) return;
-                var pill = e.target.closest('.expand-endpoint-pill');
-                if (pill && pill.getAttribute('data-endpoint')) {
-                    e.stopPropagation();
-                    activateEndpointDetail(container, pill);
+        function buildEndpointCard(ep) {
+            var cardHtml = '<div class="expand-endpoint-card">' +
+                '<div class="expand-endpoint-card-header">' +
+                '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
+                '<span class="expand-endpoint-path">' + ep.path + '</span>' +
+                '<span class="expand-endpoint-desc">' + (ep.description || '') + '</span>' +
+                '</div>';
+            var hasVars = ep.path_variables && ep.path_variables.length;
+            var hasSchema = ep.body_schema && Object.keys(ep.body_schema).length;
+            if (hasVars || hasSchema) {
+                cardHtml += '<div class="expand-endpoint-card-body">';
+                if (hasVars) {
+                    cardHtml += '<div class="expand-endpoint-section">' +
+                        '<div class="expand-endpoint-section-title">Path Variables</div>' +
+                        '<div class="expand-endpoint-section-content">';
+                    ep.path_variables.forEach(function(v) {
+                        cardHtml += '<div class="expand-endpoint-var-item">' + (typeof v === 'object' ? JSON.stringify(v) : String(v)) + '</div>';
+                    });
+                    cardHtml += '</div></div>';
                 }
-            };
-        }
-
-        function activateEndpointDetail(container, pill) {
-            var epData = JSON.parse(decodeURIComponent(pill.getAttribute('data-endpoint')));
-            pill.setAttribute('data-original-html', pill.innerHTML);
-            var verbEl = pill.querySelector('.expand-endpoint-verb');
-            var pathEl = pill.querySelector('.expand-endpoint-path');
-            var descEl = pill.querySelector('.expand-endpoint-desc');
-            var header = document.createElement('div');
-            header.className = 'expand-endpoint-detail-header';
-            if (verbEl) header.appendChild(verbEl);
-            if (pathEl) header.appendChild(pathEl);
-            if (descEl) header.appendChild(descEl);
-            pill.insertBefore(header, pill.firstChild);
-            var bodyHtml = '<div class="expand-endpoint-detail-body" style="opacity:0;">';
-            if (epData.path_variables && epData.path_variables.length) {
-                bodyHtml += '<div class="expand-endpoint-section">' +
-                    '<div class="expand-endpoint-section-title">Path Variables</div>' +
-                    '<div class="expand-endpoint-section-content">';
-                epData.path_variables.forEach(function(v) {
-                    bodyHtml += '<div class="expand-endpoint-var-item">' + (typeof v === 'object' ? JSON.stringify(v) : String(v)) + '</div>';
-                });
-                bodyHtml += '</div></div>';
+                if (hasSchema) {
+                    cardHtml += '<div class="expand-endpoint-section">' +
+                        '<div class="expand-endpoint-section-title">Body Schema</div>' +
+                        '<pre class="expand-endpoint-section-content expand-endpoint-schema">' + JSON.stringify(ep.body_schema, null, 2) + '</pre>' +
+                        '</div>';
+                }
+                cardHtml += '</div>';
             }
-            if (epData.body_schema && Object.keys(epData.body_schema).length) {
-                bodyHtml += '<div class="expand-endpoint-section">' +
-                    '<div class="expand-endpoint-section-title">Body Schema</div>' +
-                    '<pre class="expand-endpoint-section-content expand-endpoint-schema">' + JSON.stringify(epData.body_schema, null, 2) + '</pre>' +
-                    '</div>';
-            }
-            bodyHtml += '</div>';
-            pill.insertAdjacentHTML('beforeend', bodyHtml);
-            var section = container.querySelector('.expand-endpoints-section');
-            if (section) {
-                var pills = section.querySelectorAll('.expand-endpoint-pill');
-                pills.forEach(function(p) {
-                    if (p !== pill) p.classList.add('ep-hidden');
-                });
-            }
-            container.classList.add('endpoint-detail-active');
-            setTimeout(function() {
-                pill.classList.add('active');
-                setTimeout(function() {
-                    var body = pill.querySelector('.expand-endpoint-detail-body');
-                    if (body) body.style.opacity = '1';
-                }, 150);
-            }, 400);
-        }
-
-        function deactivateEndpointDetail(container) {
-            var activePill = container.querySelector('.expand-endpoint-pill.active');
-            if (activePill) {
-                var body = activePill.querySelector('.expand-endpoint-detail-body');
-                if (body) body.style.opacity = '0';
-                setTimeout(function() {
-                    activePill.classList.remove('active');
-                    var orig = activePill.getAttribute('data-original-html');
-                    if (orig) {
-                        activePill.removeAttribute('data-original-html');
-                        activePill.innerHTML = orig;
-                    }
-                    setTimeout(function() {
-                        var section = container.querySelector('.expand-endpoints-section');
-                        if (section) {
-                            var pills = section.querySelectorAll('.expand-endpoint-pill');
-                            pills.forEach(function(p) { p.classList.remove('ep-hidden'); });
-                        }
-                        container.classList.remove('endpoint-detail-active');
-                    }, 400);
-                }, 150);
-            }
-        }
-
-        function isEndpointDetailActive() {
-            var cont = document.querySelector('.card-expanded-content.endpoint-detail-active');
-            return !!cont;
+            cardHtml += '</div>';
+            return cardHtml;
         }
 
         function updateCardButtonLabels(card) {
@@ -1266,19 +1199,7 @@
         document.addEventListener('click', function(e) {
             var expandedCard = document.querySelector('.service-card.expanded');
             if (expandedCard) {
-                var contentArea = expandedCard.querySelector('.card-expanded-content');
-                var isOutsideContent = contentArea && !e.target.closest('.card-expanded-content');
-                var isOutsideCard = !e.target.closest('.service-card.expanded') && !e.target.closest('.health-decoration');
-                if (isEndpointDetailActive() && isOutsideContent) {
-                    deactivateEndpointDetail(document.querySelector('.card-expanded-content.endpoint-detail-active'));
-                    if (isOutsideCard) {
-                        setTimeout(function() {
-                            collapseExpandedCard(expandedCard, document.getElementById('content'), false);
-                        }, 200);
-                    }
-                    return;
-                }
-                if (isOutsideCard) {
+                if (!e.target.closest('.service-card.expanded') && !e.target.closest('.health-decoration')) {
                     collapseExpandedCard(expandedCard, document.getElementById('content'), false);
                 }
             }
@@ -1600,7 +1521,7 @@
                             if (searchInput) searchInput.disabled = false;
                             document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
                             var ec = card.querySelector('.card-expanded-content');
-                            if (ec) { ec.innerHTML = ''; ec.classList.remove('endpoint-detail-active'); ec.removeAttribute('data-original-html'); }
+                            if (ec) ec.innerHTML = '';
                             document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
                             updateBrokenButtons();
                             filterCards();
@@ -1624,7 +1545,7 @@
                 var p = content.querySelector('.expand-placeholder');
                 if (p) p.remove();
                 var ec = card.querySelector('.card-expanded-content');
-                if (ec) { ec.innerHTML = ''; ec.classList.remove('endpoint-detail-active'); ec.removeAttribute('data-original-html'); }
+                if (ec) ec.innerHTML = '';
                 document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
                 card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons');
                 updateBrokenButtons();
@@ -2206,16 +2127,11 @@
                                             if (endpointsData.length) {
                                                 epHtml += '<div class="expand-endpoints-section">';
                                                 endpointsData.forEach(function(ep) {
-                                                    epHtml += '<div class="expand-endpoint-pill" data-endpoint="' + encodeURIComponent(JSON.stringify(ep)) + '">' +
-                                                        '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
-                                                        '<span class="expand-endpoint-path">' + ep.path + '</span>' +
-                                                        '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
-                                                        '</div>';
+                                                    epHtml += buildEndpointCard(ep);
                                                 });
                                                 epHtml += '</div>';
                                             }
                                             container.innerHTML = '<div class="expand-empty expand-error">' + cardName + ' Health Fetch Failed</div>' + epHtml;
-                                            setupEndpointClicks(container);
                                             card.classList.add('service-card-unhealthy');
                                             updateCardButtonLabels(card);
                                         }
@@ -2516,11 +2432,6 @@
                 var hasCheckboxSelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
                 if (hasCheckboxSelection) {
                     _clearCheckboxSelection();
-                    return;
-                }
-                if (isEndpointDetailActive()) {
-                    var cont = document.querySelector('.card-expanded-content.endpoint-detail-active');
-                    if (cont) deactivateEndpointDetail(cont);
                     return;
                 }
                 var isInput = e.target.matches('input, select, textarea');
