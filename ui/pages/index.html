@@ -663,7 +663,7 @@
                     var epHtml = '';
                     epHtml += '<div class="expand-endpoints-section">';
                     endpoints.forEach(function(ep) {
-                        epHtml += '<div class="expand-endpoint-pill">' +
+                        epHtml += '<div class="expand-endpoint-pill" data-endpoint="' + encodeURIComponent(JSON.stringify(ep)) + '">' +
                             '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
                             '<span class="expand-endpoint-path">' + ep.path + '</span>' +
                             '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
@@ -671,6 +671,7 @@
                     });
                     epHtml += '</div>';
                     container.innerHTML = epHtml;
+                    setupEndpointClicks(container);
                 } else {
                     container.innerHTML = '<div class="expand-empty">No Other Information to Display</div>';
                 }
@@ -713,7 +714,7 @@
             if (endpoints && endpoints.length) {
                 html += '<div class="expand-endpoints-section">';
                 endpoints.forEach(function(ep) {
-                    html += '<div class="expand-endpoint-pill">' +
+                    html += '<div class="expand-endpoint-pill" data-endpoint="' + encodeURIComponent(JSON.stringify(ep)) + '">' +
                         '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
                         '<span class="expand-endpoint-path">' + ep.path + '</span>' +
                         '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
@@ -721,6 +722,56 @@
                 });
                 html += '</div>';
             }
+            container.innerHTML = html;
+            setupEndpointClicks(container);
+        }
+
+        function setupEndpointClicks(container) {
+            container.onclick = function(e) {
+                var backBtn = e.target.closest('[data-action="endpoint-back"]');
+                if (backBtn) {
+                    var orig = container.getAttribute('data-original-html');
+                    if (orig) {
+                        container.removeAttribute('data-original-html');
+                        container.innerHTML = orig;
+                        setupEndpointClicks(container);
+                    }
+                    return;
+                }
+                var pill = e.target.closest('.expand-endpoint-pill');
+                if (pill && pill.getAttribute('data-endpoint')) {
+                    showEndpointDetail(container, pill);
+                }
+            };
+        }
+
+        function showEndpointDetail(container, pill) {
+            container.setAttribute('data-original-html', container.innerHTML);
+            var epData = JSON.parse(decodeURIComponent(pill.getAttribute('data-endpoint')));
+            var html = '<div class="expand-endpoint-detail">';
+            html += '<div class="expand-endpoint-detail-header">' +
+                '<span class="expand-endpoint-verb">' + epData.verb + '</span>' +
+                '<span class="expand-endpoint-path">' + epData.path + '</span>' +
+                '<span class="expand-endpoint-desc">' + (epData.description || '') + '</span>' +
+                '<button class="expand-endpoint-back" data-action="endpoint-back">Back</button>' +
+                '</div>';
+            html += '<div class="expand-endpoint-detail-body">';
+            if (epData.path_variables && epData.path_variables.length) {
+                html += '<div class="expand-endpoint-section">' +
+                    '<div class="expand-endpoint-section-title">Path Variables</div>' +
+                    '<div class="expand-endpoint-section-content">';
+                epData.path_variables.forEach(function(v) {
+                    html += '<div class="expand-endpoint-var-item">' + (typeof v === 'object' ? JSON.stringify(v) : String(v)) + '</div>';
+                });
+                html += '</div></div>';
+            }
+            if (epData.body_schema && Object.keys(epData.body_schema).length) {
+                html += '<div class="expand-endpoint-section">' +
+                    '<div class="expand-endpoint-section-title">Body Schema</div>' +
+                    '<pre class="expand-endpoint-section-content expand-endpoint-schema">' + JSON.stringify(epData.body_schema, null, 2) + '</pre>' +
+                    '</div>';
+            }
+            html += '</div></div>';
             container.innerHTML = html;
         }
 
@@ -1248,12 +1299,12 @@
                                         }
                                         // FAKE endpoints for UI testing
                                         eps = [
-                                            {verb: 'GET', path: '/api/health', description: 'Check service health status'},
-                                            {verb: 'POST', path: '/api/data/encrypt', description: 'Encrypt the given payload'},
-                                            {verb: 'POST', path: '/api/data/decrypt', description: 'Decrypt the given payload'},
-                                            {verb: 'GET', path: '/api/keys/{id}', description: 'Retrieve a specific key by ID'},
-                                            {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store'},
-                                            {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration'},
+                                            {verb: 'GET', path: '/api/health', description: 'Check service health status', path_variables: [], body_schema: {}},
+                                            {verb: 'POST', path: '/api/data/encrypt', description: 'Encrypt the given payload', path_variables: [], body_schema: {type: 'object', properties: {data: {type: 'string', description: 'The plaintext to encrypt'}}, required: ['data']}},
+                                            {verb: 'POST', path: '/api/data/decrypt', description: 'Decrypt the given payload', path_variables: [], body_schema: {type: 'object', properties: {data: {type: 'string', description: 'The ciphertext to decrypt'}}, required: ['data']}},
+                                            {verb: 'GET', path: '/api/keys/{id}', description: 'Retrieve a specific key by ID', path_variables: ['id'], body_schema: {}},
+                                            {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store', path_variables: ['id'], body_schema: {}},
+                                            {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration', path_variables: [], body_schema: {}},
                                         ];
                                         populateExpandedContent(expandedCard, hd, eps);
                                     };
@@ -2095,7 +2146,7 @@
                                 function tryPopulate() {
                                     if (healthData !== null && endpointsData !== null) {
                                         populateExpandedContent(card, healthData, endpointsData);
-                                    } else if (healthErr && endpointsData !== null) {
+                                     } else if (healthErr && endpointsData !== null) {
                                         var container = card.querySelector('.card-expanded-content');
                                         if (container) {
                                             container.innerHTML = '';
@@ -2103,7 +2154,7 @@
                                             if (endpointsData.length) {
                                                 epHtml += '<div class="expand-endpoints-section">';
                                                 endpointsData.forEach(function(ep) {
-                                                    epHtml += '<div class="expand-endpoint-pill">' +
+                                                    epHtml += '<div class="expand-endpoint-pill" data-endpoint="' + encodeURIComponent(JSON.stringify(ep)) + '">' +
                                                         '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
                                                         '<span class="expand-endpoint-path">' + ep.path + '</span>' +
                                                         '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
@@ -2112,6 +2163,7 @@
                                                 epHtml += '</div>';
                                             }
                                             container.innerHTML = '<div class="expand-empty expand-error">' + cardName + ' Health Fetch Failed</div>' + epHtml;
+                                            setupEndpointClicks(container);
                                             card.classList.add('service-card-unhealthy');
                                             updateCardButtonLabels(card);
                                         }
@@ -2146,12 +2198,12 @@
                                     } else { endpointsData = []; }
                                     // FAKE endpoints for UI testing
                                     endpointsData = [
-                                        {verb: 'GET', path: '/api/health', description: 'Check service health status'},
-                                        {verb: 'POST', path: '/api/data/encrypt', description: 'Encrypt the given payload'},
-                                        {verb: 'POST', path: '/api/data/decrypt', description: 'Decrypt the given payload'},
-                                        {verb: 'GET', path: '/api/keys/{id}', description: 'Retrieve a specific key by ID'},
-                                        {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store'},
-                                        {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration'},
+                                        {verb: 'GET', path: '/api/health', description: 'Check service health status', path_variables: [], body_schema: {}},
+                                        {verb: 'POST', path: '/api/data/encrypt', description: 'Encrypt the given payload', path_variables: [], body_schema: {type: 'object', properties: {data: {type: 'string', description: 'The plaintext to encrypt'}}, required: ['data']}},
+                                        {verb: 'POST', path: '/api/data/decrypt', description: 'Decrypt the given payload', path_variables: [], body_schema: {type: 'object', properties: {data: {type: 'string', description: 'The ciphertext to decrypt'}}, required: ['data']}},
+                                        {verb: 'GET', path: '/api/keys/{id}', description: 'Retrieve a specific key by ID', path_variables: ['id'], body_schema: {}},
+                                        {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store', path_variables: ['id'], body_schema: {}},
+                                        {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration', path_variables: [], body_schema: {}},
                                     ];
                                     tryPopulate();
                                 };
