@@ -742,6 +742,15 @@
         function activateEndpointDetail(container, pill) {
             var epData = JSON.parse(decodeURIComponent(pill.getAttribute('data-endpoint')));
             pill.setAttribute('data-original-html', pill.innerHTML);
+            var verbEl = pill.querySelector('.expand-endpoint-verb');
+            var pathEl = pill.querySelector('.expand-endpoint-path');
+            var descEl = pill.querySelector('.expand-endpoint-desc');
+            var header = document.createElement('div');
+            header.className = 'expand-endpoint-detail-header';
+            if (verbEl) header.appendChild(verbEl);
+            if (pathEl) header.appendChild(pathEl);
+            if (descEl) header.appendChild(descEl);
+            pill.insertBefore(header, pill.firstChild);
             var bodyHtml = '<div class="expand-endpoint-detail-body" style="opacity:0;">';
             if (epData.path_variables && epData.path_variables.length) {
                 bodyHtml += '<div class="expand-endpoint-section">' +
@@ -765,7 +774,7 @@
             setTimeout(function() {
                 var body = pill.querySelector('.expand-endpoint-detail-body');
                 if (body) body.style.opacity = '1';
-            }, 250);
+            }, 150);
         }
 
         function deactivateEndpointDetail(container) {
@@ -782,8 +791,8 @@
                             activePill.removeAttribute('data-original-html');
                             activePill.innerHTML = orig;
                         }
-                    }, 300);
-                }, 100);
+                    }, 250);
+                }, 150);
             }
         }
 
