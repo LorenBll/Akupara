@@ -243,7 +243,7 @@
                         return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="status"><option value="any">Any</option><option value="operational">Operational</option><option value="api_asker">API Asker</option><option value="broken">Broken</option><option value="protected">Protected</option></select></span>';
                     }
                     if (k === 'protected') {
-                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="protected"><option value="any">Any</option><option value="true">True</option><option value="false">False</option></select></span>';
+                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="protected"><option value="any">Any</option><option value="Protected">Protected</option><option value="Unprotected">Unprotected</option></select></span>';
                     }
                     return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><input type="text" class="filter-input" data-key="' + k + '" placeholder="' + randomExample(k) + '"></span>';
                 }
@@ -351,7 +351,7 @@
                 } else if (key === 'pid') {
                     cv = metaItems[3] ? metaItems[3].textContent : '';
                 } else if (key === 'protected') {
-                    cv = card.getAttribute('data-protected') || 'false';
+                    cv = card.getAttribute('data-protected') === 'true' ? 'Protected' : 'Unprotected';
                 }
                 if (key === 'status' || key === 'protected') {
                     if (fv !== cv) return false;
