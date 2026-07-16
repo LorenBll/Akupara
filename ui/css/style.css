@@ -658,14 +658,48 @@ body.has-error::before {
     white-space: nowrap;
 }
 
-.expand-endpoint-detail {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
+.card-expanded-content > .expand-info-row,
+.card-expanded-content > .expand-separator,
+.card-expanded-content .expand-endpoint-pill {
+    max-height: 300px;
+    opacity: 1;
+    overflow: hidden;
+    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease, margin 0.25s ease, flex-grow 0.25s ease;
 }
 
-.expand-endpoint-detail-header {
-    animation: expandDetailIn 0.2s ease both;
+.card-expanded-content.endpoint-detail-active > .expand-info-row,
+.card-expanded-content.endpoint-detail-active > .expand-separator {
+    max-height: 0 !important;
+    opacity: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    pointer-events: none !important;
+}
+
+.card-expanded-content.endpoint-detail-active .expand-endpoint-pill:not(.active) {
+    max-height: 0 !important;
+    opacity: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    pointer-events: none !important;
+}
+
+.card-expanded-content.endpoint-detail-active > .expand-endpoints-section {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.expand-endpoint-pill.active {
+    flex-grow: 1;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
 }
 
 .expand-endpoint-detail-body {
@@ -676,23 +710,7 @@ body.has-error::before {
     flex-direction: column;
     gap: 8px;
     padding-top: 8px;
-}
-
-.expand-endpoint-detail-body > * {
-    animation: expandFadeIn 0.2s ease both;
-}
-
-.expand-endpoint-detail.endpoint-detail-out .expand-endpoint-detail-header {
-    animation: none;
-    opacity: 0;
-    transform: translateY(12px);
-    transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.expand-endpoint-detail.endpoint-detail-out .expand-endpoint-detail-body > * {
-    animation: none;
-    opacity: 0;
-    transition: opacity 0.1s ease;
+    transition: opacity 0.2s ease;
 }
 
 .expand-endpoint-section {
@@ -737,11 +755,6 @@ body.has-error::before {
 @keyframes expandFadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
-}
-
-@keyframes expandDetailIn {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes slideUpFadeIn {

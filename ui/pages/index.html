@@ -730,12 +730,6 @@
 
         function setupEndpointClicks(container) {
             container.onclick = function(e) {
-                var backBtn = e.target.closest('[data-action="endpoint-back"]');
-                if (backBtn) {
-                    e.stopPropagation();
-                    deactivateEndpointDetail(container);
-                    return;
-                }
                 if (container.classList.contains('endpoint-detail-active')) return;
                 var pill = e.target.closest('.expand-endpoint-pill');
                 if (pill && pill.getAttribute('data-endpoint')) {
@@ -746,50 +740,50 @@
         }
 
         function activateEndpointDetail(container, pill) {
-            container.setAttribute('data-original-html', container.innerHTML);
             var epData = JSON.parse(decodeURIComponent(pill.getAttribute('data-endpoint')));
-            var html = '<div class="expand-endpoint-detail">';
-            html += '<div class="expand-endpoint-detail-header">' +
-                '<span class="expand-endpoint-verb">' + epData.verb + '</span>' +
-                '<span class="expand-endpoint-path">' + epData.path + '</span>' +
-                '<span class="expand-endpoint-desc">' + (epData.description || '') + '</span>' +
-                '<button class="expand-endpoint-back" data-action="endpoint-back">Back</button>' +
-                '</div>';
-            html += '<div class="expand-endpoint-detail-body">';
+            pill.setAttribute('data-original-html', pill.innerHTML);
+            var bodyHtml = '<div class="expand-endpoint-detail-body" style="opacity:0;">';
             if (epData.path_variables && epData.path_variables.length) {
-                html += '<div class="expand-endpoint-section">' +
+                bodyHtml += '<div class="expand-endpoint-section">' +
                     '<div class="expand-endpoint-section-title">Path Variables</div>' +
                     '<div class="expand-endpoint-section-content">';
                 epData.path_variables.forEach(function(v) {
-                    html += '<div class="expand-endpoint-var-item">' + (typeof v === 'object' ? JSON.stringify(v) : String(v)) + '</div>';
+                    bodyHtml += '<div class="expand-endpoint-var-item">' + (typeof v === 'object' ? JSON.stringify(v) : String(v)) + '</div>';
                 });
-                html += '</div></div>';
+                bodyHtml += '</div></div>';
             }
             if (epData.body_schema && Object.keys(epData.body_schema).length) {
-                html += '<div class="expand-endpoint-section">' +
+                bodyHtml += '<div class="expand-endpoint-section">' +
                     '<div class="expand-endpoint-section-title">Body Schema</div>' +
                     '<pre class="expand-endpoint-section-content expand-endpoint-schema">' + JSON.stringify(epData.body_schema, null, 2) + '</pre>' +
                     '</div>';
             }
-            html += '</div></div>';
-            container.innerHTML = html;
+            bodyHtml += '</div>';
+            pill.insertAdjacentHTML('beforeend', bodyHtml);
             container.classList.add('endpoint-detail-active');
+            pill.classList.add('active');
+            setTimeout(function() {
+                var body = pill.querySelector('.expand-endpoint-detail-body');
+                if (body) body.style.opacity = '1';
+            }, 250);
         }
 
         function deactivateEndpointDetail(container) {
-            var detail = container.querySelector('.expand-endpoint-detail');
-            if (detail) {
-                detail.classList.add('endpoint-detail-out');
-                var self = container;
+            var activePill = container.querySelector('.expand-endpoint-pill.active');
+            if (activePill) {
+                var body = activePill.querySelector('.expand-endpoint-detail-body');
+                if (body) body.style.opacity = '0';
                 setTimeout(function() {
-                    var orig = self.getAttribute('data-original-html');
-                    if (orig) {
-                        self.removeAttribute('data-original-html');
-                        self.classList.remove('endpoint-detail-active');
-                        self.innerHTML = orig;
-                        setupEndpointClicks(self);
-                    }
-                }, 150);
+                    container.classList.remove('endpoint-detail-active');
+                    activePill.classList.remove('active');
+                    setTimeout(function() {
+                        var orig = activePill.getAttribute('data-original-html');
+                        if (orig) {
+                            activePill.removeAttribute('data-original-html');
+                            activePill.innerHTML = orig;
+                        }
+                    }, 300);
+                }, 100);
             }
         }
 
