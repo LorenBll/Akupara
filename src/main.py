@@ -316,11 +316,7 @@ def _head_response() -> tuple:
 
 @app.after_request
 def set_connection_header(response):
-    content_type = response.headers.get("Content-Type", "")
-    if content_type.startswith("text/html"):
-        response.headers["Connection"] = "keep-alive"
-    else:
-        response.headers["Connection"] = "close"
+    response.headers["Connection"] = "close"
     return response
 
 
@@ -453,6 +449,7 @@ def register():
         "hostname": hostname_val.strip() if isinstance(hostname_val, str) else "",
         "ip": client_ip,
         "timestamp": timestamp,
+        "endpoints": [],
     }
 
     with REGISTERED_CLIENTS_LOCK:
@@ -589,11 +586,123 @@ def clients():
     if invalid_key:
         return _error_response("API key is not valid.", 403)
 
+    def _strip_endpoints(client):
+        return {k: v for k, v in client.items() if k != "endpoints"}
+
     with REGISTERED_CLIENTS_LOCK:
         client_list = [
-            client if authorized else {k: v for k, v in client.items() if k != "hash"}
+            _strip_endpoints(client) if authorized else _strip_endpoints(
+                {k: v for k, v in client.items() if k != "hash"}
+            )
             for client in REGISTERED_CLIENTS.values()
         ]
+
+    return _success_response({"clients": client_list})
+
+
+@app.route("/api/endpoints/register", methods=["POST", "HEAD", "OPTIONS"])
+def register_endpoint():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    hash_val = client_hash.strip()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(hash_val)
+
+    if client_data is None:
+        return _error_response("Service not found.", 404)
+
+    if request.remote_addr != client_data.get("ip"):
+        return _error_response("Hash does not match the requesting service.", 403)
+
+    verb = payload.get("verb") if isinstance(payload, dict) else None
+    path = payload.get("path") if isinstance(payload, dict) else None
+    path_variables = payload.get("path_variables") if isinstance(payload, dict) else None
+    body_schema = payload.get("body_schema") if isinstance(payload, dict) else None
+    description = payload.get("description") if isinstance(payload, dict) else None
+
+    if not isinstance(verb, str) or not verb.strip():
+        return _error_response("A non-empty HTTP verb is required.")
+    if not isinstance(path, str) or not path.strip():
+        return _error_response("A non-empty endpoint path is required.")
+    if path_variables is not None and not isinstance(path_variables, list):
+        return _error_response("path_variables must be a list.")
+    if body_schema is not None and not isinstance(body_schema, dict):
+        return _error_response("body_schema must be a JSON schema object.")
+    if not isinstance(description, str) or not description.strip():
+        return _error_response("A non-empty description is required.")
+
+    endpoint = {
+        "verb": verb.strip().upper(),
+        "path": path.strip(),
+        "path_variables": path_variables if isinstance(path_variables, list) else [],
+        "body_schema": body_schema if isinstance(body_schema, dict) else {},
+        "description": description.strip(),
+    }
+
+    with REGISTERED_CLIENTS_LOCK:
+        REGISTERED_CLIENTS[hash_val].setdefault("endpoints", []).append(endpoint)
+
+    logger.info(
+        f"Endpoint '{verb} {path}' registered for '{client_data.get('name', 'unknown')}' "
+        f"({hash_val[:8]}...)"
+    )
+
+    return _success_response({"status": "registered", "endpoint": endpoint}, 201)
+
+
+@app.route("/api/endpoints", methods=["POST", "HEAD", "OPTIONS"])
+def get_endpoints():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    target_name = payload.get("name") if isinstance(payload, dict) else None
+
+    if not isinstance(target_name, str) or not target_name.strip():
+        return _error_response("The name of the service is required.")
+
+    with REGISTERED_CLIENTS_LOCK:
+        target = None
+        for client in REGISTERED_CLIENTS.values():
+            if client.get("name") == target_name.strip():
+                target = client
+                break
+
+    if target is None:
+        return _error_response(f"No service found with name '{target_name}'.", 404)
+
+    endpoints = target.get("endpoints", [])
+    return _success_response({"name": target_name.strip(), "endpoints": endpoints})
+
+
+@app.route("/api/clients/details", methods=["GET", "HEAD", "OPTIONS"])
+def clients_details():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_list = []
+        for client in REGISTERED_CLIENTS.values():
+            client_list.append({
+                "name": client.get("name", ""),
+                "ip": client.get("ip", ""),
+                "port": client.get("port", 0),
+                "endpoints": client.get("endpoints", []),
+            })
 
     return _success_response({"clients": client_list})
 
