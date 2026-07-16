@@ -55,6 +55,9 @@
                 <button class="card-btn card-btn-yellow" id="checkboxRestartSelected" data-label="Restart Selected Services">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                 </button>
+                <button class="card-btn card-btn-shield" id="checkboxProtectSelected" data-label="Protect Selected Services">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
+                </button>
             </div>
         </div>
         <div class="sidebar hidden" id="sidebar">
@@ -760,7 +763,7 @@
                       (startingScript && !isProtected ? '' : ' disabled') + '>' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
                       '</button>') +
-                '<button class="card-btn card-btn-shield' + (isProtected ? ' protected' : '') + '" data-label="' + (isProtected ? 'Free Service' : 'Protect Service') + '">' +
+                '<button class="card-btn card-btn-shield' + (isProtected ? ' protected' : '') + '" data-label="' + (isProtected ? 'Unprotect Service' : 'Protect Service') + '">' +
                 '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>' +
                 '</button>' +
                 '<div class="card-checkbox" data-card-hash="' + (hash || '') + '">' +
@@ -789,11 +792,13 @@
             document.body.classList.toggle('checkbox-visible', hasSelection && !document.querySelector('.service-card.expanded'));
 
             var hasProtectedSelected = false;
+            var allProtected = true;
             if (hasSelection) {
                 Object.keys(_selectedCardHashes).forEach(function(h) {
                     if (_selectedCardHashes[h]) {
                         var c = document.querySelector('.service-card[data-hash="' + h + '"]');
                         if (c && c.getAttribute('data-protected') === 'true') hasProtectedSelected = true;
+                        if (c && c.getAttribute('data-protected') !== 'true') allProtected = false;
                     }
                 });
             }
@@ -801,6 +806,12 @@
             var checkboxRestartBtn = document.getElementById('checkboxRestartSelected');
             if (checkboxTermBtn) checkboxTermBtn.disabled = hasProtectedSelected;
             if (checkboxRestartBtn) checkboxRestartBtn.disabled = hasProtectedSelected;
+
+            var checkboxProtectBtn = document.getElementById('checkboxProtectSelected');
+            if (checkboxProtectBtn) {
+                checkboxProtectBtn.classList.toggle('protected', hasSelection && allProtected);
+                checkboxProtectBtn.setAttribute('data-label', hasSelection && allProtected ? 'Unprotect Selected Services' : 'Protect Selected Services');
+            }
 
             var brokenForgetBtn = document.querySelector('.broken-forget-btn');
             var brokenRestartBtn = document.querySelector('.broken-restart-btn');
@@ -1911,7 +1922,7 @@
                         card.setAttribute('data-protected', newProtected ? 'true' : 'false');
                         card.classList.toggle('service-card-protected', newProtected);
                         shieldBtn.classList.toggle('protected', newProtected);
-                        shieldBtn.setAttribute('data-label', newProtected ? 'Free Service' : 'Protect Service');
+                        shieldBtn.setAttribute('data-label', newProtected ? 'Unprotect Service' : 'Protect Service');
                         card.querySelectorAll('.card-btn-red, .card-btn-yellow').forEach(function(b) {
                             b.disabled = newProtected;
                         });
@@ -2195,6 +2206,40 @@
                 var card = document.querySelector('.service-card[data-hash="' + hash + '"]');
                 var isBroken = card && card.classList.contains('service-card-unhealthy');
                 var apiPath = isBroken ? '/api/broken/restart' : '/api/service/restart';
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', apiPath, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onloadend = function() {
+                    if (--pending <= 0) {
+                        var l = content.querySelector('.content-loader');
+                        if (l) l.remove();
+                        _clearCheckboxSelection();
+                        fetch('/api/services').then(function(r) { return r.json(); }).then(function(d) {
+                            enrichClientsWithHashes(d.clients).then(function(clients) {
+                                buildCards(clients, false);
+                            });
+                        }).catch(function() {});
+                    }
+                };
+                xhr.send(JSON.stringify({hash: hash}));
+            });
+        });
+
+        document.getElementById('checkboxProtectSelected').addEventListener('click', function() {
+            var selected = Object.keys(_selectedCardHashes).filter(function(h) { return _selectedCardHashes[h]; });
+            if (selected.length === 0) return;
+            var content = document.getElementById('content');
+            var loader = document.createElement('div');
+            loader.className = 'content-loader';
+            loader.innerHTML = '<div class="spinner"></div>';
+            content.appendChild(loader);
+            var allProtected = selected.every(function(h) {
+                var c = document.querySelector('.service-card[data-hash="' + h + '"]');
+                return c && c.getAttribute('data-protected') === 'true';
+            });
+            var apiPath = allProtected ? '/api/service/unprotect' : '/api/service/protect';
+            var pending = selected.length;
+            selected.forEach(function(hash) {
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', apiPath, true);
                 xhr.setRequestHeader('Content-Type', 'application/json');

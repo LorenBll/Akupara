@@ -1722,7 +1722,8 @@ body.checkbox-visible .checkbox-actions {
 }
 
 .checkbox-actions .card-btn-red:hover::after,
-.checkbox-actions .card-btn-yellow:hover::after {
+.checkbox-actions .card-btn-yellow:hover::after,
+.checkbox-actions .card-btn-shield:hover::after {
     left: 50%;
     right: auto;
     top: auto;
