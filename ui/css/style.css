@@ -659,12 +659,26 @@ body.has-error::before {
 }
 
 .card-expanded-content > .expand-info-row,
-.card-expanded-content > .expand-separator,
+.card-expanded-content > .expand-separator {
+    max-height: 300px;
+    opacity: 1;
+    overflow: hidden;
+    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease, margin 0.25s ease;
+}
+
 .card-expanded-content .expand-endpoint-pill {
     max-height: 300px;
     opacity: 1;
     overflow: hidden;
-    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease, margin 0.25s ease, flex-grow 0.25s ease;
+    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease, margin 0.25s ease, flex-grow 0.25s ease, border-radius 0.25s ease;
+}
+
+.card-expanded-content.endpoint-detail-active::before {
+    display: none !important;
+}
+
+.card-expanded-content.endpoint-detail-active {
+    gap: 0 !important;
 }
 
 .card-expanded-content.endpoint-detail-active > .expand-info-row,
@@ -678,7 +692,7 @@ body.has-error::before {
     pointer-events: none !important;
 }
 
-.card-expanded-content.endpoint-detail-active .expand-endpoint-pill:not(.active) {
+.expand-endpoint-pill.ep-hidden {
     max-height: 0 !important;
     opacity: 0 !important;
     padding-top: 0 !important;
@@ -692,6 +706,7 @@ body.has-error::before {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
+    padding-top: 0;
 }
 
 .expand-endpoint-pill.active {
@@ -708,6 +723,7 @@ body.has-error::before {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 .expand-endpoint-detail-body {

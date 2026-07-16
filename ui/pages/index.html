@@ -769,12 +769,21 @@
             }
             bodyHtml += '</div>';
             pill.insertAdjacentHTML('beforeend', bodyHtml);
+            var section = container.querySelector('.expand-endpoints-section');
+            if (section) {
+                var pills = section.querySelectorAll('.expand-endpoint-pill');
+                pills.forEach(function(p) {
+                    if (p !== pill) p.classList.add('ep-hidden');
+                });
+            }
             container.classList.add('endpoint-detail-active');
-            pill.classList.add('active');
             setTimeout(function() {
-                var body = pill.querySelector('.expand-endpoint-detail-body');
-                if (body) body.style.opacity = '1';
-            }, 150);
+                pill.classList.add('active');
+                setTimeout(function() {
+                    var body = pill.querySelector('.expand-endpoint-detail-body');
+                    if (body) body.style.opacity = '1';
+                }, 150);
+            }, 400);
         }
 
         function deactivateEndpointDetail(container) {
@@ -783,15 +792,20 @@
                 var body = activePill.querySelector('.expand-endpoint-detail-body');
                 if (body) body.style.opacity = '0';
                 setTimeout(function() {
-                    container.classList.remove('endpoint-detail-active');
                     activePill.classList.remove('active');
+                    var orig = activePill.getAttribute('data-original-html');
+                    if (orig) {
+                        activePill.removeAttribute('data-original-html');
+                        activePill.innerHTML = orig;
+                    }
                     setTimeout(function() {
-                        var orig = activePill.getAttribute('data-original-html');
-                        if (orig) {
-                            activePill.removeAttribute('data-original-html');
-                            activePill.innerHTML = orig;
+                        var section = container.querySelector('.expand-endpoints-section');
+                        if (section) {
+                            var pills = section.querySelectorAll('.expand-endpoint-pill');
+                            pills.forEach(function(p) { p.classList.remove('ep-hidden'); });
                         }
-                    }, 250);
+                        container.classList.remove('endpoint-detail-active');
+                    }, 400);
                 }, 150);
             }
         }
