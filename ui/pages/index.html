@@ -641,23 +641,24 @@
                 container.innerHTML = '<div class="expand-empty">No Other Information to Display</div>';
                 return;
             }
+            var shortItems = items.filter(function(it) { return !it.isLong; });
+            var longItems = items.filter(function(it) { return it.isLong; });
             var rows = [];
             var i = 0;
-            while (i < items.length) {
-                var first = items[i];
-                var second = items[i + 1];
+            while (i < shortItems.length) {
+                var first = shortItems[i];
+                var second = shortItems[i + 1];
                 if (!second) {
                     rows.push([first, null]);
                     i++;
-                } else if (second.isLong) {
-                    rows.push([first, null]);
-                    rows.push([second, null]);
-                    i += 2;
                 } else {
                     rows.push([first, second]);
                     i += 2;
                 }
             }
+            longItems.forEach(function(it) {
+                rows.push([it, null]);
+            });
             var html = '';
             rows.forEach(function(row) {
                 html += '<div class="expand-info-row">';
