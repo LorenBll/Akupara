@@ -1938,7 +1938,7 @@
             var btn = e.target.closest('.card-btn-blue');
             if (!btn) {
                 var clickedCard = e.target.closest('.service-card');
-                if (clickedCard && cardCount > 1) {
+                if (clickedCard && cardCount > 1 && !clickedCard.classList.contains('expanded')) {
                     var h = clickedCard.getAttribute('data-hash');
                     if (h) {
                         _selectedCardHashes[h] = !_selectedCardHashes[h];
