@@ -1928,8 +1928,10 @@
                         });
                         var idx = currentClients.findIndex(function(c) { return c.hash === hash; });
                         if (idx >= 0) currentClients[idx].protected = newProtected;
-                        filterCards();
-                        buildCards(currentClients, false);
+                        if (!card.classList.contains('expanded')) {
+                            filterCards();
+                            buildCards(currentClients, false);
+                        }
                     }
                 };
                 xhr.send(JSON.stringify({hash: hash}));
