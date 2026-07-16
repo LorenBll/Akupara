@@ -879,7 +879,7 @@ body.has-error::before {
     transition: width 0.12s ease, height 0.12s ease;
 }
 
-.service-card.expanded-buttons .card-buttons {
+.service-card.expanded .card-buttons {
     position: absolute;
     bottom: 14px;
     left: 18px;
@@ -887,6 +887,9 @@ body.has-error::before {
     margin-top: 0;
     gap: 8px;
     justify-content: flex-start;
+}
+
+.service-card.expanded-buttons .card-buttons {
     flex-wrap: wrap;
 }
 
@@ -1233,13 +1236,6 @@ body.has-error::before {
 .title-link {
     color: inherit;
     text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.title-icon {
-    flex-shrink: 0;
 }
 
 .pill-row {
