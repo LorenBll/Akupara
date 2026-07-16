@@ -819,6 +819,8 @@ body.has-error::before {
 }
 
 .service-card.service-card-protected {
+    background: #f0fdf4;
+    border-color: #16a34a;
     border-left: 3px solid #16a34a;
 }
 

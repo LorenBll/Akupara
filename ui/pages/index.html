@@ -1918,9 +1918,7 @@
                         });
                         var idx = currentClients.findIndex(function(c) { return c.hash === hash; });
                         if (idx >= 0) currentClients[idx].protected = newProtected;
-                        filterCards();
-                        updateBrokenButtons();
-                        _syncCheckboxUI();
+                        buildCards(currentClients, false);
                     }
                 };
                 xhr.send(JSON.stringify({hash: hash}));
