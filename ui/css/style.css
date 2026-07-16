@@ -1575,7 +1575,7 @@ body.has-error::before {
     justify-content: center;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+    transition: opacity 0s ease, background-color 0.12s ease, border-color 0.12s ease;
 }
 
 .card-checkbox.visible {
