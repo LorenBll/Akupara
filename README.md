@@ -53,16 +53,18 @@ ServiceHandler can encrypt stored API keys using the [Cipher](https://github.com
 All `/api/*` and `/ui/*` endpoints are local-device only. Requests from non-local addresses are rejected with:
 - `403` -> `{ "error": "Local device access only." }`
 - All endpoints also support `HEAD` and `OPTIONS`.
-- API responses use `Connection: close` for non-HTML responses.
+- API responses use `Connection: close`.
 
 Sensitive endpoints require a valid API key, with these exceptions:
 
 | Restriction level | Endpoints |
-|---|---|
+|---|---|---|
 | **Valid API key required** (POST) | `/api/terminate`, `/api/restart`, `/api/broken/forget`, `/api/broken/restart`, `/api/health/check`, `/api/shutdown`, `/api/unregister` |
 | **Strict localhost or valid API key** (GET) — localhost allowed for bootstrapping | `/api/api-key/pending`, `/api/api-key/pending-hashes` |
 | **Strict localhost or valid API key** (POST + involving_api_keys) — localhost allowed for bootstrapping | `/api/api-key/grant`, `/api/api-key/reject` |
 | **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question`, `GET /api/clients` |
+| **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/endpoints/register` |
+| **No auth required** | `POST /api/endpoints`, `GET /api/clients/details` |
 
 Additionally, `POST /api/terminate` and `POST /api/restart` allow a registered service to terminate or restart itself by providing its own hash — no API key needed. The request is recognized as self-service when the requesting IP matches the IP the service registered with.
 
@@ -188,7 +190,7 @@ Service health check with registration statistics.
 		```
 
 ### `GET /api/clients` (also `HEAD`, `OPTIONS`)
-Returns the list of all registered clients. Client hashes are only included if the request originates from localhost or a valid API key is provided.
+Returns the list of all registered clients. Client hashes are only included if the request originates from localhost or a valid API key is provided. The `endpoints` field is never included in this response — use `GET /api/clients/details` for endpoint data.
 
 - Body (JSON object):
 	- `api_key` (string, optional): API key to receive full client data including hashes.
@@ -230,6 +232,88 @@ Returns the list of all registered clients. Client hashes are only included if t
 		}
 		```
 	- `403` -> `{ "error": "API key is not valid." }` (only when an invalid API key is explicitly provided)
+
+### `POST /api/endpoints/register` (also `HEAD`, `OPTIONS`)
+Registers an endpoint for a registered service. The service must authenticate by providing its own hash, and the request must originate from the IP the service registered with. No API key option is available.
+
+- Body (JSON object):
+	- `hash` (string, required): SHA-256 hash of the service registering the endpoint.
+	- `verb` (string, required): HTTP verb for the endpoint (e.g. `GET`, `POST`).
+	- `path` (string, required): URL path of the endpoint.
+	- `path_variables` (array of strings, optional): list of variable names used in the path.
+	- `body_schema` (object, optional): JSON schema for the request body.
+	- `description` (string, required): human-readable description of what the endpoint does.
+- Returns:
+	- `201` ->
+		```json
+		{
+			"status": "registered",
+			"endpoint": {
+				"verb": "GET",
+				"path": "/api/data",
+				"path_variables": ["id"],
+				"body_schema": {},
+				"description": "Retrieves data by ID"
+			}
+		}
+		```
+	- `400` -> `{ "error": "A hash is required." }`
+	- `400` -> `{ "error": "A non-empty HTTP verb is required." }`
+	- `400` -> `{ "error": "A non-empty endpoint path is required." }`
+	- `400` -> `{ "error": "A non-empty description is required." }`
+	- `403` -> `{ "error": "Hash does not match the requesting service." }`
+	- `404` -> `{ "error": "Service not found." }`
+
+### `POST /api/endpoints` (also `HEAD`, `OPTIONS`)
+Returns the list of endpoints registered for a given service name. No authentication required.
+
+- Body (JSON object):
+	- `name` (string, required): name of the registered service.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"name": "my-service",
+			"endpoints": [
+				{
+					"verb": "GET",
+					"path": "/api/data",
+					"path_variables": ["id"],
+					"body_schema": {},
+					"description": "Retrieves data by ID"
+				}
+			]
+		}
+		```
+	- `400` -> `{ "error": "The name of the service is required." }`
+	- `404` -> `{ "error": "No service found with name '...'." }`
+
+### `GET /api/clients/details` (also `HEAD`, `OPTIONS`)
+Returns the complete list of registered services along with their registered endpoints. Each entry only includes `name`, `ip`, `port`, and `endpoints`. No authentication required.
+
+- Body: none
+- Returns:
+	- `200` ->
+		```json
+		{
+			"clients": [
+				{
+					"name": "my-service",
+					"ip": "127.0.0.1",
+					"port": 8080,
+					"endpoints": [
+						{
+							"verb": "GET",
+							"path": "/api/data",
+							"path_variables": ["id"],
+							"body_schema": {},
+							"description": "Retrieves data by ID"
+						}
+					]
+				}
+			]
+		}
+		```
 
 ### `GET /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Returns the current column sort order, group-by key, and fuzzy accuracy threshold used by the web UI.
