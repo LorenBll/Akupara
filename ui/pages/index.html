@@ -567,9 +567,11 @@
 
         function saveSortSettings() {
             var body = {sort_order: sortOrder};
-            if (groupByKey) {
-                body.group_by = groupByKey;
-                if (originalSortOrder) body.original_sort_order = originalSortOrder;
+            body.group_by = groupByKey || null;
+            if (groupByKey && originalSortOrder) {
+                body.original_sort_order = originalSortOrder;
+            } else if (!groupByKey) {
+                body.original_sort_order = null;
             } else {
                 body.group_by = null;
                 body.original_sort_order = sortOrder.slice();
