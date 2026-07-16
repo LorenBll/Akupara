@@ -171,6 +171,12 @@ def _check_authorization(payload):
     return (_is_localhost_request(), False)
 
 
+def _is_protected(client_hash: str) -> bool:
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(client_hash)
+    return client_data is not None and client_data.get("protected", False) is True
+
+
 def _check_authorization_all(payload):
     """Returns (is_allowed, has_invalid_key) tuple.
     is_allowed: True if valid API key, localhost, or self-service (hash exists).
@@ -456,6 +462,7 @@ def register():
         "ip": client_ip,
         "timestamp": timestamp,
         "endpoints": [],
+        "protected": False,
     }
 
     with REGISTERED_CLIENTS_LOCK:
@@ -824,6 +831,9 @@ def terminate():
     if not isinstance(client_hash, str) or not client_hash.strip():
         return _error_response("A hash is required.")
 
+    if _is_protected(client_hash.strip()):
+        return _error_response("Service is protected and cannot be terminated.", 403)
+
     pid = None
     if raw_pid is not None and str(raw_pid).strip().isdigit():
         pid = int(raw_pid)
@@ -868,6 +878,9 @@ def restart():
 
     if not isinstance(client_hash, str) or not client_hash.strip():
         return _error_response("A hash is required.")
+
+    if _is_protected(client_hash.strip()):
+        return _error_response("Service is protected and cannot be restarted.", 403)
 
     with REGISTERED_CLIENTS_LOCK:
         client_data = REGISTERED_CLIENTS.get(client_hash.strip())
@@ -947,6 +960,9 @@ def broken_forget():
 
     hash_val = client_hash.strip()
 
+    if _is_protected(hash_val):
+        return _error_response("Service is protected and cannot be forgotten.", 403)
+
     pid = None
     with REGISTERED_CLIENTS_LOCK:
         client_data = REGISTERED_CLIENTS.get(hash_val)
@@ -987,6 +1003,9 @@ def broken_restart():
         return _error_response("A hash is required.")
 
     hash_val = client_hash.strip()
+
+    if _is_protected(hash_val):
+        return _error_response("Service is protected and cannot be restarted.", 403)
 
     script_path = ""
     pid = None
@@ -1031,6 +1050,76 @@ def broken_restart():
     logger.info(f"Restarted broken service with script '{script_path}' (hash {hash_val[:16]}...)")
 
     return _success_response({"status": "restarted", "hash": hash_val})
+
+
+@app.route("/api/service/protect", methods=["POST", "HEAD", "OPTIONS"])
+def protect():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    allowed, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
+        return _error_response("API key is not valid.", 403)
+
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    hash_val = client_hash.strip()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(hash_val)
+
+    if client_data is None:
+        return _error_response("Client not found.", 404)
+
+    with REGISTERED_CLIENTS_LOCK:
+        REGISTERED_CLIENTS[hash_val]["protected"] = True
+
+    logger.info(f"Protected service hash {hash_val[:16]}...")
+
+    return _success_response({"status": "protected", "hash": hash_val})
+
+
+@app.route("/api/service/unprotect", methods=["POST", "HEAD", "OPTIONS"])
+def unprotect():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    allowed, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
+        return _error_response("API key is not valid.", 403)
+
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    hash_val = client_hash.strip()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(hash_val)
+
+    if client_data is None:
+        return _error_response("Client not found.", 404)
+
+    with REGISTERED_CLIENTS_LOCK:
+        REGISTERED_CLIENTS[hash_val]["protected"] = False
+
+    logger.info(f"Unprotected service hash {hash_val[:16]}...")
+
+    return _success_response({"status": "unprotected", "hash": hash_val})
 
 
 # ============================================================================

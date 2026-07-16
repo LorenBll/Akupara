@@ -818,6 +818,10 @@ body.has-error::before {
     border-color: #dc2626;
 }
 
+.service-card.service-card-protected {
+    border-left: 3px solid #16a34a;
+}
+
 .card-top {
     display: flex;
     align-items: center;
@@ -960,13 +964,15 @@ body.has-error::before {
 }
 
 .card-btn-red:hover::after,
-.card-btn-yellow:hover::after {
+.card-btn-yellow:hover::after,
+.card-btn-shield:hover::after {
     left: calc(100% + 6px);
     right: auto;
 }
 
 .service-card.expanded .card-btn-red:hover::after,
-.service-card.expanded .card-btn-yellow:hover::after {
+.service-card.expanded .card-btn-yellow:hover::after,
+.service-card.expanded .card-btn-shield:hover::after {
     left: 50%;
     right: auto;
     top: auto;
@@ -1002,6 +1008,29 @@ body.has-error::before {
     font-weight: 600;
     padding: 0 10px;
     white-space: nowrap;
+}
+
+.card-btn-shield {
+    background: #e5e7eb;
+    color: #6b7280;
+}
+
+.card-btn-shield.protected {
+    background: #bbf7d0;
+    color: #16a34a;
+}
+
+.service-card.expanded .card-btn-shield:hover::after {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+}
+
+.card-btn-shield:hover::after {
+    left: calc(100% + 6px);
+    right: auto;
 }
 
 .card-btn-blue {

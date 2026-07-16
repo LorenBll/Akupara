@@ -92,6 +92,9 @@
                 <div class="sort-item" draggable="true" data-key="status" data-label="Service Status">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>
                 </div>
+                <div class="sort-item" draggable="true" data-key="protected" data-label="Protected">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
+                </div>
             </div>
         </div>
         <div class="health-button hidden" id="healthButton">
@@ -195,13 +198,14 @@
                 bind_address: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8c0 4.5-6 11-6 11s-6-6.5-6-11a6 6 0 0 1 12 0"/><circle cx="12" cy="8" r="2.5"/><path d="M8 18c-2 0-4 1-4 3h16c0-2-2-3-4-3"/></svg>',
                 hostname: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
                 status: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>',
-                api_asker: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>'
+                api_asker: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>',
+                protected: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>'
             };
             return icons[key] || '';
         }
 
         function getFilterLabel(key) {
-            var m = { name: 'Service Name', port: 'Port', pid: 'PID', bind_address: 'Bind IP Address', hostname: 'Hostname', status: 'Service Status', api_asker: 'API Asker' };
+            var m = { name: 'Service Name', port: 'Port', pid: 'PID', bind_address: 'Bind IP Address', hostname: 'Hostname', status: 'Service Status', api_asker: 'API Asker', protected: 'Protected' };
             return m[key] || key;
         }
 
@@ -236,7 +240,7 @@
                     var label = getFilterLabel(k);
                     var icon = getFilterSvg(k);
                     if (k === 'status') {
-                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="status"><option value="any">Any</option><option value="operational">Operational</option><option value="api_asker">API Asker</option><option value="broken">Broken</option></select></span>';
+                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="status"><option value="any">Any</option><option value="operational">Operational</option><option value="api_asker">API Asker</option><option value="broken">Broken</option><option value="protected">Protected</option></select></span>';
                     }
                     return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><input type="text" class="filter-input" data-key="' + k + '" placeholder="' + randomExample(k) + '"></span>';
                 }
@@ -330,6 +334,8 @@
                         cv = 'broken';
                     } else if (card.classList.contains('service-card-api-asker')) {
                         cv = 'api_asker';
+                    } else if (card.classList.contains('service-card-protected')) {
+                        cv = 'protected';
                     } else {
                         cv = 'operational';
                     }
@@ -699,9 +705,10 @@
             updateCardButtonLabels(card);
         }
 
-        function cardHTML(name, port, pid, healthy, bind_address, hostname, startingScript, isApiAsker, hash) {
+        function cardHTML(name, port, pid, healthy, bind_address, hostname, startingScript, isApiAsker, hash, isProtected) {
             var bg = healthy ? '' : ' service-card-unhealthy';
             if (isApiAsker) bg += ' service-card-api-asker';
+            if (isProtected) bg += ' service-card-protected';
             var apiKeyButtons = isApiAsker
                 ? '<div class="card-api-key-buttons">' +
                   '<button class="card-btn card-btn-green card-btn-grant">Grant API Key Registration</button>' +
@@ -728,21 +735,26 @@
                 '<div class="card-buttons">' +
                 apiKeyButtons +
                 (healthy
-                    ? '<button class="card-btn card-btn-red" data-label="Terminate Service">' +
+                    ? '<button class="card-btn card-btn-red" data-label="Terminate Service"' +
+                      (isProtected ? ' disabled' : '') + '>' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>' +
                       '</button>'
-                    : '<button class="card-btn card-btn-red" data-label="Forget Broken Service">' +
+                    : '<button class="card-btn card-btn-red" data-label="Forget Broken Service"' +
+                      (isProtected ? ' disabled' : '') + '>' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>' +
                       '</button>') +
                 (healthy
                     ? '<button class="card-btn card-btn-yellow" data-label="Restart Service"' +
-                      (startingScript ? '' : ' disabled') + '>' +
+                      (startingScript && !isProtected ? '' : ' disabled') + '>' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
                       '</button>'
                     : '<button class="card-btn card-btn-yellow" data-label="Restart Broken Service"' +
-                      (startingScript ? '' : ' disabled') + '>' +
+                      (startingScript && !isProtected ? '' : ' disabled') + '>' +
                       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
                       '</button>') +
+                '<button class="card-btn card-btn-shield' + (isProtected ? ' protected' : '') + '" data-label="' + (isProtected ? 'Free Service' : 'Protect Service') + '">' +
+                '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>' +
+                '</button>' +
                 '<div class="card-checkbox" data-card-hash="' + (hash || '') + '">' +
                 '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
                 '</div>' +
@@ -768,10 +780,28 @@
             document.body.classList.toggle('checkbox-active', hasSelection);
             document.body.classList.toggle('checkbox-visible', hasSelection && !document.querySelector('.service-card.expanded'));
 
+            var hasProtectedSelected = false;
+            if (hasSelection) {
+                Object.keys(_selectedCardHashes).forEach(function(h) {
+                    if (_selectedCardHashes[h]) {
+                        var c = document.querySelector('.service-card[data-hash="' + h + '"]');
+                        if (c && c.getAttribute('data-protected') === 'true') hasProtectedSelected = true;
+                    }
+                });
+            }
+            var checkboxTermBtn = document.getElementById('checkboxTerminateSelected');
+            var checkboxRestartBtn = document.getElementById('checkboxRestartSelected');
+            if (checkboxTermBtn) checkboxTermBtn.disabled = hasProtectedSelected;
+            if (checkboxRestartBtn) checkboxRestartBtn.disabled = hasProtectedSelected;
+
             var brokenForgetBtn = document.querySelector('.broken-forget-btn');
             var brokenRestartBtn = document.querySelector('.broken-restart-btn');
-            if (brokenForgetBtn) brokenForgetBtn.disabled = hasSelection;
-            if (brokenRestartBtn) brokenRestartBtn.disabled = hasSelection;
+            var protectedBrokenExists = false;
+            document.querySelectorAll('.service-card.service-card-unhealthy').forEach(function(c) {
+                if (c.getAttribute('data-protected') === 'true') protectedBrokenExists = true;
+            });
+            if (brokenForgetBtn) brokenForgetBtn.disabled = hasSelection || protectedBrokenExists;
+            if (brokenRestartBtn) brokenRestartBtn.disabled = hasSelection || protectedBrokenExists;
 
             var healthBtn = document.querySelector('#healthButton > .health-decoration:first-child');
             if (healthBtn && !document.querySelector('.service-card.expanded')) {
@@ -792,6 +822,7 @@
                     var key = keys[k];
                     if (key === 'status') {
                         function statusRank(client) {
+                            if (client.protected) return 3;
                             if (brokenClients.some(function(bc) { return bc.hash === client.hash; })) return 2;
                             if (apiAskerHashes[client.hash]) return 1;
                             return 0;
@@ -863,13 +894,15 @@
             function createCardElement(c, idx, broken, firstLoad) {
                 var cardDiv = document.createElement('div');
                 var isAsker = !broken && (apiAskerHashes[c.hash] || false);
-                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', !broken, c.bind_address, c.hostname, c.starting_script, isAsker, c.hash);
+                var isProtected = c.protected === true;
+                cardDiv.innerHTML = cardHTML(c.name, c.port, c.pid || '', !broken, c.bind_address, c.hostname, c.starting_script, isAsker, c.hash, isProtected);
                 var card = cardDiv.firstElementChild;
                 if (firstLoad) card.classList.add('init-hidden');
                 card.setAttribute('data-hash', c.hash || '');
                 card.setAttribute('data-port', c.port || '');
                 card.setAttribute('data-starting-script', c.starting_script || '');
                 card.setAttribute('data-pid', c.pid !== undefined && c.pid !== '' ? String(c.pid) : '');
+                card.setAttribute('data-protected', isProtected ? 'true' : 'false');
                 if (!broken) {
                     var alreadyBroken = brokenClients.some(function(bc) { return bc.hash === c.hash; });
                     if (alreadyBroken) {
@@ -922,7 +955,9 @@
                 allClients.forEach(function(c) {
                     var val;
                     if (groupByKey === 'status') {
-                        if (brokenClients.some(function(bc) { return bc.hash === c.hash; })) {
+                        if (c.protected) {
+                            val = 'Protected';
+                        } else if (brokenClients.some(function(bc) { return bc.hash === c.hash; })) {
                             val = 'Broken';
                         } else if (apiAskerHashes[c.hash]) {
                             val = 'API Asker';
@@ -970,7 +1005,8 @@
                 var stillExists = clients.some(function(c) { return (c.hash || '') === hadExpanded.hash; }) || brokenClients.some(function(c) { return (c.hash || '') === hadExpanded.hash; });
                 if (!stillExists) {
                     var ghostDiv = document.createElement('div');
-                    ghostDiv.innerHTML = cardHTML(hadExpanded.name, '--', '--', false, '', '', '', false, '');
+                    var ghostProtected = clients.some(function(c) { return (c.hash || '') === hadExpanded.hash && c.protected; });
+                    ghostDiv.innerHTML = cardHTML(hadExpanded.name, '--', '--', false, '', '', '', false, '', ghostProtected);
                     var ghostCard = ghostDiv.firstElementChild;
                     ghostCard.style.position = 'absolute';
                     ghostCard.style.top = '0';
@@ -1564,10 +1600,13 @@
 
         function updateBrokenButtons() {
             refreshPageVisibility(currentClients.length + brokenClients.length, document.querySelectorAll('.service-card:not([style*="display: none"])').length, false);
+            var forgetBtn = document.querySelector('.broken-forget-btn');
             var restartBtn = document.querySelector('.broken-restart-btn');
+            var protectedBrokenExists = brokenClients.some(function(bc) { return bc.protected; });
+            if (forgetBtn) forgetBtn.disabled = protectedBrokenExists;
             if (restartBtn) {
                 var canRestartAny = brokenClients.some(function(bc) { return bc.starting_script; });
-                restartBtn.disabled = !canRestartAny;
+                restartBtn.disabled = !canRestartAny || protectedBrokenExists;
             }
         }
 
@@ -1821,6 +1860,7 @@
             if (redBtn) {
                 var card = redBtn.closest('.service-card');
                 if (!card) return;
+                if (card.getAttribute('data-protected') === 'true') return;
                 var termHash = card.getAttribute('data-hash');
                 var termPid = card.getAttribute('data-pid');
                 if (termHash) forgottenHashes[termHash] = true;
@@ -1836,6 +1876,7 @@
                 if (yellowBtn.disabled) return;
                 var card = yellowBtn.closest('.service-card');
                 if (!card) return;
+                if (card.getAttribute('data-protected') === 'true') return;
                 var hash = card.getAttribute('data-hash');
                 if (hash) forgottenHashes[hash] = true;
                 brokenClients = brokenClients.filter(function(bc) { return bc.hash !== hash; });
@@ -1844,6 +1885,30 @@
                 handleActionBtn(card, {
                     hash: hash
                 }, isBroken ? '/api/broken/restart' : '/api/service/restart', afterTerminate(hash));
+                return;
+            }
+            var shieldBtn = e.target.closest('.card-btn-shield');
+            if (shieldBtn) {
+                var card = shieldBtn.closest('.service-card');
+                if (!card) return;
+                var hash = card.getAttribute('data-hash');
+                if (!hash) return;
+                var currentlyProtected = card.getAttribute('data-protected') === 'true';
+                var apiPath = currentlyProtected ? '/api/service/unprotect' : '/api/service/protect';
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', apiPath, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onloadend = function() {
+                    if (xhr.status === 200) {
+                        card.setAttribute('data-protected', currentlyProtected ? 'false' : 'true');
+                        card.classList.toggle('service-card-protected', !currentlyProtected);
+                        shieldBtn.classList.toggle('protected', !currentlyProtected);
+                        shieldBtn.setAttribute('data-label', currentlyProtected ? 'Protect Service' : 'Free Service');
+                        var idx = currentClients.findIndex(function(c) { return c.hash === hash; });
+                        if (idx >= 0) currentClients[idx].protected = !currentlyProtected;
+                    }
+                };
+                xhr.send(JSON.stringify({hash: hash}));
                 return;
             }
             var btn = e.target.closest('.card-btn-blue');
