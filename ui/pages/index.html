@@ -740,12 +740,40 @@
                     cardHtml += '<div class="expand-endpoint-section">' +
                         '<div class="expand-endpoint-section-title">Body Schema</div>' +
                         '<pre class="expand-endpoint-section-content expand-endpoint-schema">' + JSON.stringify(ep.body_schema, null, 2) + '</pre>' +
+                        '<div class="expand-endpoint-schema-actions">' +
+                        '<button class="expand-endpoint-schema-btn" onclick="copySchema(this)">Copy</button>' +
+                        '<button class="expand-endpoint-schema-btn" onclick="downloadSchema(this)">Download</button>' +
+                        '</div>' +
                         '</div>';
                 }
                 cardHtml += '</div>';
             }
             cardHtml += '</div>';
             return cardHtml;
+        }
+
+        function copySchema(btn) {
+            var pre = btn.closest('.expand-endpoint-section').querySelector('.expand-endpoint-schema');
+            var text = pre.textContent;
+            navigator.clipboard.writeText(text).then(function() {
+                var orig = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = orig; }, 1500);
+            });
+        }
+
+        function downloadSchema(btn) {
+            var pre = btn.closest('.expand-endpoint-section').querySelector('.expand-endpoint-schema');
+            var text = pre.textContent;
+            var blob = new Blob([text], { type: 'application/json' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'schema.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         function updateCardButtonLabels(card) {

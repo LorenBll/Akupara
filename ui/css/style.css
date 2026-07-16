@@ -608,7 +608,7 @@ body.has-error::before {
     font-size: 0.65rem;
     font-weight: 700;
     color: #ffffff;
-    background-color: #6366f1;
+    background-color: #6b7280;
     padding: 2px 8px;
     border-radius: 999px;
     text-transform: uppercase;
@@ -699,6 +699,27 @@ body.has-error::before {
     white-space: pre-wrap;
     margin: 0;
     line-height: 1.4;
+}
+
+.expand-endpoint-schema-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.expand-endpoint-schema-btn {
+    font-size: 0.7rem;
+    padding: 3px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    background: #f9fafb;
+    color: #374151;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.expand-endpoint-schema-btn:hover {
+    background: #e5e7eb;
 }
 
 
