@@ -732,12 +732,14 @@
             container.onclick = function(e) {
                 var backBtn = e.target.closest('[data-action="endpoint-back"]');
                 if (backBtn) {
+                    e.stopPropagation();
                     deactivateEndpointDetail(container);
                     return;
                 }
                 if (container.classList.contains('endpoint-detail-active')) return;
                 var pill = e.target.closest('.expand-endpoint-pill');
                 if (pill && pill.getAttribute('data-endpoint')) {
+                    e.stopPropagation();
                     activateEndpointDetail(container, pill);
                 }
             };
