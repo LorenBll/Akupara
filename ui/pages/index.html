@@ -590,12 +590,14 @@
             var healthVisible = visibleCount > 0;
             var brokenVisible = visibleBrokenCount > 0 && !expanded;
 
+            var singleCard = visibleCount <= 1;
             toggleSortHealthBtn(searchBar, searchVisible);
             sidebarEl.classList.toggle('hidden', !sidebarVisible);
-            toggleSortHealthBtn(sortBtn, sortVisible);
+            toggleSortHealthBtn(sortBtn, sortVisible && !singleCard);
             toggleSortHealthBtn(healthButton, healthVisible);
             toggleSortHealthBtn(brokenForgetBtn, brokenVisible);
             toggleSortHealthBtn(brokenRestartBtn, brokenVisible);
+            toggleSortHealthBtn(document.getElementById('filterTweakBtn'), !singleCard);
 
             if (!sidebarVisible && sortBtn && sortBtn.classList.contains('is-x')) {
                 setSortMenuOpen(false);
@@ -1781,8 +1783,10 @@
                 }
             }
 
+            var cardCount = document.querySelectorAll('.service-card:not([style*="display: none"])').length;
             var checkboxEl = e.target.closest('.card-checkbox');
             if (checkboxEl) {
+                if (cardCount <= 1) return;
                 e.stopPropagation();
                 var hash = checkboxEl.getAttribute('data-card-hash');
                 if (hash) {
@@ -1842,7 +1846,7 @@
             var btn = e.target.closest('.card-btn-blue');
             if (!btn) {
                 var clickedCard = e.target.closest('.service-card');
-                if (clickedCard) {
+                if (clickedCard && cardCount > 1) {
                     var h = clickedCard.getAttribute('data-hash');
                     if (h) {
                         _selectedCardHashes[h] = !_selectedCardHashes[h];
