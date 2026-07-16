@@ -820,7 +820,6 @@ body.has-error::before {
 
 .service-card.service-card-protected {
     background: #f0fdf4;
-    border-left: 1px solid #16a34a;
 }
 
 .card-top {

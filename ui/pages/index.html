@@ -240,7 +240,7 @@
                     var label = getFilterLabel(k);
                     var icon = getFilterSvg(k);
                     if (k === 'status') {
-                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="status"><option value="any">Any</option><option value="operational">Operational</option><option value="api_asker">API Asker</option><option value="broken">Broken</option><option value="protected">Protected</option></select></span>';
+                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="status"><option value="any">Any</option><option value="operational">Operational</option><option value="api_asker">API Asker</option><option value="broken">Broken</option></select></span>';
                     }
                     if (k === 'protected') {
                         return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="protected"><option value="any">Any</option><option value="Protected">Protected</option><option value="Unprotected">Unprotected</option></select></span>';
@@ -337,8 +337,6 @@
                         cv = 'broken';
                     } else if (card.classList.contains('service-card-api-asker')) {
                         cv = 'api_asker';
-                    } else if (card.classList.contains('service-card-protected')) {
-                        cv = 'protected';
                     } else {
                         cv = 'operational';
                     }
@@ -832,7 +830,6 @@
                     var key = keys[k];
                     if (key === 'status') {
                         function statusRank(client) {
-                            if (client.protected) return 3;
                             if (brokenClients.some(function(bc) { return bc.hash === client.hash; })) return 2;
                             if (apiAskerHashes[client.hash]) return 1;
                             return 0;
@@ -965,15 +962,15 @@
                 allClients.forEach(function(c) {
                     var val;
                     if (groupByKey === 'status') {
-                        if (c.protected) {
-                            val = 'Protected';
-                        } else if (brokenClients.some(function(bc) { return bc.hash === c.hash; })) {
+                        if (brokenClients.some(function(bc) { return bc.hash === c.hash; })) {
                             val = 'Broken';
                         } else if (apiAskerHashes[c.hash]) {
                             val = 'API Asker';
                         } else {
                             val = 'Operational';
                         }
+                    } else if (groupByKey === 'protected') {
+                        val = c.protected ? 'Protected' : 'Unprotected';
                     } else {
                         val = c[groupByKey];
                     }
