@@ -117,6 +117,7 @@
         var sortOrder = ['name', 'port', 'pid', 'bind_address', 'hostname', 'status', 'protected'];
         var currentClients = [];
         var brokenClients = [];
+        var _endpointCache = {};
         var forgottenHashes = {};
         var apiAskerHashes = {};
         var sidebar = document.getElementById('sidebar');
@@ -158,6 +159,17 @@
             if (lowerText.includes(lowerQuery)) return true;
             var dist = levenshtein(lowerText, lowerQuery);
             return dist <= 2 || dist <= lowerQuery.length * _fuzzyThreshold;
+        }
+
+        function cardEndpointMatches(card, query) {
+            var name = card.querySelector('.card-name').textContent;
+            var eps = _endpointCache[name];
+            if (!eps || !eps.length) return false;
+            var lowerQuery = query.toLowerCase();
+            for (var i = 0; i < eps.length; i++) {
+                if (eps[i].description && String(eps[i].description).toLowerCase().includes(lowerQuery)) return true;
+            }
+            return false;
         }
 
         function setSortMenuOpen(open) {
@@ -380,7 +392,7 @@
                 var port = metaItems[2] ? metaItems[2].textContent : '';
                 var pid = metaItems[3] ? metaItems[3].textContent : '';
                 var matchesFilter = cardMatchesFilters(card, filters);
-                var matchesSearch = !query || matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query) || matchesQuery(bindAddr, query) || matchesQuery(host, query);
+                var matchesSearch = !query || matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query) || matchesQuery(bindAddr, query) || matchesQuery(host, query) || cardEndpointMatches(card, query);
                 if (matchesFilter && matchesSearch) {
                     card.style.display = '';
                     visible++;
@@ -2202,6 +2214,7 @@
                                         try {
                                             var ed = JSON.parse(exhr.responseText);
                                             endpointsData = ed.endpoints || [];
+                                            _endpointCache[cardName] = endpointsData;
                                         } catch(e) { endpointsData = []; }
                                     } else { endpointsData = []; }
                                     // FAKE endpoints for UI testing
@@ -2213,10 +2226,11 @@
                                         {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store', path_variables: ['id'], body_schema: {}},
                                         {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration', path_variables: [], body_schema: {}},
                                     ];
+                                    _endpointCache[cardName] = endpointsData;
                                     tryPopulate();
                                 };
-                                exhr.onerror = function() { endpointsData = []; tryPopulate(); };
-                                exhr.ontimeout = function() { endpointsData = []; tryPopulate(); };
+                                exhr.onerror = function() { endpointsData = []; _endpointCache[cardName] = []; tryPopulate(); };
+                                exhr.ontimeout = function() { endpointsData = []; _endpointCache[cardName] = []; tryPopulate(); };
                                 exhr.send(JSON.stringify({name: cardName}));
                             }
                         }, 135);
