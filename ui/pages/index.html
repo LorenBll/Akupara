@@ -741,8 +741,12 @@
                         '<div class="expand-endpoint-section-title">Body Schema</div>' +
                         '<pre class="expand-endpoint-section-content expand-endpoint-schema">' + JSON.stringify(ep.body_schema, null, 2) + '</pre>' +
                         '<div class="expand-endpoint-schema-actions">' +
-                        '<button class="expand-endpoint-schema-btn" onclick="copySchema(this)">Copy</button>' +
-                        '<button class="expand-endpoint-schema-btn" onclick="downloadSchema(this)">Download</button>' +
+                        '<button class="expand-endpoint-schema-btn" data-label="Copy to Clipboard" onclick="copySchema(this)">' +
+                        '<svg class="expand-endpoint-schema-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M15 15l-3-3-3 3"/><path d="M12 12v7"/></svg>' +
+                        '</button>' +
+                        '<button class="expand-endpoint-schema-btn" data-label="Download" onclick="downloadSchema(event, this)">' +
+                        '<svg class="expand-endpoint-schema-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+                        '</button>' +
                         '</div>' +
                         '</div>';
                 }
@@ -756,13 +760,20 @@
             var pre = btn.closest('.expand-endpoint-section').querySelector('.expand-endpoint-schema');
             var text = pre.textContent;
             navigator.clipboard.writeText(text).then(function() {
-                var orig = btn.textContent;
-                btn.textContent = 'Copied!';
-                setTimeout(function() { btn.textContent = orig; }, 1500);
+                var icon = btn.querySelector('.expand-endpoint-schema-icon');
+                var origHTML = icon.outerHTML;
+                var origLabel = btn.getAttribute('data-label');
+                icon.outerHTML = '<svg class="expand-endpoint-schema-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+                btn.setAttribute('data-label', 'Copied!');
+                setTimeout(function() {
+                    btn.querySelector('.expand-endpoint-schema-icon').outerHTML = origHTML;
+                    btn.setAttribute('data-label', origLabel);
+                }, 1750);
             });
         }
 
-        function downloadSchema(btn) {
+        function downloadSchema(ev, btn) {
+            ev.stopPropagation();
             var pre = btn.closest('.expand-endpoint-section').querySelector('.expand-endpoint-schema');
             var text = pre.textContent;
             var blob = new Blob([text], { type: 'application/json' });
@@ -770,6 +781,7 @@
             var a = document.createElement('a');
             a.href = url;
             a.download = 'schema.json';
+            a.addEventListener('click', function(ev2) { ev2.stopPropagation(); });
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

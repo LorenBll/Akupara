@@ -703,23 +703,50 @@ body.has-error::before {
 
 .expand-endpoint-schema-actions {
     display: flex;
-    gap: 6px;
+    gap: 4px;
+    justify-content: flex-end;
     margin-top: 6px;
 }
 
 .expand-endpoint-schema-btn {
-    font-size: 0.7rem;
-    padding: 3px 10px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
     border: 1px solid #d1d5db;
     border-radius: 999px;
     background: #f9fafb;
-    color: #374151;
+    color: #6b7280;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background 0.1s, color 0.1s;
+    padding: 0;
 }
 
 .expand-endpoint-schema-btn:hover {
     background: #e5e7eb;
+    color: #374151;
+}
+
+.expand-endpoint-schema-btn:hover::after {
+    content: attr(data-label);
+    position: absolute;
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 0.75rem;
+    font-family: inherit;
+    color: #6b7280;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    padding: 2px 8px;
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 99999;
 }
 
 
