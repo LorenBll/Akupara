@@ -416,16 +416,18 @@
                 if (c.classList.contains('service-card-unhealthy')) visibleBrokenCount++;
             });
             var brokenVisible = visibleBrokenCount > 0 && !expandedEl;
+            var singleCard = visible <= 1;
 
             toggleSortHealthBtn(searchBar, searchVisible);
             sidebarEl.classList.toggle('hidden', !sidebarVisible);
             if (!sidebarVisible && sortBtn && sortBtn.classList.contains('is-x')) {
                 setSortMenuOpen(false);
             }
-            toggleSortHealthBtn(sortBtn, sortVisible);
+            toggleSortHealthBtn(sortBtn, sortVisible && !singleCard);
             toggleSortHealthBtn(healthButton, healthVisible);
             toggleSortHealthBtn(brokenForgetBtn, brokenVisible);
             toggleSortHealthBtn(brokenRestartBtn, brokenVisible);
+            toggleSortHealthBtn(document.getElementById('filterTweakBtn'), !singleCard);
         }
 
         function loadSortOrder() {
