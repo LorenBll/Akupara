@@ -1246,6 +1246,15 @@
                                         if (exhr.status === 200) {
                                             try { var ed = JSON.parse(exhr.responseText); eps = ed.endpoints || []; } catch(e) {}
                                         }
+                                        // FAKE endpoints for UI testing
+                                        eps = [
+                                            {verb: 'GET', path: '/api/health', description: 'Check service health status'},
+                                            {verb: 'POST', path: '/api/data/encrypt', description: 'Encrypt the given payload'},
+                                            {verb: 'POST', path: '/api/data/decrypt', description: 'Decrypt the given payload'},
+                                            {verb: 'GET', path: '/api/keys/{id}', description: 'Retrieve a specific key by ID'},
+                                            {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store'},
+                                            {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration'},
+                                        ];
                                         populateExpandedContent(expandedCard, hd, eps);
                                     };
                                     exhr.onerror = function() { populateExpandedContent(expandedCard, hd, []); };
@@ -2135,6 +2144,15 @@
                                             endpointsData = ed.endpoints || [];
                                         } catch(e) { endpointsData = []; }
                                     } else { endpointsData = []; }
+                                    // FAKE endpoints for UI testing
+                                    endpointsData = [
+                                        {verb: 'GET', path: '/api/health', description: 'Check service health status'},
+                                        {verb: 'POST', path: '/api/data/encrypt', description: 'Encrypt the given payload'},
+                                        {verb: 'POST', path: '/api/data/decrypt', description: 'Decrypt the given payload'},
+                                        {verb: 'GET', path: '/api/keys/{id}', description: 'Retrieve a specific key by ID'},
+                                        {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store'},
+                                        {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration'},
+                                    ];
                                     tryPopulate();
                                 };
                                 exhr.onerror = function() { endpointsData = []; tryPopulate(); };
