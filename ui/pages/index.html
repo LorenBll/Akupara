@@ -750,13 +750,14 @@
 
         function _syncCheckboxUI() {
             var hasSelection = false;
+            var cardCount = document.querySelectorAll('.service-card:not([style*="display: none"])').length;
             Object.keys(_selectedCardHashes).forEach(function(h) {
                 if (_selectedCardHashes[h]) hasSelection = true;
             });
             var content = document.getElementById('content');
             content.querySelectorAll('.card-checkbox').forEach(function(cb) {
+                cb.classList.toggle('visible', _checkboxVisible && cardCount > 1);
                 var h = cb.getAttribute('data-card-hash');
-                cb.classList.toggle('visible', _checkboxVisible);
                 var checked = !!_selectedCardHashes[h];
                 cb.classList.toggle('checked', checked);
                 var card = cb.closest('.service-card');
