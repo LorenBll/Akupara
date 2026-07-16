@@ -340,7 +340,7 @@ def css_files(filename):
     return send_from_directory(css_dir, filename)
 
 
-@app.route("/api/register", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/register/service", methods=["POST", "HEAD", "OPTIONS"])
 def register():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -460,15 +460,16 @@ def register():
     return _success_response({"hash": client_hash}, 201)
 
 
-@app.route("/api/question", methods=["POST", "HEAD", "OPTIONS"])
-def question():
+@app.route("/api/question/service", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/question/service/<name>", methods=["POST", "HEAD", "OPTIONS"])
+def question(name=None):
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    target_name = payload.get("name") if isinstance(payload, dict) else None
+    target_name = name if isinstance(name, str) and name.strip() else (payload.get("name") if isinstance(payload, dict) else None)
 
     if not isinstance(target_name, str) or not target_name.strip():
         return _error_response("The name of the target client is required.")
@@ -493,7 +494,7 @@ def question():
     return _success_response({"name": target["name"], "port": target["port"]})
 
 
-@app.route("/api/unregister", methods=["DELETE", "HEAD", "OPTIONS"])
+@app.route("/api/unregister/service", methods=["DELETE", "HEAD", "OPTIONS"])
 def unregister():
     if request.method == "OPTIONS":
         return _options_response(["DELETE", "HEAD", "OPTIONS"])
@@ -545,7 +546,7 @@ def health():
     )
 
 
-@app.route("/api/health/check", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/services/healthcheck", methods=["POST", "HEAD", "OPTIONS"])
 def health_check():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -553,7 +554,8 @@ def health_check():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    authorized, invalid_key = _check_authorization(payload)
+    if invalid_key:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -574,7 +576,7 @@ def health_check():
     return _success_response({"checked": True, "unhealthy": unhealthy})
 
 
-@app.route("/api/clients", methods=["GET", "HEAD", "OPTIONS"])
+@app.route("/api/services", methods=["GET", "HEAD", "OPTIONS"])
 def clients():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
@@ -600,7 +602,7 @@ def clients():
     return _success_response({"clients": client_list})
 
 
-@app.route("/api/endpoints/register", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/register/endpoint", methods=["POST", "HEAD", "OPTIONS"])
 def register_endpoint():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -660,15 +662,18 @@ def register_endpoint():
     return _success_response({"status": "registered", "endpoint": endpoint}, 201)
 
 
-@app.route("/api/endpoints", methods=["POST", "HEAD", "OPTIONS"])
-def get_endpoints():
+@app.route("/api/service/endpoints", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/service/endpoints/<name>", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/endpoints/service", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/endpoints/service/<name>", methods=["POST", "HEAD", "OPTIONS"])
+def get_endpoints(name=None):
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    target_name = payload.get("name") if isinstance(payload, dict) else None
+    target_name = name if isinstance(name, str) and name.strip() else (payload.get("name") if isinstance(payload, dict) else None)
 
     if not isinstance(target_name, str) or not target_name.strip():
         return _error_response("The name of the service is required.")
@@ -687,7 +692,7 @@ def get_endpoints():
     return _success_response({"name": target_name.strip(), "endpoints": endpoints})
 
 
-@app.route("/api/clients/details", methods=["GET", "HEAD", "OPTIONS"])
+@app.route("/api/services/endpoints", methods=["GET", "HEAD", "OPTIONS"])
 def clients_details():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
@@ -791,7 +796,7 @@ def sort_order():
     return _success_response(resp)
 
 
-@app.route("/api/terminate", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/service/terminate", methods=["POST", "HEAD", "OPTIONS"])
 def terminate():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -799,7 +804,10 @@ def terminate():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload) and not _is_self_request(payload):
+    authorized, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not authorized and not _is_self_request(payload):
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -833,7 +841,7 @@ def terminate():
     return _success_response({"status": "terminated", "hash": client_hash.strip(), "pid": pid})
 
 
-@app.route("/api/restart", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/service/restart", methods=["POST", "HEAD", "OPTIONS"])
 def restart():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -841,7 +849,10 @@ def restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload) and not _is_self_request(payload):
+    authorized, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not authorized and not _is_self_request(payload):
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -915,7 +926,10 @@ def broken_forget():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    authorized, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not authorized:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -953,7 +967,10 @@ def broken_restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    authorized, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not authorized:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -1280,25 +1297,9 @@ def api_key_pending():
 
     with PENDING_API_KEY_REQUESTS_LOCK:
         pending_list = list(PENDING_API_KEY_REQUESTS.values())
-
-    return _success_response({"pending": pending_list})
-
-
-@app.route("/api/api-key/pending-hashes", methods=["GET", "HEAD", "OPTIONS"])
-def api_key_pending_hashes():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        return _error_response("API key is not valid.", 403)
-
-    with PENDING_API_KEY_REQUESTS_LOCK:
         hashes = list(PENDING_API_KEY_REQUESTS.keys())
 
-    return _success_response({"hashes": hashes})
+    return _success_response({"pending": pending_list, "hashes": hashes})
 
 
 @app.route("/api/api-key/grant", methods=["POST", "HEAD", "OPTIONS"])

@@ -59,16 +59,18 @@ Sensitive endpoints require a valid API key, with these exceptions:
 
 | Restriction level | Endpoints |
 |---|---|---|
-| **Valid API key required** (POST) | `/api/terminate`, `/api/restart`, `/api/broken/forget`, `/api/broken/restart`, `/api/health/check`, `/api/shutdown`, `/api/unregister` |
-| **Strict localhost or valid API key** (GET) — localhost allowed for bootstrapping | `/api/api-key/pending`, `/api/api-key/pending-hashes` |
+| **Valid API key, localhost, or self-service** (POST) — accepts if API key is valid, or request is from localhost, or the service is acting on itself | `/api/service/terminate`, `/api/service/restart` |
+| **Valid API key or localhost** (POST) — localhost allowed for self-requests | `/api/broken/forget`, `/api/broken/restart`, `/api/shutdown`, `/api/unregister/service` |
+| **Valid API key or localhost** (POST) — localhost allowed | `/api/services/healthcheck` |
+| **Strict localhost or valid API key** (GET) — localhost allowed for bootstrapping | `/api/api-key/pending` |
 | **Strict localhost or valid API key** (POST + involving_api_keys) — localhost allowed for bootstrapping | `/api/api-key/grant`, `/api/api-key/reject` |
-| **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question`, `GET /api/clients` |
-| **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/endpoints/register` |
-| **No auth required** | `POST /api/endpoints`, `GET /api/clients/details` |
+| **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question/service`, `GET /api/services` |
+| **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
+| **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints` |
 
-Additionally, `POST /api/terminate` and `POST /api/restart` allow a registered service to terminate or restart itself by providing its own hash — no API key needed. The request is recognized as self-service when the requesting IP matches the IP the service registered with.
+`POST /api/service/terminate` and `POST /api/service/restart` accept the request if a valid API key is provided, the request comes from localhost, or the service is acting on itself (requesting IP matches the IP the service registered with — no API key needed).
 
-When authorization fails on any API-key-required endpoint, the response is `403` with `{ "error": "API key is not valid." }`. On `POST /api/question` and `GET /api/clients`, an explicitly provided but invalid API key returns the same error, while a missing key with a non-localhost request returns `403` with `{ "error": "Only localhost requests are allowed." }`.
+When authorization fails on any API-key-required endpoint, the response is `403` with `{ "error": "API key is not valid." }`. On `POST /api/question/service` and `GET /api/services`, an explicitly provided but invalid API key returns the same error, while a missing key with a non-localhost request returns `403` with `{ "error": "Local device access only." }`.
 
 These restrictions apply to the main HTTP method only; `HEAD` and `OPTIONS` are unaffected.
 
@@ -91,7 +93,7 @@ Serves static CSS files from the `ui/css/` directory.
 	- `200` -> `text/css`
 	- `404` -> HTML error page
 
-### `POST /api/register` (also `HEAD`, `OPTIONS`)
+### `POST /api/register/service` (also `HEAD`, `OPTIONS`)
 Registers a new client service and returns a SHA-256 hash. Before registering, ServiceHandler probes the new client's health endpoint (`/api/health`) to confirm it is reachable.
 
 - Body (JSON object):
@@ -120,11 +122,11 @@ Registers a new client service and returns a SHA-256 hash. Before registering, S
 	- `400` -> `{ "error": "Client health endpoint is not reachable." }`
 	- `409` -> `{ "error": "A client with name '...' is already registered." }`
 
-### `POST /api/question` (also `HEAD`, `OPTIONS`)
-Looks up a registered client's data by name. No registration is required to ask. If a valid `api_key` is provided, all stored client data (including the hash) is returned.
+### `POST /api/question/service` (also `HEAD`, `OPTIONS`)
+Looks up a registered client's data by name. The service name can be passed either as a URL path parameter (`/api/question/service/<name>`) or in the JSON body. No registration is required to ask. If a valid `api_key` is provided, all stored client data (including the hash) is returned.
 
 - Body (JSON object):
-	- `name` (string, required): name of the target client to look up.
+	- `name` (string, optional if provided in path): name of the target client to look up.
 	- `api_key` (string, optional): API key for full data access.
 - Returns (no API key or unauthorized):
 	- `200` ->
@@ -153,12 +155,12 @@ Looks up a registered client's data by name. No registration is required to ask.
 	- `403` -> `{ "error": "API key is not valid." }`
 	- `404` -> `{ "error": "No client found with name '...'." }`
 
-### `DELETE /api/unregister` (also `HEAD`, `OPTIONS`)
-Unregisters a client by its hash. A valid API key is required.
+### `DELETE /api/unregister/service` (also `HEAD`, `OPTIONS`)
+Unregisters a client by its hash. A valid API key or localhost request is required.
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to unregister.
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -189,8 +191,8 @@ Service health check with registration statistics.
 		}
 		```
 
-### `GET /api/clients` (also `HEAD`, `OPTIONS`)
-Returns the list of all registered clients. Client hashes are only included if the request originates from localhost or a valid API key is provided. The `endpoints` field is never included in this response — use `GET /api/clients/details` for endpoint data.
+### `GET /api/services` (also `HEAD`, `OPTIONS`)
+Returns the list of all registered clients. Client hashes are only included if the request originates from localhost or a valid API key is provided. The `endpoints` field is never included in this response — use `GET /api/services/endpoints` for endpoint data.
 
 - Body (JSON object):
 	- `api_key` (string, optional): API key to receive full client data including hashes.
@@ -233,7 +235,7 @@ Returns the list of all registered clients. Client hashes are only included if t
 		```
 	- `403` -> `{ "error": "API key is not valid." }` (only when an invalid API key is explicitly provided)
 
-### `POST /api/endpoints/register` (also `HEAD`, `OPTIONS`)
+### `POST /api/register/endpoint` (also `HEAD`, `OPTIONS`)
 Registers an endpoint for a registered service. The service must authenticate by providing its own hash, and the request must originate from the IP the service registered with. No API key option is available.
 
 - Body (JSON object):
@@ -264,11 +266,11 @@ Registers an endpoint for a registered service. The service must authenticate by
 	- `403` -> `{ "error": "Hash does not match the requesting service." }`
 	- `404` -> `{ "error": "Service not found." }`
 
-### `POST /api/endpoints` (also `HEAD`, `OPTIONS`)
-Returns the list of endpoints registered for a given service name. No authentication required.
+### `POST /api/service/endpoints` / `POST /api/endpoints/service` (also `HEAD`, `OPTIONS`)
+Returns the list of endpoints registered for a given service name. The service name can be passed either as a URL path parameter (`/api/service/endpoints/<name>` or `/api/endpoints/service/<name>`) or in the JSON body. No authentication required.
 
 - Body (JSON object):
-	- `name` (string, required): name of the registered service.
+	- `name` (string, optional if provided in path): name of the registered service.
 - Returns:
 	- `200` ->
 		```json
@@ -288,7 +290,7 @@ Returns the list of endpoints registered for a given service name. No authentica
 	- `400` -> `{ "error": "The name of the service is required." }`
 	- `404` -> `{ "error": "No service found with name '...'." }`
 
-### `GET /api/clients/details` (also `HEAD`, `OPTIONS`)
+### `GET /api/services/endpoints` (also `HEAD`, `OPTIONS`)
 Returns the complete list of registered services along with their registered endpoints. Each entry only includes `name`, `ip`, `port`, and `endpoints`. No authentication required.
 
 - Body: none
@@ -351,13 +353,13 @@ Updates the column sort order, group-by key, and/or fuzzy accuracy threshold.
 	- `400` -> `{ "error": "sort_order must be a non-empty list." }`
 	- `500` -> `{ "error": "Failed to read/write configuration." }`
 
-### `POST /api/terminate` (also `HEAD`, `OPTIONS`)
-Terminates a registered client process and unregisters it. A valid API key is required, unless the service is terminating itself (request IP matches the service's registered IP).
+### `POST /api/service/terminate` (also `HEAD`, `OPTIONS`)
+Terminates a registered client process and unregisters it. A valid API key is required, unless the request comes from localhost or the service is terminating itself (request IP matches the service's registered IP).
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to terminate.
 	- `pid` (number, optional): process ID to kill. If omitted, the server looks up the stored PID for the client.
-	- `api_key` (string, required): API key to authenticate the request (not needed for self-service).
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client (not needed for self-service or localhost).
 - Returns:
 	- `200` ->
 		```json
@@ -372,12 +374,12 @@ Terminates a registered client process and unregisters it. A valid API key is re
 	- `403` -> `{ "error": "API key is not valid." }`
 	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 
-### `POST /api/restart` (also `HEAD`, `OPTIONS`)
-Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data. A valid API key is required, unless the service is restarting itself (request IP matches the service's registered IP).
+### `POST /api/service/restart` (also `HEAD`, `OPTIONS`)
+Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data. A valid API key is required, unless the request comes from localhost or the service is restarting itself (request IP matches the service's registered IP).
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client.
-	- `api_key` (string, required): API key to authenticate the request (not needed for self-service).
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client (not needed for self-service or localhost).
 - Returns:
 	- `200` ->
 		```json
@@ -395,11 +397,11 @@ Restarts a registered client process via its start script. The starting script a
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
 ### `POST /api/broken/forget` (also `HEAD`, `OPTIONS`)
-Removes a client from the broken list without requiring a termination. If the client is still registered, it is also unregistered and its process is killed if possible. A valid API key is required.
+Removes a client from the broken list without requiring a termination. If the client is still registered, it is also unregistered and its process is killed if possible. A valid API key or localhost request is required.
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the broken client.
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -412,11 +414,11 @@ Removes a client from the broken list without requiring a termination. If the cl
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/broken/restart` (also `HEAD`, `OPTIONS`)
-Forgets a client from the broken list, kills its process if still running, then restarts it via its start script. The starting script is looked up from the server's stored client data. A valid API key is required.
+Forgets a client from the broken list, kills its process if still running, then restarts it via its start script. The starting script is looked up from the server's stored client data. A valid API key or localhost request is required.
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the broken client.
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -430,12 +432,12 @@ Forgets a client from the broken list, kills its process if still running, then 
 	- `403` -> `{ "error": "API key is not valid." }`
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
-### `POST /api/health/check` (also `HEAD`, `OPTIONS`)
-Checks the health of a specific client by hash, or all registered clients if no hash is given. A valid API key is required.
+### `POST /api/services/healthcheck` (also `HEAD`, `OPTIONS`)
+Checks the health of a specific client by hash, or all registered clients if no hash is given. A valid API key is required, unless the request comes from localhost.
 
 - Body (JSON object):
 	- `hash` (string, optional): SHA-256 hash of a specific client to check. If omitted, all registered clients are checked.
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns (single client):
 	- `200` ->
 		```json
@@ -475,10 +477,10 @@ Checks the health of a specific client by hash, or all registered clients if no 
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/shutdown` (also `HEAD`, `OPTIONS`)
-Shuts down the ServiceHandler service. A valid API key is required.
+Shuts down the ServiceHandler service. A valid API key or localhost request is required.
 
 - Body (JSON object):
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -507,7 +509,7 @@ Submits an API key request for a registered client. The request enters a pending
 	- `503` -> `{ "error": "..." }` (API key session not available)
 
 ### `GET /api/api-key/pending` (also `HEAD`, `OPTIONS`)
-Lists all pending API key requests with full details. Only accessible from localhost or with a valid API key.
+Lists all pending API key requests with full details and an array of hashes. Only accessible from localhost or with a valid API key.
 
 - Body (JSON object):
 	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
@@ -523,20 +525,7 @@ Lists all pending API key requests with full details. Only accessible from local
 					"ip": "127.0.0.1",
 					"timestamp": "2025-01-01T00:00:00"
 				}
-			]
-		}
-		```
-	- `403` -> `{ "error": "API key is not valid." }`
-
-### `GET /api/api-key/pending-hashes` (also `HEAD`, `OPTIONS`)
-Lists just the hashes of all pending API key requests. Only accessible from localhost or with a valid API key.
-
-- Body (JSON object):
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
-- Returns:
-	- `200` ->
-		```json
-		{
+			],
 			"hashes": ["<sha256>", "<sha256>"]
 		}
 		```

@@ -1079,7 +1079,7 @@
                 var hash = expandedCard.getAttribute('data-hash');
                 var cardPort = expandedCard.getAttribute('data-port');
                 if (hash) {
-                    fetch('/api/health/check', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({hash: hash}) })
+                    fetch('/api/services/healthcheck', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({hash: hash}) })
                         .then(function(r) { return r.json(); })
                         .then(function(d) {
                             if (d.healthy) {
@@ -1137,7 +1137,7 @@
                     var selectedHashes = Object.keys(_selectedCardHashes).filter(function(h) { return _selectedCardHashes[h]; });
                     var pending = selectedHashes.length;
                     selectedHashes.forEach(function(sHash) {
-                        fetch('/api/health/check', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({hash: sHash}) })
+                        fetch('/api/services/healthcheck', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({hash: sHash}) })
                             .then(function(r) { return r.json(); })
                             .then(function(d) {
                                 if (!d.healthy) {
@@ -1183,13 +1183,13 @@
                 loader.className = 'content-loader';
                 loader.innerHTML = '<div class="spinner"></div>';
                 content.appendChild(loader);
-                fetch('/api/health/check', { method: 'POST' })
+                fetch('/api/services/healthcheck', { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
                         if (d.unhealthy) {
                             d.unhealthy.forEach(function(u) { addBrokenClient(u); });
                         }
-                        return fetch('/api/clients').then(function(r) { return r.json(); });
+                        return fetch('/api/services').then(function(r) { return r.json(); });
                     })
                     .then(function(d) {
                         return enrichClientsWithHashes(d.clients).then(function(clients) {
@@ -1234,7 +1234,7 @@
             function tryFinish() {
                 if (pendingTerm > 0) return;
                 brokenClients = [];
-                fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                fetch('/api/services').then(function(r) { return r.json(); }).then(function(d) {
                     enrichClientsWithHashes(d.clients).then(function(clients) {
                         buildCards(clients.filter(function(c) { return !terminatedHashes[c.hash]; }), false);
                     });
@@ -1276,7 +1276,7 @@
                         body: JSON.stringify({hash: bc.hash})
                     }).catch(function() {});
                 });
-                fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                fetch('/api/services').then(function(r) { return r.json(); }).then(function(d) {
                     enrichClientsWithHashes(d.clients).then(function(clients) {
                         buildCards(clients.filter(function(c) { return !terminatedHashes[c.hash]; }), false);
                     });
@@ -1644,7 +1644,7 @@
         }
 
         function refreshPendingApiKeyHashes() {
-            return fetch('/api/api-key/pending-hashes')
+            return fetch('/api/api-key/pending')
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     var newHashes = {};
@@ -1708,7 +1708,7 @@
         document.getElementById('content').addEventListener('click', function(e) {
             function afterTerminate(terminatedHash) {
                 return function() {
-                    fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                    fetch('/api/services').then(function(r) { return r.json(); }).then(function(d) {
                         enrichClientsWithHashes(d.clients).then(function(clients) {
                             buildCards(clients.filter(function(c) { return c.hash !== terminatedHash; }), false);
                         });
@@ -1783,7 +1783,7 @@
                 handleActionBtn(card, {
                     hash: termHash,
                     pid: termPid || undefined
-                }, isBroken ? '/api/broken/forget' : '/api/terminate', afterTerminate(termHash));
+                }, isBroken ? '/api/broken/forget' : '/api/service/terminate', afterTerminate(termHash));
                 return;
             }
             var yellowBtn = e.target.closest('.card-btn-yellow');
@@ -1798,7 +1798,7 @@
                 var isBroken = card.classList.contains('service-card-unhealthy');
                 handleActionBtn(card, {
                     hash: hash
-                }, isBroken ? '/api/broken/restart' : '/api/restart', afterTerminate(hash));
+                }, isBroken ? '/api/broken/restart' : '/api/service/restart', afterTerminate(hash));
                 return;
             }
             var btn = e.target.closest('.card-btn-blue');
@@ -2039,7 +2039,7 @@
                 var card = document.querySelector('.service-card[data-hash="' + hash + '"]');
                 var isBroken = card && card.classList.contains('service-card-unhealthy');
                 var pid = card ? card.getAttribute('data-pid') : '';
-                var apiPath = isBroken ? '/api/broken/forget' : '/api/terminate';
+                var apiPath = isBroken ? '/api/broken/forget' : '/api/service/terminate';
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', apiPath, true);
                 xhr.setRequestHeader('Content-Type', 'application/json');
@@ -2048,7 +2048,7 @@
                         var l = content.querySelector('.content-loader');
                         if (l) l.remove();
                         _clearCheckboxSelection();
-                        fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                        fetch('/api/services').then(function(r) { return r.json(); }).then(function(d) {
                             enrichClientsWithHashes(d.clients).then(function(clients) {
                                 buildCards(clients.filter(function(c) { return selected.indexOf(c.hash) === -1; }), false);
                             });
@@ -2071,7 +2071,7 @@
             selected.forEach(function(hash) {
                 var card = document.querySelector('.service-card[data-hash="' + hash + '"]');
                 var isBroken = card && card.classList.contains('service-card-unhealthy');
-                var apiPath = isBroken ? '/api/broken/restart' : '/api/restart';
+                var apiPath = isBroken ? '/api/broken/restart' : '/api/service/restart';
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', apiPath, true);
                 xhr.setRequestHeader('Content-Type', 'application/json');
@@ -2080,7 +2080,7 @@
                         var l = content.querySelector('.content-loader');
                         if (l) l.remove();
                         _clearCheckboxSelection();
-                        fetch('/api/clients').then(function(r) { return r.json(); }).then(function(d) {
+                        fetch('/api/services').then(function(r) { return r.json(); }).then(function(d) {
                             enrichClientsWithHashes(d.clients).then(function(clients) {
                                 buildCards(clients, false);
                             });
@@ -2206,7 +2206,7 @@
                 if (d.status !== 'ok') {
                     document.body.classList.add('has-error');
                 }
-                fetch('/api/clients')
+                fetch('/api/services')
                     .then(function(r) { return r.json(); })
                     .then(function(cd) { return enrichClientsWithHashes(cd.clients).then(function(clients) { buildCards(clients, true); }); })
                     .catch(function() {})
