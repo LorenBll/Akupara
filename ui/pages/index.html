@@ -643,6 +643,8 @@
             var excluded = ['service', 'bind_address', 'hostname', 'port', 'pid'];
             var container = card.querySelector('.card-expanded-content');
             if (!container) return;
+            container.classList.remove('endpoint-detail-active');
+            container.removeAttribute('data-original-html');
             container.innerHTML = '';
             var items = [];
             Object.keys(healthData).forEach(function(k) {
@@ -730,22 +732,18 @@
             container.onclick = function(e) {
                 var backBtn = e.target.closest('[data-action="endpoint-back"]');
                 if (backBtn) {
-                    var orig = container.getAttribute('data-original-html');
-                    if (orig) {
-                        container.removeAttribute('data-original-html');
-                        container.innerHTML = orig;
-                        setupEndpointClicks(container);
-                    }
+                    deactivateEndpointDetail(container);
                     return;
                 }
+                if (container.classList.contains('endpoint-detail-active')) return;
                 var pill = e.target.closest('.expand-endpoint-pill');
                 if (pill && pill.getAttribute('data-endpoint')) {
-                    showEndpointDetail(container, pill);
+                    activateEndpointDetail(container, pill);
                 }
             };
         }
 
-        function showEndpointDetail(container, pill) {
+        function activateEndpointDetail(container, pill) {
             container.setAttribute('data-original-html', container.innerHTML);
             var epData = JSON.parse(decodeURIComponent(pill.getAttribute('data-endpoint')));
             var html = '<div class="expand-endpoint-detail">';
@@ -773,6 +771,29 @@
             }
             html += '</div></div>';
             container.innerHTML = html;
+            container.classList.add('endpoint-detail-active');
+        }
+
+        function deactivateEndpointDetail(container) {
+            var detail = container.querySelector('.expand-endpoint-detail');
+            if (detail) {
+                detail.classList.add('endpoint-detail-out');
+                var self = container;
+                setTimeout(function() {
+                    var orig = self.getAttribute('data-original-html');
+                    if (orig) {
+                        self.removeAttribute('data-original-html');
+                        self.classList.remove('endpoint-detail-active');
+                        self.innerHTML = orig;
+                        setupEndpointClicks(self);
+                    }
+                }, 150);
+            }
+        }
+
+        function isEndpointDetailActive() {
+            var cont = document.querySelector('.card-expanded-content.endpoint-detail-active');
+            return !!cont;
         }
 
         function updateCardButtonLabels(card) {
@@ -1226,7 +1247,19 @@
         document.addEventListener('click', function(e) {
             var expandedCard = document.querySelector('.service-card.expanded');
             if (expandedCard) {
-                if (!e.target.closest('.service-card.expanded') && !e.target.closest('.health-decoration')) {
+                var contentArea = expandedCard.querySelector('.card-expanded-content');
+                var isOutsideContent = contentArea && !e.target.closest('.card-expanded-content');
+                var isOutsideCard = !e.target.closest('.service-card.expanded') && !e.target.closest('.health-decoration');
+                if (isEndpointDetailActive() && isOutsideContent) {
+                    deactivateEndpointDetail(document.querySelector('.card-expanded-content.endpoint-detail-active'));
+                    if (isOutsideCard) {
+                        setTimeout(function() {
+                            collapseExpandedCard(expandedCard, document.getElementById('content'), false);
+                        }, 200);
+                    }
+                    return;
+                }
+                if (isOutsideCard) {
                     collapseExpandedCard(expandedCard, document.getElementById('content'), false);
                 }
             }
@@ -1548,7 +1581,7 @@
                             if (searchInput) searchInput.disabled = false;
                             document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
                             var ec = card.querySelector('.card-expanded-content');
-                            if (ec) ec.innerHTML = '';
+                            if (ec) { ec.innerHTML = ''; ec.classList.remove('endpoint-detail-active'); ec.removeAttribute('data-original-html'); }
                             document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
                             updateBrokenButtons();
                             filterCards();
@@ -1572,7 +1605,7 @@
                 var p = content.querySelector('.expand-placeholder');
                 if (p) p.remove();
                 var ec = card.querySelector('.card-expanded-content');
-                if (ec) ec.innerHTML = '';
+                if (ec) { ec.innerHTML = ''; ec.classList.remove('endpoint-detail-active'); ec.removeAttribute('data-original-html'); }
                 document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
                 card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons');
                 updateBrokenButtons();
@@ -2464,6 +2497,11 @@
                 var hasCheckboxSelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
                 if (hasCheckboxSelection) {
                     _clearCheckboxSelection();
+                    return;
+                }
+                if (isEndpointDetailActive()) {
+                    var cont = document.querySelector('.card-expanded-content.endpoint-detail-active');
+                    if (cont) deactivateEndpointDetail(cont);
                     return;
                 }
                 var isInput = e.target.matches('input, select, textarea');
