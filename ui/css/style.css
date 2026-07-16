@@ -1673,7 +1673,7 @@ body.checkbox-active .service-card .card-btn-blue {
 body.checkbox-visible .checkbox-actions {
     opacity: 1;
     pointer-events: auto;
-    transition: opacity 0.15s ease 0.2s;
+    transition: opacity 0.15s ease;
 }
 
 .checkbox-actions .card-btn-red:hover::after,
