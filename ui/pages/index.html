@@ -242,6 +242,9 @@
                     if (k === 'status') {
                         return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="status"><option value="any">Any</option><option value="operational">Operational</option><option value="api_asker">API Asker</option><option value="broken">Broken</option><option value="protected">Protected</option></select></span>';
                     }
+                    if (k === 'protected') {
+                        return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><select class="filter-select" data-key="protected"><option value="any">Any</option><option value="true">True</option><option value="false">False</option></select></span>';
+                    }
                     return '<span class="filter-couple"><span class="filter-icon" data-label="' + label + '">' + icon + '</span><input type="text" class="filter-input" data-key="' + k + '" placeholder="' + randomExample(k) + '"></span>';
                 }
                 html += makeCouple(keys[i]);
@@ -314,10 +317,10 @@
                 var val = el.value.trim();
                 if (val) filters[el.getAttribute('data-key')] = val;
             });
-            var statusSelect = panel.querySelector('.filter-select');
-            if (statusSelect && statusSelect.value !== 'any') {
-                filters.status = statusSelect.value;
-            }
+            panel.querySelectorAll('.filter-select').forEach(function(el) {
+                var val = el.value;
+                if (val !== 'any') filters[el.getAttribute('data-key')] = val;
+            });
             return Object.keys(filters).length > 0 ? filters : null;
         }
 
@@ -347,8 +350,10 @@
                     cv = metaItems[2] ? metaItems[2].textContent : '';
                 } else if (key === 'pid') {
                     cv = metaItems[3] ? metaItems[3].textContent : '';
+                } else if (key === 'protected') {
+                    cv = card.getAttribute('data-protected') || 'false';
                 }
-                if (key === 'status') {
+                if (key === 'status' || key === 'protected') {
                     if (fv !== cv) return false;
                 } else {
                     if (!matchesQuery(cv, fv)) return false;
@@ -505,6 +510,7 @@
                 item.setAttribute('data-label', sortItem.getAttribute('data-label') || '');
                 zone.setAttribute('data-label', sortItem.getAttribute('data-label') || '');
             }
+            applySortOrderToSidebar();
         }
 
         function setGroupBy(key) {
@@ -1900,12 +1906,19 @@
                 xhr.setRequestHeader('Content-Type', 'application/json');
                 xhr.onloadend = function() {
                     if (xhr.status === 200) {
-                        card.setAttribute('data-protected', currentlyProtected ? 'false' : 'true');
-                        card.classList.toggle('service-card-protected', !currentlyProtected);
-                        shieldBtn.classList.toggle('protected', !currentlyProtected);
-                        shieldBtn.setAttribute('data-label', currentlyProtected ? 'Protect Service' : 'Free Service');
+                        var newProtected = !currentlyProtected;
+                        card.setAttribute('data-protected', newProtected ? 'true' : 'false');
+                        card.classList.toggle('service-card-protected', newProtected);
+                        shieldBtn.classList.toggle('protected', newProtected);
+                        shieldBtn.setAttribute('data-label', newProtected ? 'Free Service' : 'Protect Service');
+                        card.querySelectorAll('.card-btn-red, .card-btn-yellow').forEach(function(b) {
+                            b.disabled = newProtected;
+                        });
                         var idx = currentClients.findIndex(function(c) { return c.hash === hash; });
-                        if (idx >= 0) currentClients[idx].protected = !currentlyProtected;
+                        if (idx >= 0) currentClients[idx].protected = newProtected;
+                        filterCards();
+                        updateBrokenButtons();
+                        _syncCheckboxUI();
                     }
                 };
                 xhr.send(JSON.stringify({hash: hash}));
