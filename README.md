@@ -59,7 +59,7 @@ Sensitive endpoints require a valid API key, with these exceptions:
 
 | Restriction level | Endpoints |
 |---|---|---|
-| **API key, localhost, or self-service** (POST) — accepts if any of: valid API key, localhost, or service acting on itself (hash + IP match) | `/api/service/terminate`, `/api/service/restart`, `/api/unregister/service`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck` |
+| **API key, localhost, or self-service** (POST) — accepts if any of: valid API key, localhost, or service acting on itself (hash is proof of identity) | `/api/service/terminate`, `/api/service/restart`, `/api/unregister/service`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck` |
 | **Strict localhost or valid API key** (GET) — localhost allowed for bootstrapping | `/api/api-key/pending` |
 | **Strict localhost or valid API key** (POST + involving_api_keys) — localhost allowed for bootstrapping | `/api/api-key/grant`, `/api/api-key/reject` |
 | **Valid API key or localhost** (POST) | `/api/shutdown` |
@@ -67,7 +67,7 @@ Sensitive endpoints require a valid API key, with these exceptions:
 | **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
 | **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints` |
 
-All endpoints that accept a `hash` parameter use `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the requesting IP matches the IP the identified service registered with (self-service). ServiceHandler's own localhost requests are also accepted.
+All endpoints that accept a `hash` parameter use `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the hash corresponds to a known registered service (self-service — knowing the hash is proof of identity). ServiceHandler's own localhost requests are also accepted.
 
 When authorization fails on any API-key-required endpoint, the response is `403` with `{ "error": "API key is not valid." }`. On `POST /api/question/service` and `GET /api/services`, an explicitly provided but invalid API key returns the same error, while a missing key with a non-localhost request returns `403` with `{ "error": "Local device access only." }`.
 
@@ -155,7 +155,7 @@ Looks up a registered client's data by name. The service name can be passed eith
 	- `404` -> `{ "error": "No client found with name '...'." }`
 
 ### `DELETE /api/unregister/service` (also `HEAD`, `OPTIONS`)
-Unregisters a client by its hash. Accepts API key, localhost, or self-service (service unregistering itself via hash + IP match).
+Unregisters a client by its hash. Accepts API key, localhost, or self-service (service unregistering itself — knowing the hash is proof of identity).
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to unregister.
@@ -235,7 +235,7 @@ Returns the list of all registered clients. Client hashes are only included if t
 	- `403` -> `{ "error": "API key is not valid." }` (only when an invalid API key is explicitly provided)
 
 ### `POST /api/register/endpoint` (also `HEAD`, `OPTIONS`)
-Registers an endpoint for a registered service. The service must authenticate by providing its own hash, and the request must originate from the IP the service registered with. No API key option is available.
+Registers an endpoint for a registered service. The service must authenticate by providing its own hash — knowing the hash is proof of identity. No API key option is available.
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the service registering the endpoint.
@@ -353,7 +353,7 @@ Updates the column sort order, group-by key, and/or fuzzy accuracy threshold.
 	- `500` -> `{ "error": "Failed to read/write configuration." }`
 
 ### `POST /api/service/terminate` (also `HEAD`, `OPTIONS`)
-Terminates a registered client process and unregisters it. Accepts API key, localhost, or self-service (service terminating itself via hash + IP match).
+Terminates a registered client process and unregisters it. Accepts API key, localhost, or self-service (service terminating itself — knowing the hash is proof of identity).
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to terminate.
@@ -374,7 +374,7 @@ Terminates a registered client process and unregisters it. Accepts API key, loca
 	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 
 ### `POST /api/service/restart` (also `HEAD`, `OPTIONS`)
-Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data. Accepts API key, localhost, or self-service (service restarting itself via hash + IP match).
+Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data. Accepts API key, localhost, or self-service (service restarting itself — knowing the hash is proof of identity).
 
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client.

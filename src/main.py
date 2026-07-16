@@ -153,12 +153,7 @@ def _is_self_request(payload: dict) -> bool:
         return False
     with REGISTERED_CLIENTS_LOCK:
         client_data = REGISTERED_CLIENTS.get(client_hash.strip())
-    if client_data is None:
-        return False
-    stored_ip = client_data.get("ip")
-    if not isinstance(stored_ip, str):
-        return False
-    return request.remote_addr == stored_ip
+    return client_data is not None
 
 
 def _check_authorization(payload):
@@ -178,7 +173,7 @@ def _check_authorization(payload):
 
 def _check_authorization_all(payload):
     """Returns (is_allowed, has_invalid_key) tuple.
-    is_allowed: True if valid API key, localhost, or self-service (hash + IP match).
+    is_allowed: True if valid API key, localhost, or self-service (hash exists).
     has_invalid_key: True if an api_key was provided but didn't match.
     """
     allowed, invalid_key = _check_authorization(payload)
@@ -638,9 +633,6 @@ def register_endpoint():
 
     if client_data is None:
         return _error_response("Service not found.", 404)
-
-    if request.remote_addr != client_data.get("ip"):
-        return _error_response("Hash does not match the requesting service.", 403)
 
     verb = payload.get("verb") if isinstance(payload, dict) else None
     path = payload.get("path") if isinstance(payload, dict) else None
