@@ -553,10 +553,15 @@ body.has-error::before {
     gap: 6px;
     max-height: 0;
     overflow-y: auto;
+    scrollbar-width: none;
     padding: 0;
     opacity: 0;
     margin-bottom: 0;
     transition: max-height 0.12s ease, opacity 0.12s ease, padding 0.12s ease, margin-bottom 0.12s ease;
+}
+
+.card-expanded-content::-webkit-scrollbar {
+    display: none;
 }
 
 .service-card.expanded-active .card-expanded-content {
@@ -860,16 +865,6 @@ body.has-error::before {
     transition: font-size 0.12s ease;
 }
 
-.service-card.expanded .card-buttons {
-    position: absolute;
-    bottom: 14px;
-    left: 18px;
-    right: 18px;
-    margin-top: 0;
-    gap: 8px;
-    justify-content: flex-start;
-}
-
 .card-buttons .card-btn {
 }
 
@@ -885,6 +880,13 @@ body.has-error::before {
 }
 
 .service-card.expanded-buttons .card-buttons {
+    position: absolute;
+    bottom: 14px;
+    left: 18px;
+    right: 18px;
+    margin-top: 0;
+    gap: 8px;
+    justify-content: flex-start;
     flex-wrap: wrap;
 }
 
@@ -1231,6 +1233,13 @@ body.has-error::before {
 .title-link {
     color: inherit;
     text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.title-icon {
+    flex-shrink: 0;
 }
 
 .pill-row {

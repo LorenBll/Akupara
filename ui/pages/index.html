@@ -4,12 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ServiceHandler</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 8h1a4 4 0 1 1 0 8h-1'/%3E%3Cpath d='M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z'/%3E%3Cline x1='6' y1='2' x2='6' y2='4'/%3E%3Cline x1='10' y1='2' x2='10' y2='4'/%3E%3Cline x1='14' y1='2' x2='14' y2='4'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
     <div class="page">
         <div class="hero">
-            <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/ServiceHandler" target="_blank" class="title-link">ServiceHandler</a></h1>
+            <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/ServiceHandler" target="_blank" class="title-link"><svg class="title-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>ServiceHandler</a></h1>
             <div class="pill-row">
                 <div class="pill init-hidden" id="pill">
                     <div class="pill-item"><span class="pill-label">bind address</span><span class="pill-value">--</span></div>
@@ -1534,7 +1535,7 @@
                 document.body.classList.add('collapsing');
                 document.getElementById('sidebar').classList.remove('hidden');
                 document.getElementById('searchBar').classList.remove('hidden');
-                card.classList.remove('expanded-active', 'expanded-buttons');
+                card.classList.remove('expanded-active');
                 if (btn) btn.setAttribute('data-label', 'Expand Information');
                 var p = content.querySelector('.expand-placeholder');
                 card.style.height = card.getBoundingClientRect().height + 'px';
@@ -2127,7 +2128,7 @@
                     placeholder.style.minHeight = cardRect.height + 'px';
                     card.parentNode.insertBefore(placeholder, card);
                     var self = card;
-                    self.classList.add('expanded');
+                    self.classList.add('expanded', 'expanded-buttons');
                     self.style.top = relTop + 'px';
                     self.style.left = relLeft + 'px';
                     self.style.width = cardRect.width + 'px';
@@ -2144,7 +2145,7 @@
                             document.getElementById('sidebar').classList.add('hidden');
                             var sb = document.getElementById('searchBar');
                             sb.classList.add('hidden');
-                            self.classList.add('expanded-active', 'expanded-buttons');
+                            self.classList.add('expanded-active');
                             if (btn) btn.setAttribute('data-label', 'Collapse');
                             updateBrokenButtons();
                             document.body.classList.remove('expanding');
