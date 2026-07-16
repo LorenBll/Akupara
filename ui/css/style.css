@@ -602,6 +602,53 @@ body.has-error::before {
     margin-top: 4px;
 }
 
+.expand-endpoints-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 4px;
+}
+
+.expand-endpoint-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background-color: rgba(0, 0, 0, 0.02);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    animation: expandFadeIn 0.15s ease both;
+}
+
+.expand-endpoint-verb {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #ffffff;
+    background-color: #6366f1;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+}
+
+.expand-endpoint-path {
+    font-size: 0.85rem;
+    font-family: 'Courier New', monospace;
+    color: #374151;
+    flex-shrink: 0;
+}
+
+.expand-endpoint-desc {
+    font-size: 0.8rem;
+    color: #6b7280;
+    margin-left: auto;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 
 
 @keyframes expandFadeIn {

@@ -639,7 +639,7 @@
             }).catch(function() {});
         }
 
-        function populateExpandedContent(card, healthData) {
+        function populateExpandedContent(card, healthData, endpoints) {
             var excluded = ['service', 'bind_address', 'hostname', 'port', 'pid'];
             var container = card.querySelector('.card-expanded-content');
             if (!container) return;
@@ -659,7 +659,21 @@
                 items.push({label: label, value: v, valClass: valClass, isLong: String(v).length > 25});
             });
             if (items.length === 0) {
-                container.innerHTML = '<div class="expand-empty">No Other Information to Display</div>';
+                if (endpoints && endpoints.length) {
+                    var epHtml = '';
+                    epHtml += '<div class="expand-endpoints-section">';
+                    endpoints.forEach(function(ep) {
+                        epHtml += '<div class="expand-endpoint-pill">' +
+                            '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
+                            '<span class="expand-endpoint-path">' + ep.path + '</span>' +
+                            '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
+                            '</div>';
+                    });
+                    epHtml += '</div>';
+                    container.innerHTML = epHtml;
+                } else {
+                    container.innerHTML = '<div class="expand-empty">No Other Information to Display</div>';
+                }
                 return;
             }
             var shortItems = items.filter(function(it) { return !it.isLong; });
@@ -696,6 +710,17 @@
                 html += '</div>';
             });
             html += '<div class="expand-separator"></div>';
+            if (endpoints && endpoints.length) {
+                html += '<div class="expand-endpoints-section">';
+                endpoints.forEach(function(ep) {
+                    html += '<div class="expand-endpoint-pill">' +
+                        '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
+                        '<span class="expand-endpoint-path">' + ep.path + '</span>' +
+                        '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
+                        '</div>';
+                });
+                html += '</div>';
+            }
             container.innerHTML = html;
         }
 
@@ -1211,7 +1236,21 @@
                                     hxhr.ontimeout = reject;
                                     hxhr.send();
                                 }).then(function(hd) {
-                                    populateExpandedContent(expandedCard, hd);
+                                    var cardName = expandedCard.querySelector('.card-name').textContent;
+                                    var exhr = new XMLHttpRequest();
+                                    exhr.open('POST', '/api/service/endpoints', true);
+                                    exhr.setRequestHeader('Content-Type', 'application/json');
+                                    exhr.timeout = 3000;
+                                    exhr.onload = function() {
+                                        var eps = [];
+                                        if (exhr.status === 200) {
+                                            try { var ed = JSON.parse(exhr.responseText); eps = ed.endpoints || []; } catch(e) {}
+                                        }
+                                        populateExpandedContent(expandedCard, hd, eps);
+                                    };
+                                    exhr.onerror = function() { populateExpandedContent(expandedCard, hd, []); };
+                                    exhr.ontimeout = function() { populateExpandedContent(expandedCard, hd, []); };
+                                    exhr.send(JSON.stringify({name: cardName}));
                                 }).catch(function() {
                                     showExpandError(expandedCard, expandedCard.querySelector('.card-name').textContent);
                                 });
@@ -2037,19 +2076,70 @@
                             updateBrokenButtons();
                             document.body.classList.remove('expanding');
                             var cardPort = card.getAttribute('data-port');
+                            var cardName = card.querySelector('.card-name').textContent;
                             if (cardPort) {
+                                var healthData = null;
+                                var endpointsData = null;
+                                var healthErr = null;
+                                var endpointsErr = null;
+
+                                function tryPopulate() {
+                                    if (healthData !== null && endpointsData !== null) {
+                                        populateExpandedContent(card, healthData, endpointsData);
+                                    } else if (healthErr && endpointsData !== null) {
+                                        var container = card.querySelector('.card-expanded-content');
+                                        if (container) {
+                                            container.innerHTML = '';
+                                            var epHtml = '';
+                                            if (endpointsData.length) {
+                                                epHtml += '<div class="expand-endpoints-section">';
+                                                endpointsData.forEach(function(ep) {
+                                                    epHtml += '<div class="expand-endpoint-pill">' +
+                                                        '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
+                                                        '<span class="expand-endpoint-path">' + ep.path + '</span>' +
+                                                        '<span class="expand-endpoint-desc">' + ep.description + '</span>' +
+                                                        '</div>';
+                                                });
+                                                epHtml += '</div>';
+                                            }
+                                            container.innerHTML = '<div class="expand-empty expand-error">' + cardName + ' Health Fetch Failed</div>' + epHtml;
+                                            card.classList.add('service-card-unhealthy');
+                                            updateCardButtonLabels(card);
+                                        }
+                                    } else if (healthErr && endpointsErr) {
+                                        showExpandError(card, cardName);
+                                    }
+                                }
+
                                 var hxhr = new XMLHttpRequest();
                                 hxhr.open('GET', 'http://127.0.0.1:' + cardPort + '/api/health', true);
                                 hxhr.timeout = 3000;
                                 hxhr.onload = function() {
                                     if (hxhr.status === 200) {
-                                        try { populateExpandedContent(card, JSON.parse(hxhr.responseText)); return; } catch(e) {}
-                                    }
-                                    showExpandError(card, card.querySelector('.card-name').textContent);
+                                        try { healthData = JSON.parse(hxhr.responseText); } catch(e) { healthErr = e; }
+                                    } else { healthErr = true; }
+                                    tryPopulate();
                                 };
-                                hxhr.onerror = function() { showExpandError(card, card.querySelector('.card-name').textContent); };
-                                hxhr.ontimeout = function() { showExpandError(card, card.querySelector('.card-name').textContent); };
+                                hxhr.onerror = function() { healthErr = true; tryPopulate(); };
+                                hxhr.ontimeout = function() { healthErr = true; tryPopulate(); };
                                 hxhr.send();
+
+                                var exhr = new XMLHttpRequest();
+                                exhr.open('POST', '/api/service/endpoints', true);
+                                exhr.setRequestHeader('Content-Type', 'application/json');
+                                exhr.timeout = 3000;
+                                exhr.onload = function() {
+                                    if (exhr.status === 200) {
+                                        try {
+                                            var ed = JSON.parse(exhr.responseText);
+                                            endpointsData = ed.endpoints || [];
+                                        } catch(e) { endpointsData = []; }
+                                    } else { endpointsData = []; }
+                                    tryPopulate();
+                                };
+                                exhr.onerror = function() { endpointsData = []; tryPopulate(); };
+                                exhr.ontimeout = function() { endpointsData = []; tryPopulate(); };
+                                exhr.send(JSON.stringify({name: cardName}));
                             }
                         }, 135);
                         setTimeout(function() {
