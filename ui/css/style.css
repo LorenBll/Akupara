@@ -574,6 +574,12 @@ body.has-error::before {
     margin-bottom: 6px;
 }
 
+.expand-info-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
 .expand-info-item {
     display: flex;
     gap: 8px;
@@ -584,6 +590,16 @@ body.has-error::before {
     background-color: rgba(0, 0, 0, 0.02);
     border: 1px solid rgba(0, 0, 0, 0.04);
     animation: expandFadeIn 0.15s ease both;
+}
+
+.expand-info-item-full {
+    grid-column: 1 / -1;
+}
+
+.expand-separator {
+    height: 1px;
+    background: #d1d5db;
+    margin-top: 4px;
 }
 
 

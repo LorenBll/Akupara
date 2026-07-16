@@ -623,7 +623,7 @@
             var container = card.querySelector('.card-expanded-content');
             if (!container) return;
             container.innerHTML = '';
-            var parts = [];
+            var items = [];
             Object.keys(healthData).forEach(function(k) {
                 if (excluded.indexOf(k) >= 0) return;
                 var v = healthData[k];
@@ -635,9 +635,46 @@
                     v = String(v).toUpperCase();
                     valClass = v === 'OK' ? ' expand-status-ok' : ' expand-status-error';
                 }
-                parts.push('<div class="expand-info-item"><span class="expand-info-label">' + label + '</span><span class="expand-info-value' + valClass + '">' + v + '</span></div>');
+                items.push({label: label, value: v, valClass: valClass, isLong: String(v).length > 25});
             });
-            container.innerHTML = parts.join('') + '<div class="expand-empty">No Other Information to Display</div>';
+            if (items.length === 0) {
+                container.innerHTML = '<div class="expand-empty">No Other Information to Display</div>';
+                return;
+            }
+            var rows = [];
+            var i = 0;
+            while (i < items.length) {
+                var first = items[i];
+                var second = items[i + 1];
+                if (!second) {
+                    rows.push([first, null]);
+                    i++;
+                } else if (second.isLong) {
+                    rows.push([first, null]);
+                    rows.push([second, null]);
+                    i += 2;
+                } else {
+                    rows.push([first, second]);
+                    i += 2;
+                }
+            }
+            var html = '';
+            rows.forEach(function(row) {
+                html += '<div class="expand-info-row">';
+                html += '<div class="expand-info-item' + (row[1] === null ? ' expand-info-item-full' : '') + '">' +
+                    '<span class="expand-info-label">' + row[0].label + '</span>' +
+                    '<span class="expand-info-value' + row[0].valClass + '">' + row[0].value + '</span>' +
+                    '</div>';
+                if (row[1] !== null) {
+                    html += '<div class="expand-info-item">' +
+                        '<span class="expand-info-label">' + row[1].label + '</span>' +
+                        '<span class="expand-info-value' + row[1].valClass + '">' + row[1].value + '</span>' +
+                        '</div>';
+                }
+                html += '</div>';
+            });
+            html += '<div class="expand-separator"></div>';
+            container.innerHTML = html;
         }
 
         function updateCardButtonLabels(card) {
