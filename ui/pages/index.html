@@ -781,7 +781,7 @@
             });
             var content = document.getElementById('content');
             content.querySelectorAll('.card-checkbox').forEach(function(cb) {
-                cb.classList.toggle('visible', _checkboxVisible && cardCount > 1);
+                cb.classList.toggle('visible', _checkboxVisible && cardCount > 1 && !document.querySelector('.service-card.expanded'));
                 var h = cb.getAttribute('data-card-hash');
                 var checked = !!_selectedCardHashes[h];
                 cb.classList.toggle('checked', checked);
