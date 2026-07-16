@@ -92,7 +92,7 @@
                 <div class="sort-item" draggable="true" data-key="status" data-label="Service Status">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>
                 </div>
-                <div class="sort-item" draggable="true" data-key="protected" data-label="Protected">
+                <div class="sort-item" draggable="true" data-key="protected" data-label="Service Protection Status">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
                 </div>
             </div>
@@ -111,7 +111,7 @@
     </div>
 
     <script>
-        var sortOrder = ['name', 'port', 'pid', 'bind_address', 'hostname', 'status'];
+        var sortOrder = ['name', 'port', 'pid', 'bind_address', 'hostname', 'status', 'protected'];
         var currentClients = [];
         var brokenClients = [];
         var forgottenHashes = {};
@@ -205,7 +205,7 @@
         }
 
         function getFilterLabel(key) {
-            var m = { name: 'Service Name', port: 'Port', pid: 'PID', bind_address: 'Bind IP Address', hostname: 'Hostname', status: 'Service Status', api_asker: 'API Asker', protected: 'Protected' };
+            var m = { name: 'Service Name', port: 'Port', pid: 'PID', bind_address: 'Bind IP Address', hostname: 'Hostname', status: 'Service Status', api_asker: 'API Asker', protected: 'Service Protection Status' };
             return m[key] || key;
         }
 
@@ -445,10 +445,11 @@
             fetch('/ui/sort-settings')
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
-                    if (d.sort_order && d.sort_order.length) {
-                        sortOrder = d.sort_order;
-                        if (sortOrder.indexOf('status') === -1) sortOrder.push('status');
-                        applySortOrderToSidebar();
+                        if (d.sort_order && d.sort_order.length) {
+                            sortOrder = d.sort_order;
+                            if (sortOrder.indexOf('status') === -1) sortOrder.push('status');
+                            if (sortOrder.indexOf('protected') === -1) sortOrder.push('protected');
+                            applySortOrderToSidebar();
                         if (currentClients.length) buildCards(currentClients, false);
                     }
                     if (d.group_by) {
@@ -551,6 +552,7 @@
                 sortOrder = originalSortOrder;
                 originalSortOrder = null;
             }
+            if (sortOrder.indexOf('protected') === -1) sortOrder.push('protected');
             var zone = document.getElementById('sortGroupbyZone');
             var placeholder = document.getElementById('sortGroupbyPlaceholder');
             var item = document.getElementById('sortGroupbyItem');

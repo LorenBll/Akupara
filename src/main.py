@@ -746,7 +746,7 @@ def sort_order():
 
     if request.method == "GET":
         config = _load_configuration()
-        order = config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status"])
+        order = config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
         group_by = config.get("group_by")
         original_sort_order = config.get("original_sort_order")
         accuracy = config.get("accuracy", 30)
@@ -800,7 +800,7 @@ def sort_order():
     except Exception:
         return _error_response("Failed to write configuration.", 500)
 
-    resp = {"sort_order": config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status"])}
+    resp = {"sort_order": config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])}
     current_group_by = config.get("group_by")
     if current_group_by is not None:
         resp["group_by"] = current_group_by
