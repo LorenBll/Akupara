@@ -43,6 +43,10 @@ ServiceHandler can encrypt stored API keys using the [Cipher](https://github.com
 
 3. When a valid key path is configured and both services are available, ServiceHandler decrypts `resources/api_keys.json` on session initialization, stores the keys in memory, and re-encrypts the file. On each key grant, the file is updated with the new key and re-encrypted.
 
+### Headless Mode (Optional)
+
+Set `"noGUI": true` in `resources/configuration.json` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). These routes return `404` when the flag is enabled. The API endpoints under `/api/` remain fully operational.
+
 ## Run
 1. Windows: run `scripts\run.bat`.
 2. Unix-like systems: run `bash scripts/run.sh`.
