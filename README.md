@@ -512,6 +512,42 @@ Shuts down the ServiceHandler service.
 		```
 	- `403` -> `{ "error": "API key is not valid." }`
 
+### `POST /api/service/protect` (also `HEAD`, `OPTIONS`)
+Flags a registered service as protected. Protected services cannot be terminated, restarted, or forgotten by anyone.
+- Auth: valid API key or localhost
+- Body (JSON object):
+	- `hash` (string, required): SHA-256 hash of the service to protect.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"status": "protected",
+			"hash": "<sha256>"
+		}
+		```
+	- `400` -> `{ "error": "A hash is required." }`
+	- `403` -> `{ "error": "API key is not valid." }`
+	- `404` -> `{ "error": "Client not found." }`
+
+### `POST /api/service/unprotect` (also `HEAD`, `OPTIONS`)
+Removes the protected flag from a registered service, allowing it to be terminated, restarted, or forgotten again.
+- Auth: valid API key or localhost
+- Body (JSON object):
+	- `hash` (string, required): SHA-256 hash of the service to unprotect.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"status": "unprotected",
+			"hash": "<sha256>"
+		}
+		```
+	- `400` -> `{ "error": "A hash is required." }`
+	- `403` -> `{ "error": "API key is not valid." }`
+	- `404` -> `{ "error": "Client not found." }`
+
 ### `POST /api/api-key/request` (also `HEAD`, `OPTIONS`)
 Submits an API key request for a registered client. The request enters a pending queue for the device owner to approve.
 - Auth: hash-only — the hash must correspond to a registered service (no API key option)
