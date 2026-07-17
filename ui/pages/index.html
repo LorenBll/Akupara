@@ -1322,15 +1322,6 @@
                                         if (exhr.status === 200) {
                                             try { var ed = JSON.parse(exhr.responseText); eps = ed.endpoints || []; } catch(e) {}
                                         }
-                                        // FAKE endpoints for UI testing
-                                        eps = [
-                                            {verb: 'GET', path: '/api/health', description: 'Check service health status', path_variables: [], body_schema: {}},
-                                            {verb: 'POST', path: '/api/data/encrypt', description: 'Encrypt the given payload', path_variables: [], body_schema: {type: 'object', properties: {data: {type: 'string', description: 'The plaintext to encrypt'}}, required: ['data']}},
-                                            {verb: 'POST', path: '/api/data/decrypt', description: 'Decrypt the given payload', path_variables: [], body_schema: {type: 'object', properties: {data: {type: 'string', description: 'The ciphertext to decrypt'}}, required: ['data']}},
-                                            {verb: 'GET', path: '/api/keys/{id}', description: 'Retrieve a specific key by ID', path_variables: ['id'], body_schema: {}},
-                                            {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store', path_variables: ['id'], body_schema: {}},
-                                            {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration', path_variables: [], body_schema: {}},
-                                        ];
                                         populateExpandedContent(expandedCard, hd, eps);
                                     };
                                     exhr.onerror = function() { populateExpandedContent(expandedCard, hd, []); };
@@ -2217,15 +2208,6 @@
                                             _endpointCache[cardName] = endpointsData;
                                         } catch(e) { endpointsData = []; }
                                     } else { endpointsData = []; }
-                                    // FAKE endpoints for UI testing
-                                    endpointsData = [
-                                        {verb: 'GET', path: '/api/health', description: 'Check service health status', path_variables: [], body_schema: {}},
-                                        {verb: 'POST', path: '/api/data/encrypt', description: 'Encrypt the given payload', path_variables: [], body_schema: {type: 'object', properties: {data: {type: 'string', description: 'The plaintext to encrypt'}}, required: ['data']}},
-                                        {verb: 'POST', path: '/api/data/decrypt', description: 'Decrypt the given payload', path_variables: [], body_schema: {type: 'object', properties: {data: {type: 'string', description: 'The ciphertext to decrypt'}}, required: ['data']}},
-                                        {verb: 'GET', path: '/api/keys/{id}', description: 'Retrieve a specific key by ID', path_variables: ['id'], body_schema: {}},
-                                        {verb: 'DELETE', path: '/api/keys/{id}', description: 'Remove a key from the store', path_variables: ['id'], body_schema: {}},
-                                        {verb: 'POST', path: '/api/config/reload', description: 'Reload service configuration', path_variables: [], body_schema: {}},
-                                    ];
                                     _endpointCache[cardName] = endpointsData;
                                     tryPopulate();
                                 };

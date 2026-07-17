@@ -773,6 +773,41 @@ def clients_details():
     return _success_response({"clients": client_list})
 
 
+@app.route("/api/services/search-endpoints", methods=["POST", "HEAD", "OPTIONS"])
+def search_endpoints():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    query = payload.get("query") if isinstance(payload, dict) else None
+
+    if not isinstance(query, str) or not query.strip():
+        return _error_response("A non-empty query is required.")
+
+    query_lower = query.strip().lower()
+    results = []
+
+    with REGISTERED_CLIENTS_LOCK:
+        for client in REGISTERED_CLIENTS.values():
+            service_name = client.get("name", "")
+            endpoints = client.get("endpoints", [])
+            for ep in endpoints:
+                desc = ep.get("description", "")
+                if isinstance(desc, str) and query_lower in desc.lower():
+                    results.append({
+                        "service": service_name,
+                        "verb": ep.get("verb", ""),
+                        "path": ep.get("path", ""),
+                        "description": desc,
+                        "path_variables": ep.get("path_variables", []),
+                        "body_schema": ep.get("body_schema", {}),
+                    })
+
+    return _success_response({"query": query.strip(), "results": results})
+
+
 def _get_config_path() -> Path:
     return Path(__file__).parent.parent / "resources" / "configuration.json"
 

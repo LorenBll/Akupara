@@ -315,6 +315,30 @@ Returns the complete list of registered services along with their registered end
 		}
 		```
 
+### `POST /api/services/search-endpoints` (also `HEAD`, `OPTIONS`)
+Searches endpoint descriptions across all registered services, returning matches with the service name.
+- Auth: none
+- Body (JSON object):
+	- `query` (string, required): search term to match against endpoint descriptions (case-insensitive substring match).
+- Returns:
+	- `200` ->
+		```json
+		{
+			"query": "encrypt",
+			"results": [
+				{
+					"service": "my-service",
+					"verb": "POST",
+					"path": "/api/data/encrypt",
+					"description": "Encrypt the given payload",
+					"path_variables": [],
+					"body_schema": {}
+				}
+			]
+		}
+		```
+	- `400` -> `{"error": "A non-empty query is required."}`
+
 ### `GET /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Returns the current column sort order, group-by key, and fuzzy accuracy threshold used by the web UI.
 - Auth: local-device only (no API key required)
