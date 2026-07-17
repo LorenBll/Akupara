@@ -458,7 +458,6 @@ def register():
     name = payload.get("name") if isinstance(payload, dict) else None
     port = payload.get("port") if isinstance(payload, dict) else None
     starting_script = payload.get("starting_script") if isinstance(payload, dict) else None
-    pid = payload.get("pid") if isinstance(payload, dict) else None
     bind_address = payload.get("bind_address") if isinstance(payload, dict) else None
     hostname_val = payload.get("hostname") if isinstance(payload, dict) else None
 
