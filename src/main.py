@@ -31,6 +31,55 @@ def _kill_pid(pid: int) -> None:
     cmd = ["taskkill", "/F", "/PID", str(pid)] if is_win else ["kill", "-9", str(pid)]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
+
+def _resolve_pid(ip: str, port: int) -> int | None:
+    is_win = sys.platform.startswith("win")
+    port_str = str(port)
+    try:
+        if is_win:
+            proc = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+            )
+            for line in proc.stdout.splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 5 and parts[3] == "LISTENING":
+                    local_addr = parts[1]
+                    if local_addr.endswith(f":{port_str}") and (
+                        local_addr.startswith("127.")
+                        or local_addr.startswith("[::1]")
+                        or local_addr.startswith("0.0.0.0:")
+                        or local_addr.startswith("[::]:")
+                    ):
+                        try:
+                            return int(parts[4])
+                        except (ValueError, IndexError):
+                            pass
+        else:
+            try:
+                proc = subprocess.run(
+                    ["ss", "-tlnp"], capture_output=True, text=True, timeout=10
+                )
+                for line in proc.stdout.splitlines():
+                    if f":{port_str}" in line:
+                        import re
+                        match = re.search(r"pid=(\d+)", line)
+                        if match:
+                            return int(match.group(1))
+            except FileNotFoundError:
+                proc = subprocess.run(
+                    ["netstat", "-tlnp"], capture_output=True, text=True, timeout=10
+                )
+                for line in proc.stdout.splitlines():
+                    if f":{port_str}" in line and "LISTEN" in line:
+                        import re
+                        match = re.search(r"(\d+)/", line.strip().split()[-1])
+                        if match:
+                            return int(match.group(1))
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning(f"Failed to resolve PID for {ip}:{port}: {exc}")
+    return None
+
+
 SERVICE_HOST = None
 SERVICE_PORT = None
 
@@ -428,13 +477,6 @@ def register():
     if starting_script is not None and not isinstance(starting_script, str):
         return _error_response("Starting script must be a string.")
 
-    if pid is None:
-        return _error_response("A PID is required.")
-    if isinstance(pid, str) and pid.isdigit():
-        pid = int(pid)
-    if not isinstance(pid, int):
-        return _error_response("PID must be a number.")
-
     if not isinstance(bind_address, str) or not bind_address.strip():
         return _error_response("A bind address is required.")
     if not isinstance(hostname_val, str) or not hostname_val.strip():
@@ -471,6 +513,10 @@ def register():
     if not _ping_health(client_ip, port):
         return _error_response("Client health endpoint is not reachable.", 400)
 
+    resolved_pid = _resolve_pid(client_ip, port)
+    if resolved_pid is None:
+        return _error_response("Could not determine the PID of the process.", 400)
+
     with REGISTERED_CLIENTS_LOCK:
         existing_client = None
         for existing in list(REGISTERED_CLIENTS.values()):
@@ -502,7 +548,7 @@ def register():
         "name": name.strip(),
         "port": port,
         "starting_script": starting_script.strip() if isinstance(starting_script, str) else "",
-        "pid": pid if isinstance(pid, int) else "",
+        "pid": resolved_pid,
         "bind_address": bind_address.strip() if isinstance(bind_address, str) else "",
         "hostname": hostname_val.strip() if isinstance(hostname_val, str) else "",
         "ip": client_ip,
