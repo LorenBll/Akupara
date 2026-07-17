@@ -967,7 +967,6 @@ body.has-error::before {
 
 .service-card.service-card-unhealthy {
     background: #fef2f2;
-    border-color: #dc2626;
 }
 
 .service-card.service-card-protected {
