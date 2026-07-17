@@ -634,6 +634,8 @@ Rejects a pending API key request and notifies the requesting service.
 
 ![Dashboard screenshot](docs/images/screenshot.png)
 
+*The screenshot above does not portray how ServiceHandler always looks, but tries to display all elements that are present in the main UI of the application with their tooltips all at the same time.*
+
 ## Support
 - Open an issue on [GitHub](https://github.com/LorenBll/ServiceHandler/issues) for bug reports, feature requests, or help.
 

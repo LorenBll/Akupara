@@ -1091,6 +1091,10 @@ body.has-error::before {
     cursor: not-allowed;
 }
 
+.card-btn:disabled:hover::after {
+    display: none;
+}
+
 .card-btn:hover::after {
     content: attr(data-label);
     position: absolute;
