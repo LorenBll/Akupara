@@ -329,7 +329,7 @@ app = Flask(__name__)
 
 @app.before_request
 def restrict_to_local_device() -> tuple | None:
-    if request.path in ("/",) or request.path.startswith(("/api/", "/ui/", "/css/")):
+    if request.path.startswith("/api/") or (not NO_GUI and (request.path in ("/",) or request.path.startswith(("/ui/", "/css/")))):
         if not _is_local_request():
             return _error_response("Local device access only.", 403)
 
@@ -382,26 +382,20 @@ def set_connection_header(response):
     return response
 
 
-@app.route("/", methods=["GET", "HEAD", "OPTIONS"])
 def index():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-    if NO_GUI:
-        return _error_response("UI is disabled.", 404)
     web_dir = Path(__file__).parent.parent / "ui" / "pages"
     return send_from_directory(web_dir, "index.html")
 
 
-@app.route("/css/<path:filename>", methods=["GET", "HEAD", "OPTIONS"])
 def css_files(filename):
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-    if NO_GUI:
-        return _error_response("UI is disabled.", 404)
     css_dir = Path(__file__).parent.parent / "ui" / "css"
     return send_from_directory(css_dir, filename)
 
@@ -824,14 +818,11 @@ def _get_api_keys_path() -> Path:
     return Path(__file__).parent.parent / "resources" / "api_keys.json"
 
 
-@app.route("/ui/sort-settings", methods=["GET", "PUT", "HEAD", "OPTIONS"])
 def sort_order():
     if request.method == "OPTIONS":
         return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-    if NO_GUI:
-        return _error_response("UI is disabled.", 404)
 
     config_path = _get_config_path()
 
@@ -1657,6 +1648,24 @@ def shutdown():
     threading.Thread(target=_shutdown, daemon=True).start()
     return _success_response({"status": "shutdown"})
 
+
+def _register_ui_routes(app_instance: Flask) -> None:
+    """Conditionally register UI-related routes when NO_GUI is False."""
+    if NO_GUI:
+        return
+    app_instance.add_url_rule("/", methods=["GET", "HEAD", "OPTIONS"], view_func=index)
+    app_instance.add_url_rule(
+        "/css/<path:filename>",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=css_files,
+    )
+    app_instance.add_url_rule(
+        "/ui/sort-settings",
+        methods=["GET", "PUT", "HEAD", "OPTIONS"],
+        view_func=sort_order,
+    )
+
+
 if __name__ == "__main__":
     try:
         logging.basicConfig(
@@ -1665,6 +1674,7 @@ if __name__ == "__main__":
         )
 
         _initialize_service_config()
+        _register_ui_routes(app)
         _start_health_check_loop()
         _init_api_keys()
     except Exception as exc:
