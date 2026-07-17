@@ -65,7 +65,7 @@ Sensitive endpoints require a valid API key, with these exceptions:
 | **Valid API key or localhost** (POST) | `/api/shutdown` |
 | **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question/service`, `GET /api/services` |
 | **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
-| **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints` |
+| **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints`, `POST /api/validate/json-body` |
 
 All endpoints that accept a `hash` parameter use `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the hash corresponds to a known registered service (self-service — knowing the hash is proof of identity). ServiceHandler's own localhost requests are also accepted.
 
@@ -338,6 +338,54 @@ Searches endpoint descriptions across all registered services, returning matches
 		}
 		```
 	- `400` -> `{"error": "A non-empty query is required."}`
+
+### `POST /api/validate/json-body` (also `HEAD`, `OPTIONS`)
+Validates a JSON body against the JSON schema of a registered endpoint. The response indicates whether a schema exists, whether the body is valid, and provides validation errors if the body is invalid.
+- Auth: none
+- Body (JSON object):
+	- `service` (string, required): name of the registered service.
+	- `verb` (string, required): HTTP verb of the target endpoint (e.g. `GET`, `POST`).
+	- `path` (string, required): URL path of the target endpoint.
+	- `json_body` (object, required): JSON body to validate against the endpoint's schema.
+- Returns (no schema):
+	- `200` ->
+		```json
+		{
+			"valid": true,
+			"schema_exists": false,
+			"message": "No JSON schema defined for this endpoint."
+		}
+		```
+- Returns (valid):
+	- `200` ->
+		```json
+		{
+			"valid": true,
+			"schema_exists": true,
+			"message": "JSON body is valid against the endpoint schema."
+		}
+		```
+- Returns (invalid):
+	- `200` ->
+		```json
+		{
+			"valid": false,
+			"schema_exists": true,
+			"message": "JSON body is not valid against the endpoint schema.",
+			"errors": [
+				{
+					"path": ["field", "nested"],
+					"message": "'...' is a required property"
+				}
+			]
+		}
+		```
+	- `400` -> `{ "error": "A non-empty service name is required." }`
+	- `400` -> `{ "error": "A non-empty HTTP verb is required." }`
+	- `400` -> `{ "error": "A non-empty endpoint path is required." }`
+	- `400` -> `{ "error": "A json_body is required." }`
+	- `404` -> `{ "error": "No service found with name '...'." }`
+	- `404` -> `{ "error": "No endpoint found with verb '...' and path '...' for service '...'." }`
 
 ### `GET /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Returns the current column sort order, group-by key, and fuzzy accuracy threshold used by the web UI.
