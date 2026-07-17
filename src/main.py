@@ -1343,7 +1343,7 @@ def _resolve_ultimate_path(ultimate_path: str) -> str:
     try:
         disk_host, disk_port = _resolve_service("DiskIdentifier", "127.0.0.1", 49157)
         req = urllib.request.Request(
-            f"http://{disk_host}:{disk_port}/api/locate",
+            f"http://{disk_host}:{disk_port}/api/locate/disk",
             data=json.dumps({"disk_identifier": disk_id}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="GET",
