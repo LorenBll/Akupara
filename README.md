@@ -53,20 +53,23 @@ ServiceHandler can encrypt stored API keys using the [Cipher](https://github.com
 All `/api/*` and `/ui/*` endpoints are local-device only. Requests from non-local addresses are rejected with:
 - `403` -> `{ "error": "Local device access only." }`
 - All endpoints also support `HEAD` and `OPTIONS`.
-- API responses use `Connection: close` for non-HTML responses.
+- API responses use `Connection: close`.
 
 Sensitive endpoints require a valid API key, with these exceptions:
 
 | Restriction level | Endpoints |
 |---|---|
-| **Valid API key required** (POST) | `/api/terminate`, `/api/restart`, `/api/broken/forget`, `/api/broken/restart`, `/api/health/check`, `/api/shutdown`, `/api/unregister` |
-| **Strict localhost or valid API key** (GET) — localhost allowed for bootstrapping | `/api/api-key/pending`, `/api/api-key/pending-hashes` |
+| **API key, localhost, or self-service** (POST) — accepts if any of: valid API key, localhost, or service acting on itself (hash is proof of identity) | `/api/service/terminate`, `/api/service/restart`, `/api/unregister/service`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck` |
+| **Strict localhost or valid API key** (GET) — localhost allowed for bootstrapping | `/api/api-key/pending` |
 | **Strict localhost or valid API key** (POST + involving_api_keys) — localhost allowed for bootstrapping | `/api/api-key/grant`, `/api/api-key/reject` |
-| **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question`, `GET /api/clients` |
+| **Valid API key or localhost** (POST) | `/api/shutdown` |
+| **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question/service`, `GET /api/services` |
+| **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
+| **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints` |
 
-Additionally, `POST /api/terminate` and `POST /api/restart` allow a registered service to terminate or restart itself by providing its own hash — no API key needed. The request is recognized as self-service when the requesting IP matches the IP the service registered with.
+All endpoints that accept a `hash` parameter use `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the hash corresponds to a known registered service (self-service — knowing the hash is proof of identity). ServiceHandler's own localhost requests are also accepted.
 
-When authorization fails on any API-key-required endpoint, the response is `403` with `{ "error": "API key is not valid." }`. On `POST /api/question` and `GET /api/clients`, an explicitly provided but invalid API key returns the same error, while a missing key with a non-localhost request returns `403` with `{ "error": "Only localhost requests are allowed." }`.
+When authorization fails, the response is `403` with `{ "error": "API key is not valid." }`. Non-local requests are rejected at the firewall level before any endpoint-specific auth runs, returning `403` with `{ "error": "Local device access only." }`.
 
 These restrictions apply to the main HTTP method only; `HEAD` and `OPTIONS` are unaffected.
 
@@ -74,14 +77,14 @@ These restrictions apply to the main HTTP method only; `HEAD` and `OPTIONS` are 
 
 ### `GET /` (also `HEAD`, `OPTIONS`)
 Serves the web UI dashboard (`ui/pages/index.html`).
-
+- Auth: local-device only (no API key required)
 - Body: none
 - Returns:
 	- `200` -> `text/html`
 
 ### `GET /css/<path:filename>` (also `HEAD`, `OPTIONS`)
 Serves static CSS files from the `ui/css/` directory.
-
+- Auth: local-device only (no API key required)
 - Path parameters:
 	- `filename` (string, required): path to a CSS file relative to `ui/css/`.
 - Body: none
@@ -89,9 +92,9 @@ Serves static CSS files from the `ui/css/` directory.
 	- `200` -> `text/css`
 	- `404` -> HTML error page
 
-### `POST /api/register` (also `HEAD`, `OPTIONS`)
+### `POST /api/register/service` (also `HEAD`, `OPTIONS`)
 Registers a new client service and returns a SHA-256 hash. Before registering, ServiceHandler probes the new client's health endpoint (`/api/health`) to confirm it is reachable.
-
+- Auth: local-device only (no API key required)
 - Body (JSON object):
 	- `name` (string, required): name for the client service.
 	- `port` (number, required): port number the client listens on (1–65535).
@@ -118,11 +121,11 @@ Registers a new client service and returns a SHA-256 hash. Before registering, S
 	- `400` -> `{ "error": "Client health endpoint is not reachable." }`
 	- `409` -> `{ "error": "A client with name '...' is already registered." }`
 
-### `POST /api/question` (also `HEAD`, `OPTIONS`)
-Looks up a registered client's data by name. No registration is required to ask. If a valid `api_key` is provided, all stored client data (including the hash) is returned.
-
+### `POST /api/question/service` (also `HEAD`, `OPTIONS`)
+Looks up a registered client's data by name. The service name can be passed either as a URL path parameter (`/api/question/service/<name>`) or in the JSON body. No registration is required to ask.
+- Auth: optional API key — returns full data if authorized (valid API key or localhost), basic data (name + port) otherwise
 - Body (JSON object):
-	- `name` (string, required): name of the target client to look up.
+	- `name` (string, optional if provided in path): name of the target client to look up.
 	- `api_key` (string, optional): API key for full data access.
 - Returns (no API key or unauthorized):
 	- `200` ->
@@ -151,12 +154,12 @@ Looks up a registered client's data by name. No registration is required to ask.
 	- `403` -> `{ "error": "API key is not valid." }`
 	- `404` -> `{ "error": "No client found with name '...'." }`
 
-### `DELETE /api/unregister` (also `HEAD`, `OPTIONS`)
-Unregisters a client by its hash. A valid API key is required.
-
+### `DELETE /api/unregister/service` (also `HEAD`, `OPTIONS`)
+Unregisters a client by its hash.
+- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to unregister.
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -170,8 +173,8 @@ Unregisters a client by its hash. A valid API key is required.
 	- `404` -> `{ "error": "Hash not found." }`
 
 ### `GET /api/health` (also `HEAD`, `OPTIONS`)
-Service health check with registration statistics.
-
+ServiceHandler's own health check with registration statistics.
+- Auth: local-device only (no API key required)
 - Body: none
 - Returns:
 	- `200` ->
@@ -187,9 +190,9 @@ Service health check with registration statistics.
 		}
 		```
 
-### `GET /api/clients` (also `HEAD`, `OPTIONS`)
-Returns the list of all registered clients. Client hashes are only included if the request originates from localhost or a valid API key is provided.
-
+### `GET /api/services` (also `HEAD`, `OPTIONS`)
+Returns the list of all registered clients. The `endpoints` field is never included — use `GET /api/services/endpoints` for endpoint data.
+- Auth: optional API key — returns full data including hashes if authorized (valid API key or localhost), basic data without hashes otherwise
 - Body (JSON object):
 	- `api_key` (string, optional): API key to receive full client data including hashes.
 - Returns (unauthorized):
@@ -231,9 +234,114 @@ Returns the list of all registered clients. Client hashes are only included if t
 		```
 	- `403` -> `{ "error": "API key is not valid." }` (only when an invalid API key is explicitly provided)
 
+### `POST /api/register/endpoint` (also `HEAD`, `OPTIONS`)
+Registers an endpoint for a registered service. The service authenticates by providing its own hash — knowing the hash is proof of identity. No API key option is available.
+- Auth: hash-only — the hash must correspond to a registered service
+- Body (JSON object):
+	- `hash` (string, required): SHA-256 hash of the service registering the endpoint.
+	- `verb` (string, required): HTTP verb for the endpoint (e.g. `GET`, `POST`).
+	- `path` (string, required): URL path of the endpoint.
+	- `path_variables` (array of strings, optional): list of variable names used in the path.
+	- `body_schema` (object, optional): JSON schema for the request body.
+	- `description` (string, required): human-readable description of what the endpoint does.
+- Returns:
+	- `201` ->
+		```json
+		{
+			"status": "registered",
+			"endpoint": {
+				"verb": "GET",
+				"path": "/api/data",
+				"path_variables": ["id"],
+				"body_schema": {},
+				"description": "Retrieves data by ID"
+			}
+		}
+		```
+	- `400` -> `{ "error": "A hash is required." }`
+	- `400` -> `{ "error": "A non-empty HTTP verb is required." }`
+	- `400` -> `{ "error": "A non-empty endpoint path is required." }`
+	- `400` -> `{ "error": "A non-empty description is required." }`
+	- `404` -> `{ "error": "Service not found." }`
+
+### `POST /api/service/endpoints` / `POST /api/endpoints/service` (also `HEAD`, `OPTIONS`)
+Returns the list of endpoints registered for a given service name. The service name can be passed either as a URL path parameter (`/api/service/endpoints/<name>` or `/api/endpoints/service/<name>`) or in the JSON body.
+- Auth: none
+- Body (JSON object):
+	- `name` (string, optional if provided in path): name of the registered service.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"name": "my-service",
+			"endpoints": [
+				{
+					"verb": "GET",
+					"path": "/api/data",
+					"path_variables": ["id"],
+					"body_schema": {},
+					"description": "Retrieves data by ID"
+				}
+			]
+		}
+		```
+	- `400` -> `{ "error": "The name of the service is required." }`
+	- `404` -> `{ "error": "No service found with name '...'." }`
+
+### `GET /api/services/endpoints` (also `HEAD`, `OPTIONS`)
+Returns the complete list of registered services along with their registered endpoints. Each entry only includes `name`, `ip`, `port`, and `endpoints`.
+- Auth: none
+- Body: none
+- Returns:
+	- `200` ->
+		```json
+		{
+			"clients": [
+				{
+					"name": "my-service",
+					"ip": "127.0.0.1",
+					"port": 8080,
+					"endpoints": [
+						{
+							"verb": "GET",
+							"path": "/api/data",
+							"path_variables": ["id"],
+							"body_schema": {},
+							"description": "Retrieves data by ID"
+						}
+					]
+				}
+			]
+		}
+		```
+
+### `POST /api/services/search-endpoints` (also `HEAD`, `OPTIONS`)
+Searches endpoint descriptions across all registered services, returning matches with the service name.
+- Auth: none
+- Body (JSON object):
+	- `query` (string, required): search term to match against endpoint descriptions (case-insensitive substring match).
+- Returns:
+	- `200` ->
+		```json
+		{
+			"query": "encrypt",
+			"results": [
+				{
+					"service": "my-service",
+					"verb": "POST",
+					"path": "/api/data/encrypt",
+					"description": "Encrypt the given payload",
+					"path_variables": [],
+					"body_schema": {}
+				}
+			]
+		}
+		```
+	- `400` -> `{"error": "A non-empty query is required."}`
+
 ### `GET /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Returns the current column sort order, group-by key, and fuzzy accuracy threshold used by the web UI.
-
+- Auth: local-device only (no API key required)
 - Body: none
 - Returns:
 	- `200` ->
@@ -248,7 +356,7 @@ Returns the current column sort order, group-by key, and fuzzy accuracy threshol
 
 ### `PUT /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Updates the column sort order, group-by key, and/or fuzzy accuracy threshold.
-
+- Auth: local-device only (no API key required)
 - Body (JSON object):
 	- `sort_order` (array of strings, optional): column keys in desired order.
 	- `group_by` (string or null, optional): key to group by, or `null` to ungroup.
@@ -267,13 +375,13 @@ Updates the column sort order, group-by key, and/or fuzzy accuracy threshold.
 	- `400` -> `{ "error": "sort_order must be a non-empty list." }`
 	- `500` -> `{ "error": "Failed to read/write configuration." }`
 
-### `POST /api/terminate` (also `HEAD`, `OPTIONS`)
-Terminates a registered client process and unregisters it. A valid API key is required, unless the service is terminating itself (request IP matches the service's registered IP).
-
+### `POST /api/service/terminate` (also `HEAD`, `OPTIONS`)
+Terminates a registered client process and unregisters it.
+- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to terminate.
 	- `pid` (number, optional): process ID to kill. If omitted, the server looks up the stored PID for the client.
-	- `api_key` (string, required): API key to authenticate the request (not needed for self-service).
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client (not needed for self-service or localhost).
 - Returns:
 	- `200` ->
 		```json
@@ -288,12 +396,12 @@ Terminates a registered client process and unregisters it. A valid API key is re
 	- `403` -> `{ "error": "API key is not valid." }`
 	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 
-### `POST /api/restart` (also `HEAD`, `OPTIONS`)
-Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data. A valid API key is required, unless the service is restarting itself (request IP matches the service's registered IP).
-
+### `POST /api/service/restart` (also `HEAD`, `OPTIONS`)
+Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data.
+- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client.
-	- `api_key` (string, required): API key to authenticate the request (not needed for self-service).
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client (not needed for self-service or localhost).
 - Returns:
 	- `200` ->
 		```json
@@ -311,11 +419,11 @@ Restarts a registered client process via its start script. The starting script a
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
 ### `POST /api/broken/forget` (also `HEAD`, `OPTIONS`)
-Removes a client from the broken list without requiring a termination. If the client is still registered, it is also unregistered and its process is killed if possible. A valid API key is required.
-
+Removes a client from the broken list without requiring a termination. If the client is still registered, it is also unregistered and its process is killed if possible.
+- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the broken client.
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -328,11 +436,11 @@ Removes a client from the broken list without requiring a termination. If the cl
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/broken/restart` (also `HEAD`, `OPTIONS`)
-Forgets a client from the broken list, kills its process if still running, then restarts it via its start script. The starting script is looked up from the server's stored client data. A valid API key is required.
-
+Forgets a client from the broken list, kills its process if still running, then restarts it via its start script. The starting script is looked up from the server's stored client data.
+- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the broken client.
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -346,12 +454,12 @@ Forgets a client from the broken list, kills its process if still running, then 
 	- `403` -> `{ "error": "API key is not valid." }`
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
-### `POST /api/health/check` (also `HEAD`, `OPTIONS`)
-Checks the health of a specific client by hash, or all registered clients if no hash is given. A valid API key is required.
-
+### `POST /api/services/healthcheck` (also `HEAD`, `OPTIONS`)
+Checks the health of a specific client by hash, or all registered clients if no hash is given.
+- Auth: API key, localhost, or self-service (any registered service that knows its own hash — only applies when checking a specific hash)
 - Body (JSON object):
 	- `hash` (string, optional): SHA-256 hash of a specific client to check. If omitted, all registered clients are checked.
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns (single client):
 	- `200` ->
 		```json
@@ -391,10 +499,10 @@ Checks the health of a specific client by hash, or all registered clients if no 
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/shutdown` (also `HEAD`, `OPTIONS`)
-Shuts down the ServiceHandler service. A valid API key is required.
-
+Shuts down the ServiceHandler service.
+- Auth: API key or localhost
 - Body (JSON object):
-	- `api_key` (string, required): API key to authenticate the request.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -404,9 +512,45 @@ Shuts down the ServiceHandler service. A valid API key is required.
 		```
 	- `403` -> `{ "error": "API key is not valid." }`
 
+### `POST /api/service/protect` (also `HEAD`, `OPTIONS`)
+Flags a registered service as protected. Protected services cannot be terminated, restarted, or forgotten by anyone.
+- Auth: valid API key or localhost
+- Body (JSON object):
+	- `hash` (string, required): SHA-256 hash of the service to protect.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"status": "protected",
+			"hash": "<sha256>"
+		}
+		```
+	- `400` -> `{ "error": "A hash is required." }`
+	- `403` -> `{ "error": "API key is not valid." }`
+	- `404` -> `{ "error": "Client not found." }`
+
+### `POST /api/service/unprotect` (also `HEAD`, `OPTIONS`)
+Removes the protected flag from a registered service, allowing it to be terminated, restarted, or forgotten again.
+- Auth: valid API key or localhost
+- Body (JSON object):
+	- `hash` (string, required): SHA-256 hash of the service to unprotect.
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"status": "unprotected",
+			"hash": "<sha256>"
+		}
+		```
+	- `400` -> `{ "error": "A hash is required." }`
+	- `403` -> `{ "error": "API key is not valid." }`
+	- `404` -> `{ "error": "Client not found." }`
+
 ### `POST /api/api-key/request` (also `HEAD`, `OPTIONS`)
 Submits an API key request for a registered client. The request enters a pending queue for the device owner to approve.
-
+- Auth: hash-only — the hash must correspond to a registered service (no API key option)
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the registered client requesting an API key.
 - Returns:
@@ -423,8 +567,8 @@ Submits an API key request for a registered client. The request enters a pending
 	- `503` -> `{ "error": "..." }` (API key session not available)
 
 ### `GET /api/api-key/pending` (also `HEAD`, `OPTIONS`)
-Lists all pending API key requests with full details. Only accessible from localhost or with a valid API key.
-
+Lists all pending API key requests with full details and an array of hashes.
+- Auth: localhost or valid API key
 - Body (JSON object):
 	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
@@ -439,28 +583,15 @@ Lists all pending API key requests with full details. Only accessible from local
 					"ip": "127.0.0.1",
 					"timestamp": "2025-01-01T00:00:00"
 				}
-			]
-		}
-		```
-	- `403` -> `{ "error": "API key is not valid." }`
-
-### `GET /api/api-key/pending-hashes` (also `HEAD`, `OPTIONS`)
-Lists just the hashes of all pending API key requests. Only accessible from localhost or with a valid API key.
-
-- Body (JSON object):
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
-- Returns:
-	- `200` ->
-		```json
-		{
+			],
 			"hashes": ["<sha256>", "<sha256>"]
 		}
 		```
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/api-key/grant` (also `HEAD`, `OPTIONS`)
-Approves a pending API key request, generates a key, and notifies the requesting service. Requires the DiskIdentifier and Cipher services to be registered. Only accessible from localhost or with a valid API key.
-
+Approves a pending API key request, generates a key, and notifies the requesting service. Requires the DiskIdentifier and Cipher services to be registered.
+- Auth: localhost or valid API key
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash from the pending request to grant.
 	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
@@ -481,8 +612,8 @@ Approves a pending API key request, generates a key, and notifies the requesting
 	- `503` -> `{ "error": "..." }` (API key session not available)
 
 ### `POST /api/api-key/reject` (also `HEAD`, `OPTIONS`)
-Rejects a pending API key request and notifies the requesting service. Only accessible from localhost or with a valid API key.
-
+Rejects a pending API key request and notifies the requesting service.
+- Auth: localhost or valid API key
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash from the pending request to reject.
 	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
@@ -502,6 +633,8 @@ Rejects a pending API key request and notifies the requesting service. Only acce
 ---
 
 ![Dashboard screenshot](docs/images/screenshot.png)
+
+*The screenshot above does not portray how ServiceHandler always looks, but tries to display all elements that are present in the main UI of the application with their tooltips all at the same time.*
 
 ## Support
 - Open an issue on [GitHub](https://github.com/LorenBll/ServiceHandler/issues) for bug reports, feature requests, or help.

@@ -49,7 +49,45 @@ API_KEY_SESSION_READY: bool = False
 HEALTH_CHECK_INTERVAL_SECONDS = 15
 
 
+class _SimpleCache:
+    def __init__(self, default_ttl: float = 30.0):
+        self._data: dict[str, tuple[float, object]] = {}
+        self._lock = threading.Lock()
+        self._default_ttl = default_ttl
+
+    def get(self, key: str) -> object | None:
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return None
+            expires_at, value = entry
+            if time.monotonic() > expires_at:
+                del self._data[key]
+                return None
+            return value
+
+    def set(self, key: str, value: object, ttl: float | None = None) -> None:
+        expires_at = time.monotonic() + (ttl if ttl is not None else self._default_ttl)
+        with self._lock:
+            self._data[key] = (expires_at, value)
+
+    def invalidate(self, key: str) -> None:
+        with self._lock:
+            self._data.pop(key, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+
+_CONFIG_CACHE = _SimpleCache(default_ttl=300.0)
+_HEALTH_CACHE = _SimpleCache(default_ttl=7.5)
+
+
 def _load_configuration() -> dict:
+    cached = _CONFIG_CACHE.get("config")
+    if cached is not None:
+        return cached
     script_dir = Path(__file__).parent
     config_path = script_dir.parent / "resources" / "configuration.json"
     if not config_path.exists():
@@ -69,6 +107,7 @@ def _load_configuration() -> dict:
             f"Failed to read configuration file at {config_path}: {exc}"
         ) from exc
 
+    _CONFIG_CACHE.set("config", config)
     return config
 
 
@@ -153,12 +192,7 @@ def _is_self_request(payload: dict) -> bool:
         return False
     with REGISTERED_CLIENTS_LOCK:
         client_data = REGISTERED_CLIENTS.get(client_hash.strip())
-    if client_data is None:
-        return False
-    stored_ip = client_data.get("ip")
-    if not isinstance(stored_ip, str):
-        return False
-    return request.remote_addr == stored_ip
+    return client_data is not None
 
 
 def _check_authorization(payload):
@@ -174,6 +208,23 @@ def _check_authorization(payload):
                     return (True, False)
         return (False, True)
     return (_is_localhost_request(), False)
+
+
+def _is_protected(client_hash: str) -> bool:
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(client_hash)
+    return client_data is not None and client_data.get("protected", False) is True
+
+
+def _check_authorization_all(payload):
+    """Returns (is_allowed, has_invalid_key) tuple.
+    is_allowed: True if valid API key, localhost, or self-service (hash exists).
+    has_invalid_key: True if an api_key was provided but didn't match.
+    """
+    allowed, invalid_key = _check_authorization(payload)
+    if allowed or invalid_key:
+        return allowed, invalid_key
+    return (_is_self_request(payload), False)
 
 
 def _initialize_service_config() -> None:
@@ -208,6 +259,10 @@ def _resolve_service(name: str, default_host: str, default_port: int) -> tuple[s
 
 
 def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
+    cache_key = f"health:{ip}:{port}"
+    cached = _HEALTH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError:
@@ -220,8 +275,11 @@ def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
     try:
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status == 200
+            result = resp.status == 200
+            _HEALTH_CACHE.set(cache_key, result)
+            return result
     except (urllib.error.URLError, OSError, ValueError):
+        _HEALTH_CACHE.set(cache_key, False)
         return False
 
 
@@ -316,11 +374,7 @@ def _head_response() -> tuple:
 
 @app.after_request
 def set_connection_header(response):
-    content_type = response.headers.get("Content-Type", "")
-    if content_type.startswith("text/html"):
-        response.headers["Connection"] = "keep-alive"
-    else:
-        response.headers["Connection"] = "close"
+    response.headers["Connection"] = "close"
     return response
 
 
@@ -344,7 +398,7 @@ def css_files(filename):
     return send_from_directory(css_dir, filename)
 
 
-@app.route("/api/register", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/register/service", methods=["POST", "HEAD", "OPTIONS"])
 def register():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -453,6 +507,8 @@ def register():
         "hostname": hostname_val.strip() if isinstance(hostname_val, str) else "",
         "ip": client_ip,
         "timestamp": timestamp,
+        "endpoints": [],
+        "protected": False,
     }
 
     with REGISTERED_CLIENTS_LOCK:
@@ -463,15 +519,16 @@ def register():
     return _success_response({"hash": client_hash}, 201)
 
 
-@app.route("/api/question", methods=["POST", "HEAD", "OPTIONS"])
-def question():
+@app.route("/api/question/service", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/question/service/<name>", methods=["POST", "HEAD", "OPTIONS"])
+def question(name=None):
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    target_name = payload.get("name") if isinstance(payload, dict) else None
+    target_name = name if isinstance(name, str) and name.strip() else (payload.get("name") if isinstance(payload, dict) else None)
 
     if not isinstance(target_name, str) or not target_name.strip():
         return _error_response("The name of the target client is required.")
@@ -496,7 +553,7 @@ def question():
     return _success_response({"name": target["name"], "port": target["port"]})
 
 
-@app.route("/api/unregister", methods=["DELETE", "HEAD", "OPTIONS"])
+@app.route("/api/unregister/service", methods=["DELETE", "HEAD", "OPTIONS"])
 def unregister():
     if request.method == "OPTIONS":
         return _options_response(["DELETE", "HEAD", "OPTIONS"])
@@ -504,7 +561,10 @@ def unregister():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    allowed, invalid_key = _check_authorization_all(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -548,7 +608,7 @@ def health():
     )
 
 
-@app.route("/api/health/check", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/services/healthcheck", methods=["POST", "HEAD", "OPTIONS"])
 def health_check():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -556,7 +616,10 @@ def health_check():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    allowed, invalid_key = _check_authorization_all(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -577,7 +640,7 @@ def health_check():
     return _success_response({"checked": True, "unhealthy": unhealthy})
 
 
-@app.route("/api/clients", methods=["GET", "HEAD", "OPTIONS"])
+@app.route("/api/services", methods=["GET", "HEAD", "OPTIONS"])
 def clients():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
@@ -589,13 +652,160 @@ def clients():
     if invalid_key:
         return _error_response("API key is not valid.", 403)
 
+    def _strip_endpoints(client):
+        return {k: v for k, v in client.items() if k != "endpoints"}
+
     with REGISTERED_CLIENTS_LOCK:
         client_list = [
-            client if authorized else {k: v for k, v in client.items() if k != "hash"}
+            _strip_endpoints(client) if authorized else _strip_endpoints(
+                {k: v for k, v in client.items() if k != "hash"}
+            )
             for client in REGISTERED_CLIENTS.values()
         ]
 
     return _success_response({"clients": client_list})
+
+
+@app.route("/api/register/endpoint", methods=["POST", "HEAD", "OPTIONS"])
+def register_endpoint():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    hash_val = client_hash.strip()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(hash_val)
+
+    if client_data is None:
+        return _error_response("Service not found.", 404)
+
+    verb = payload.get("verb") if isinstance(payload, dict) else None
+    path = payload.get("path") if isinstance(payload, dict) else None
+    path_variables = payload.get("path_variables") if isinstance(payload, dict) else None
+    body_schema = payload.get("body_schema") if isinstance(payload, dict) else None
+    description = payload.get("description") if isinstance(payload, dict) else None
+
+    if not isinstance(verb, str) or not verb.strip():
+        return _error_response("A non-empty HTTP verb is required.")
+    if not isinstance(path, str) or not path.strip():
+        return _error_response("A non-empty endpoint path is required.")
+    if path_variables is not None and not isinstance(path_variables, list):
+        return _error_response("path_variables must be a list.")
+    if body_schema is not None and not isinstance(body_schema, dict):
+        return _error_response("body_schema must be a JSON schema object.")
+    if not isinstance(description, str) or not description.strip():
+        return _error_response("A non-empty description is required.")
+
+    endpoint = {
+        "verb": verb.strip().upper(),
+        "path": path.strip(),
+        "path_variables": path_variables if isinstance(path_variables, list) else [],
+        "body_schema": body_schema if isinstance(body_schema, dict) else {},
+        "description": description.strip(),
+    }
+
+    with REGISTERED_CLIENTS_LOCK:
+        REGISTERED_CLIENTS[hash_val].setdefault("endpoints", []).append(endpoint)
+
+    logger.info(
+        f"Endpoint '{verb} {path}' registered for '{client_data.get('name', 'unknown')}' "
+        f"({hash_val[:8]}...)"
+    )
+
+    return _success_response({"status": "registered", "endpoint": endpoint}, 201)
+
+
+@app.route("/api/service/endpoints", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/service/endpoints/<name>", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/endpoints/service", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/endpoints/service/<name>", methods=["POST", "HEAD", "OPTIONS"])
+def get_endpoints(name=None):
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    target_name = name if isinstance(name, str) and name.strip() else (payload.get("name") if isinstance(payload, dict) else None)
+
+    if not isinstance(target_name, str) or not target_name.strip():
+        return _error_response("The name of the service is required.")
+
+    with REGISTERED_CLIENTS_LOCK:
+        target = None
+        for client in REGISTERED_CLIENTS.values():
+            if client.get("name") == target_name.strip():
+                target = client
+                break
+
+    if target is None:
+        return _error_response(f"No service found with name '{target_name}'.", 404)
+
+    endpoints = target.get("endpoints", [])
+    return _success_response({"name": target_name.strip(), "endpoints": endpoints})
+
+
+@app.route("/api/services/endpoints", methods=["GET", "HEAD", "OPTIONS"])
+def clients_details():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_list = []
+        for client in REGISTERED_CLIENTS.values():
+            client_list.append({
+                "name": client.get("name", ""),
+                "ip": client.get("ip", ""),
+                "port": client.get("port", 0),
+                "endpoints": client.get("endpoints", []),
+            })
+
+    return _success_response({"clients": client_list})
+
+
+@app.route("/api/services/search-endpoints", methods=["POST", "HEAD", "OPTIONS"])
+def search_endpoints():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    query = payload.get("query") if isinstance(payload, dict) else None
+
+    if not isinstance(query, str) or not query.strip():
+        return _error_response("A non-empty query is required.")
+
+    query_lower = query.strip().lower()
+    results = []
+
+    with REGISTERED_CLIENTS_LOCK:
+        for client in REGISTERED_CLIENTS.values():
+            service_name = client.get("name", "")
+            endpoints = client.get("endpoints", [])
+            for ep in endpoints:
+                desc = ep.get("description", "")
+                if isinstance(desc, str) and query_lower in desc.lower():
+                    results.append({
+                        "service": service_name,
+                        "verb": ep.get("verb", ""),
+                        "path": ep.get("path", ""),
+                        "description": desc,
+                        "path_variables": ep.get("path_variables", []),
+                        "body_schema": ep.get("body_schema", {}),
+                    })
+
+    return _success_response({"query": query.strip(), "results": results})
 
 
 def _get_config_path() -> Path:
@@ -617,7 +827,7 @@ def sort_order():
 
     if request.method == "GET":
         config = _load_configuration()
-        order = config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status"])
+        order = config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
         group_by = config.get("group_by")
         original_sort_order = config.get("original_sort_order")
         accuracy = config.get("accuracy", 30)
@@ -668,10 +878,11 @@ def sort_order():
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
+        _CONFIG_CACHE.invalidate("config")
     except Exception:
         return _error_response("Failed to write configuration.", 500)
 
-    resp = {"sort_order": config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status"])}
+    resp = {"sort_order": config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])}
     current_group_by = config.get("group_by")
     if current_group_by is not None:
         resp["group_by"] = current_group_by
@@ -682,7 +893,7 @@ def sort_order():
     return _success_response(resp)
 
 
-@app.route("/api/terminate", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/service/terminate", methods=["POST", "HEAD", "OPTIONS"])
 def terminate():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -690,7 +901,10 @@ def terminate():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload) and not _is_self_request(payload):
+    allowed, invalid_key = _check_authorization_all(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -698,6 +912,9 @@ def terminate():
 
     if not isinstance(client_hash, str) or not client_hash.strip():
         return _error_response("A hash is required.")
+
+    if _is_protected(client_hash.strip()):
+        return _error_response("Service is protected and cannot be terminated.", 403)
 
     pid = None
     if raw_pid is not None and str(raw_pid).strip().isdigit():
@@ -724,7 +941,7 @@ def terminate():
     return _success_response({"status": "terminated", "hash": client_hash.strip(), "pid": pid})
 
 
-@app.route("/api/restart", methods=["POST", "HEAD", "OPTIONS"])
+@app.route("/api/service/restart", methods=["POST", "HEAD", "OPTIONS"])
 def restart():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -732,7 +949,10 @@ def restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload) and not _is_self_request(payload):
+    allowed, invalid_key = _check_authorization_all(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -740,6 +960,9 @@ def restart():
 
     if not isinstance(client_hash, str) or not client_hash.strip():
         return _error_response("A hash is required.")
+
+    if _is_protected(client_hash.strip()):
+        return _error_response("Service is protected and cannot be restarted.", 403)
 
     with REGISTERED_CLIENTS_LOCK:
         client_data = REGISTERED_CLIENTS.get(client_hash.strip())
@@ -806,7 +1029,10 @@ def broken_forget():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    allowed, invalid_key = _check_authorization_all(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -815,6 +1041,9 @@ def broken_forget():
         return _error_response("A hash is required.")
 
     hash_val = client_hash.strip()
+
+    if _is_protected(hash_val):
+        return _error_response("Service is protected and cannot be forgotten.", 403)
 
     pid = None
     with REGISTERED_CLIENTS_LOCK:
@@ -844,7 +1073,10 @@ def broken_restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized_strict(payload):
+    allowed, invalid_key = _check_authorization_all(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -853,6 +1085,9 @@ def broken_restart():
         return _error_response("A hash is required.")
 
     hash_val = client_hash.strip()
+
+    if _is_protected(hash_val):
+        return _error_response("Service is protected and cannot be restarted.", 403)
 
     script_path = ""
     pid = None
@@ -897,6 +1132,76 @@ def broken_restart():
     logger.info(f"Restarted broken service with script '{script_path}' (hash {hash_val[:16]}...)")
 
     return _success_response({"status": "restarted", "hash": hash_val})
+
+
+@app.route("/api/service/protect", methods=["POST", "HEAD", "OPTIONS"])
+def protect():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    allowed, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
+        return _error_response("API key is not valid.", 403)
+
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    hash_val = client_hash.strip()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(hash_val)
+
+    if client_data is None:
+        return _error_response("Client not found.", 404)
+
+    with REGISTERED_CLIENTS_LOCK:
+        REGISTERED_CLIENTS[hash_val]["protected"] = True
+
+    logger.info(f"Protected service hash {hash_val[:16]}...")
+
+    return _success_response({"status": "protected", "hash": hash_val})
+
+
+@app.route("/api/service/unprotect", methods=["POST", "HEAD", "OPTIONS"])
+def unprotect():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    allowed, invalid_key = _check_authorization(payload)
+    if invalid_key:
+        return _error_response("API key is not valid.", 403)
+    if not allowed:
+        return _error_response("API key is not valid.", 403)
+
+    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+
+    if not isinstance(client_hash, str) or not client_hash.strip():
+        return _error_response("A hash is required.")
+
+    hash_val = client_hash.strip()
+
+    with REGISTERED_CLIENTS_LOCK:
+        client_data = REGISTERED_CLIENTS.get(hash_val)
+
+    if client_data is None:
+        return _error_response("Client not found.", 404)
+
+    with REGISTERED_CLIENTS_LOCK:
+        REGISTERED_CLIENTS[hash_val]["protected"] = False
+
+    logger.info(f"Unprotected service hash {hash_val[:16]}...")
+
+    return _success_response({"status": "unprotected", "hash": hash_val})
 
 
 # ============================================================================
@@ -1171,25 +1476,9 @@ def api_key_pending():
 
     with PENDING_API_KEY_REQUESTS_LOCK:
         pending_list = list(PENDING_API_KEY_REQUESTS.values())
-
-    return _success_response({"pending": pending_list})
-
-
-@app.route("/api/api-key/pending-hashes", methods=["GET", "HEAD", "OPTIONS"])
-def api_key_pending_hashes():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        return _error_response("API key is not valid.", 403)
-
-    with PENDING_API_KEY_REQUESTS_LOCK:
         hashes = list(PENDING_API_KEY_REQUESTS.keys())
 
-    return _success_response({"hashes": hashes})
+    return _success_response({"pending": pending_list, "hashes": hashes})
 
 
 @app.route("/api/api-key/grant", methods=["POST", "HEAD", "OPTIONS"])

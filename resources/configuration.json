@@ -1,6 +1,7 @@
 {
   "port": 49155,
   "sort_order": [
+    "protected",
     "status",
     "port",
     "name",
@@ -9,14 +10,15 @@
     "pid"
   ],
   "accuracy": 30,
+  "api_key_store_key_path": "",
+  "group_by": "protected",
   "original_sort_order": [
+    "status",
+    "protected",
     "port",
     "name",
     "bind_address",
     "hostname",
-    "pid",
-    "status"
-  ],
-  "api_key_store_key_path": "",
-  "group_by": "status"
+    "pid"
+  ]
 }
