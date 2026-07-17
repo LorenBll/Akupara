@@ -49,6 +49,8 @@ API_KEY_SESSION_READY: bool = False
 
 HEALTH_CHECK_INTERVAL_SECONDS = 15
 
+NO_GUI: bool = False
+
 
 class _SimpleCache:
     def __init__(self, default_ttl: float = 30.0):
@@ -230,7 +232,7 @@ def _check_authorization_all(payload):
 
 def _initialize_service_config() -> None:
     global SERVICE_HOST, SERVICE_PORT
-    global API_KEY_STORE_KEY_PATH
+    global API_KEY_STORE_KEY_PATH, NO_GUI
     config = _load_configuration()
 
     SERVICE_HOST = "127.0.0.1"
@@ -246,6 +248,8 @@ def _initialize_service_config() -> None:
     raw_key_path = config.get("api_key_store_key_path", "")
     if isinstance(raw_key_path, str) and raw_key_path.strip():
         API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(raw_key_path.strip())
+
+    NO_GUI = config.get("noGUI", False)
 
 
 def _resolve_service(name: str, default_host: str, default_port: int) -> tuple[str, int]:
@@ -326,7 +330,7 @@ app = Flask(__name__)
 
 @app.before_request
 def restrict_to_local_device() -> tuple | None:
-    if request.path in ("/",) or request.path.startswith(("/api/", "/ui/", "/css/")):
+    if request.path.startswith("/api/") or (not NO_GUI and (request.path in ("/",) or request.path.startswith(("/ui/", "/css/")))):
         if not _is_local_request():
             return _error_response("Local device access only.", 403)
 
@@ -379,7 +383,6 @@ def set_connection_header(response):
     return response
 
 
-@app.route("/", methods=["GET", "HEAD", "OPTIONS"])
 def index():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
@@ -389,7 +392,6 @@ def index():
     return send_from_directory(web_dir, "index.html")
 
 
-@app.route("/css/<path:filename>", methods=["GET", "HEAD", "OPTIONS"])
 def css_files(filename):
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
@@ -888,7 +890,6 @@ def _get_api_keys_path() -> Path:
     return Path(__file__).parent.parent / "resources" / "api_keys.json"
 
 
-@app.route("/ui/sort-settings", methods=["GET", "PUT", "HEAD", "OPTIONS"])
 def sort_order():
     if request.method == "OPTIONS":
         return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
@@ -1719,6 +1720,24 @@ def shutdown():
     threading.Thread(target=_shutdown, daemon=True).start()
     return _success_response({"status": "shutdown"})
 
+
+def _register_ui_routes(app_instance: Flask) -> None:
+    """Conditionally register UI-related routes when NO_GUI is False."""
+    if NO_GUI:
+        return
+    app_instance.add_url_rule("/", methods=["GET", "HEAD", "OPTIONS"], view_func=index)
+    app_instance.add_url_rule(
+        "/css/<path:filename>",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=css_files,
+    )
+    app_instance.add_url_rule(
+        "/ui/sort-settings",
+        methods=["GET", "PUT", "HEAD", "OPTIONS"],
+        view_func=sort_order,
+    )
+
+
 if __name__ == "__main__":
     try:
         logging.basicConfig(
@@ -1727,6 +1746,7 @@ if __name__ == "__main__":
         )
 
         _initialize_service_config()
+        _register_ui_routes(app)
         _start_health_check_loop()
         _init_api_keys()
     except Exception as exc:

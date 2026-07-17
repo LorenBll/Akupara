@@ -1,4 +1,5 @@
 {
+  "noGUI": false,
   "port": 49155,
   "sort_order": [
     "protected",
