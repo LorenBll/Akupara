@@ -102,7 +102,6 @@ Registers a new client service and returns a SHA-256 hash. Before registering, S
 - Body (JSON object):
 	- `name` (string, required): name for the client service.
 	- `port` (number, required): port number the client listens on (1–65535).
-	- `pid` (number, required): process ID of the running client.
 	- `bind_address` (string, required): IP address the client binds to.
 	- `hostname` (string, required): hostname of the client machine.
 	- `starting_script` (string, optional): path to the client's startup script.
@@ -119,7 +118,6 @@ Registers a new client service and returns a SHA-256 hash. Before registering, S
 	- `400` -> `{ "error": "A non-empty name is required." }`
 	- `400` -> `{ "error": "A port number is required." }`
 	- `400` -> `{ "error": "Port must be a number between 1 and 65535." }`
-	- `400` -> `{ "error": "A PID is required." }`
 	- `400` -> `{ "error": "A bind address is required." }`
 	- `400` -> `{ "error": "A hostname is required." }`
 	- `400` -> `{ "error": "Client health endpoint is not reachable." }`
