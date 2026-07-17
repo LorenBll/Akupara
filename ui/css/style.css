@@ -176,7 +176,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
     text-transform: capitalize;
 }
 
@@ -236,7 +236,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
     text-transform: capitalize;
 }
 
@@ -422,7 +422,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
     text-transform: capitalize;
 }
 
@@ -441,7 +441,7 @@ body.has-error::before {
     padding: 4px 10px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
     text-transform: capitalize;
     min-width: 140px;
     opacity: 0;
@@ -465,7 +465,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
     text-transform: capitalize;
 }
 
@@ -739,8 +739,8 @@ body.has-error::before {
     position: absolute;
     left: 50%;
     right: auto;
-    top: auto;
-    bottom: calc(100% + 6px);
+    top: calc(100% + 6px);
+    bottom: auto;
     transform: translateX(-50%);
     white-space: nowrap;
     font-size: 0.75rem;
@@ -751,7 +751,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
 }
 
 
@@ -1105,7 +1105,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
 }
 
 .card-btn-blue:hover::after {
@@ -1338,7 +1338,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
 }
 
 .search-bar.expanded-vertical .search-toggle:hover::after {
@@ -1355,7 +1355,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
 }
 
 .search-toggle svg {
@@ -1486,7 +1486,7 @@ body.has-error::before {
     padding: 4px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
 }
 
 .filter-tweak-reset {
@@ -1529,7 +1529,7 @@ body.has-error::before {
     padding: 4px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
 }
 
 .filter-tweak-slider-wrap {
@@ -1556,7 +1556,7 @@ body.has-error::before {
     padding: 4px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
 }
 
 .filter-tweak.active .filter-tweak-slider-wrap,
@@ -1662,7 +1662,7 @@ body.has-error::before {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
     text-transform: capitalize;
 }
 
@@ -1849,7 +1849,7 @@ body.checkbox-active .service-card .card-btn-blue {
     gap: 10px;
     opacity: 0;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 2147483647;
     transition: opacity 0.15s ease;
 }
 
