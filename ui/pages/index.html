@@ -728,6 +728,22 @@
             container.innerHTML = html;
         }
 
+        function getPathVarTypes(path) {
+            var types = {};
+            var regex = /<([^>]+)>/g;
+            var match;
+            while ((match = regex.exec(path)) !== null) {
+                var content = match[1];
+                var parts = content.split(':');
+                if (parts.length === 2) {
+                    types[parts[1]] = parts[0];
+                } else {
+                    types[parts[0]] = 'string';
+                }
+            }
+            return types;
+        }
+
         function buildEndpointCard(ep) {
             var cardHtml = '<div class="expand-endpoint-card">' +
                 '<div class="expand-endpoint-card-header">' +
@@ -740,11 +756,14 @@
             if (hasVars || hasSchema) {
                 cardHtml += '<div class="expand-endpoint-card-body">';
                 if (hasVars) {
+                    var varTypes = getPathVarTypes(ep.path);
                     cardHtml += '<div class="expand-endpoint-section">' +
                         '<div class="expand-endpoint-section-title">Path Variables</div>' +
                         '<div class="expand-endpoint-section-content">';
                     ep.path_variables.forEach(function(v) {
-                        cardHtml += '<div class="expand-endpoint-var-item">' + (typeof v === 'object' ? JSON.stringify(v) : String(v)) + '</div>';
+                        var name = typeof v === 'object' ? (v.name || JSON.stringify(v)) : String(v);
+                        var type = varTypes[name] || 'string';
+                        cardHtml += '<div class="expand-endpoint-var-item">' + name + '<span class="expand-endpoint-var-type">' + type + '</span></div>';
                     });
                     cardHtml += '</div></div>';
                 }

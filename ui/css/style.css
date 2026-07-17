@@ -693,8 +693,15 @@ body.has-error::before {
 .expand-endpoint-var-item {
     font-family: 'Courier New', monospace;
     font-size: 0.85rem;
-    color: #6366f1;
+    color: #6b7280;
     padding: 2px 0;
+}
+
+.expand-endpoint-var-type {
+    color: #9ca3af;
+    font-size: 0.75rem;
+    font-style: italic;
+    margin-left: 4px;
 }
 
 .expand-endpoint-schema {

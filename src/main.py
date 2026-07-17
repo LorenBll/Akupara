@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import jsonschema
 from flask import Flask, jsonify, request, send_from_directory
 
 from models import PostResponse
@@ -806,6 +807,77 @@ def search_endpoints():
                     })
 
     return _success_response({"query": query.strip(), "results": results})
+
+
+@app.route("/api/validate/json-body", methods=["POST", "HEAD", "OPTIONS"])
+def validate_json_body():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    service_name = payload.get("service") if isinstance(payload, dict) else None
+    verb = payload.get("verb") if isinstance(payload, dict) else None
+    path = payload.get("path") if isinstance(payload, dict) else None
+    json_body = payload.get("json_body") if isinstance(payload, dict) else None
+
+    if not isinstance(service_name, str) or not service_name.strip():
+        return _error_response("A non-empty service name is required.")
+    if not isinstance(verb, str) or not verb.strip():
+        return _error_response("A non-empty HTTP verb is required.")
+    if not isinstance(path, str) or not path.strip():
+        return _error_response("A non-empty endpoint path is required.")
+    if json_body is None:
+        return _error_response("A json_body is required.")
+
+    with REGISTERED_CLIENTS_LOCK:
+        target = None
+        for client in REGISTERED_CLIENTS.values():
+            if client.get("name") == service_name.strip():
+                target = client
+                break
+
+    if target is None:
+        return _error_response(f"No service found with name '{service_name.strip()}'.", 404)
+
+    verb_stripped = verb.strip().upper()
+    path_stripped = path.strip()
+    target_endpoint = None
+    for ep in target.get("endpoints", []):
+        if ep.get("verb") == verb_stripped and ep.get("path") == path_stripped:
+            target_endpoint = ep
+            break
+
+    if target_endpoint is None:
+        return _error_response(
+            f"No endpoint found with verb '{verb_stripped}' and path "
+            f"'{path_stripped}' for service '{service_name.strip()}'.",
+            404,
+        )
+
+    schema = target_endpoint.get("body_schema", {})
+    if not schema:
+        return _success_response({
+            "valid": True,
+            "schema_exists": False,
+            "message": "No JSON schema defined for this endpoint.",
+        })
+
+    try:
+        jsonschema.validate(instance=json_body, schema=schema)
+        return _success_response({
+            "valid": True,
+            "schema_exists": True,
+            "message": "JSON body is valid against the endpoint schema.",
+        })
+    except jsonschema.ValidationError as exc:
+        return _success_response({
+            "valid": False,
+            "schema_exists": True,
+            "message": "JSON body is not valid against the endpoint schema.",
+            "errors": [{"path": list(exc.absolute_path), "message": exc.message}],
+        })
 
 
 def _get_config_path() -> Path:
