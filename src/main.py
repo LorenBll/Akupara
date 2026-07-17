@@ -48,6 +48,8 @@ API_KEY_SESSION_READY: bool = False
 
 HEALTH_CHECK_INTERVAL_SECONDS = 15
 
+NO_GUI: bool = False
+
 
 class _SimpleCache:
     def __init__(self, default_ttl: float = 30.0):
@@ -229,7 +231,7 @@ def _check_authorization_all(payload):
 
 def _initialize_service_config() -> None:
     global SERVICE_HOST, SERVICE_PORT
-    global API_KEY_STORE_KEY_PATH
+    global API_KEY_STORE_KEY_PATH, NO_GUI
     config = _load_configuration()
 
     SERVICE_HOST = "127.0.0.1"
@@ -245,6 +247,8 @@ def _initialize_service_config() -> None:
     raw_key_path = config.get("api_key_store_key_path", "")
     if isinstance(raw_key_path, str) and raw_key_path.strip():
         API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(raw_key_path.strip())
+
+    NO_GUI = config.get("noGUI", False)
 
 
 def _resolve_service(name: str, default_host: str, default_port: int) -> tuple[str, int]:
@@ -384,6 +388,8 @@ def index():
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
+    if NO_GUI:
+        return _error_response("UI is disabled.", 404)
     web_dir = Path(__file__).parent.parent / "ui" / "pages"
     return send_from_directory(web_dir, "index.html")
 
@@ -394,6 +400,8 @@ def css_files(filename):
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
+    if NO_GUI:
+        return _error_response("UI is disabled.", 404)
     css_dir = Path(__file__).parent.parent / "ui" / "css"
     return send_from_directory(css_dir, filename)
 
@@ -822,6 +830,8 @@ def sort_order():
         return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
+    if NO_GUI:
+        return _error_response("UI is disabled.", 404)
 
     config_path = _get_config_path()
 
