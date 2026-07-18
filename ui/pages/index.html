@@ -125,6 +125,7 @@
         var originalSortOrder = null;
         var _expandTimeout = null;
         var _fuzzyThreshold = 0.3;
+        var _searchIndex = {};
         var _selectedCardHashes = {};
         var _checkboxVisible = false;
         function toggleSortHealthBtn(el, show) {
@@ -170,6 +171,30 @@
                 if (eps[i].description && String(eps[i].description).toLowerCase().includes(lowerQuery)) return true;
             }
             return false;
+        }
+
+        function _buildSearchIndex() {
+            _searchIndex = {};
+            var cards = document.querySelectorAll('.service-card');
+            cards.forEach(function(card) {
+                var hash = card.getAttribute('data-hash') || '';
+                var name = card.querySelector('.card-name').textContent;
+                var metaItems = card.querySelectorAll('.card-meta-value');
+                var bindAddr = metaItems[0] ? metaItems[0].textContent : '';
+                var host = metaItems[1] ? metaItems[1].textContent : '';
+                var port = metaItems[2] ? metaItems[2].textContent : '';
+                var pid = metaItems[3] ? metaItems[3].textContent : '';
+                var allText = [name, bindAddr, host, port, pid].join(' ');
+                var tokens = allText.toLowerCase().split(/[^a-z0-9]+/).filter(function(t) { return t.length >= 2; });
+                var seen = {};
+                tokens.forEach(function(t) {
+                    if (!seen[t]) {
+                        seen[t] = true;
+                        if (!_searchIndex[t]) _searchIndex[t] = [];
+                        _searchIndex[t].push(card);
+                    }
+                });
+            });
         }
 
         function setSortMenuOpen(open) {
@@ -383,6 +408,24 @@
             var existingMsg = content.querySelector('.search-empty');
             if (existingMsg) existingMsg.remove();
             content.classList.remove('no-results');
+
+            var queryTokens = query ? query.toLowerCase().split(/[^a-z0-9]+/).filter(function(t) { return t.length >= 2; }) : [];
+            var indexMatched = null;
+            if (queryTokens.length > 0) {
+                queryTokens.forEach(function(t) {
+                    var matched = _searchIndex[t];
+                    if (matched) {
+                        if (indexMatched === null) {
+                            indexMatched = new Set(matched);
+                        } else {
+                            indexMatched = new Set([...indexMatched].filter(function(c) { return matched.indexOf(c) !== -1; }));
+                        }
+                    } else {
+                        if (indexMatched === null) indexMatched = new Set();
+                    }
+                });
+            }
+
             var visible = 0;
             cards.forEach(function(card) {
                 var name = card.querySelector('.card-name').textContent;
@@ -392,7 +435,14 @@
                 var port = metaItems[2] ? metaItems[2].textContent : '';
                 var pid = metaItems[3] ? metaItems[3].textContent : '';
                 var matchesFilter = cardMatchesFilters(card, filters);
-                var matchesSearch = !query || matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query) || matchesQuery(bindAddr, query) || matchesQuery(host, query) || cardEndpointMatches(card, query);
+                var matchesSearch = !query;
+                if (!matchesSearch) {
+                    if (indexMatched && indexMatched.has(card)) {
+                        matchesSearch = true;
+                    } else {
+                        matchesSearch = matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query) || matchesQuery(bindAddr, query) || matchesQuery(host, query) || cardEndpointMatches(card, query);
+                    }
+                }
                 if (matchesFilter && matchesSearch) {
                     card.style.display = '';
                     visible++;
@@ -1168,6 +1218,7 @@
             updateVisibility(content.querySelectorAll('.service-card').length, undefined, animate);
             if (document.getElementById('searchBar').classList.contains('expanded-vertical')) filterCards();
             _syncCheckboxUI();
+            _buildSearchIndex();
         }
 
         var draggedItem = null;

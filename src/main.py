@@ -8,6 +8,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -93,6 +94,44 @@ PENDING_API_KEY_REQUESTS_LOCK = threading.Lock()
 API_KEYS_DATA: dict = {"keys": {}}
 API_KEYS_LOCK = threading.Lock()
 API_KEY_LOOKUP: dict[str, str] = {}
+
+ENDPOINT_SEARCH_INDEX: dict[str, set[str]] = {}
+ENDPOINT_BY_ID: dict[str, dict] = {}
+ENDPOINT_INDEX_LOCK = threading.Lock()
+
+SERVICE_NAME_INDEX: dict[str, str] = {}
+SERVICE_NAME_INDEX_LOCK = threading.Lock()
+
+
+def _tokenize(text: str) -> set[str]:
+    text = text.lower()
+    return {word for word in re.split(r"[^a-z0-9]+", text) if len(word) >= 2}
+
+
+def _add_to_endpoint_index(service_name: str, ep: dict) -> None:
+    ep_id = f"{service_name}:{ep.get('verb', '')}:{ep.get('path', '')}"
+    result_entry = {
+        "service": service_name,
+        "verb": ep.get("verb", ""),
+        "path": ep.get("path", ""),
+        "description": ep.get("description", ""),
+        "path_variables": ep.get("path_variables", []),
+        "body_schema": ep.get("body_schema", {}),
+    }
+    with ENDPOINT_INDEX_LOCK:
+        ENDPOINT_BY_ID[ep_id] = result_entry
+        for token in _tokenize(ep.get("description", "")):
+            ENDPOINT_SEARCH_INDEX.setdefault(token, set()).add(ep_id)
+
+
+def _add_to_service_name_index(name: str, client_hash: str) -> None:
+    with SERVICE_NAME_INDEX_LOCK:
+        SERVICE_NAME_INDEX[name.lower()] = client_hash
+
+
+def _remove_from_service_name_index(name: str) -> None:
+    with SERVICE_NAME_INDEX_LOCK:
+        SERVICE_NAME_INDEX.pop(name.lower(), None)
 
 
 def _rebuild_api_key_lookup() -> None:
@@ -566,6 +605,7 @@ def register():
             return _error_response(
                 f"A client with name '{name}' is already registered.", 409
             )
+        _remove_from_service_name_index(name_to_check)
         with REGISTERED_CLIENTS_LOCK:
             REGISTERED_CLIENTS.pop(existing_client["hash"], None)
         logger.info(
@@ -595,6 +635,8 @@ def register():
     with REGISTERED_CLIENTS_LOCK:
         REGISTERED_CLIENTS[client_hash] = client_data
 
+    _add_to_service_name_index(name.strip(), client_hash)
+
     logger.info(f"Client '{name}' registered on port {port} ({client_hash[:16]}...)")
 
     return _success_response({"hash": client_hash}, 201)
@@ -618,12 +660,15 @@ def question(name=None):
     if invalid_key:
         return _error_response("API key is not valid.", 403)
 
+    target_name_stripped = target_name.strip()
+    with SERVICE_NAME_INDEX_LOCK:
+        client_hash = SERVICE_NAME_INDEX.get(target_name_stripped.lower())
+
+    if client_hash is None:
+        return _error_response(f"No client found with name '{target_name_stripped}'.", 404)
+
     with REGISTERED_CLIENTS_LOCK:
-        target = None
-        for client in REGISTERED_CLIENTS.values():
-            if client.get("name") == target_name.strip():
-                target = client
-                break
+        target = REGISTERED_CLIENTS.get(client_hash)
 
     if target is None:
         return _error_response(f"No client found with name '{target_name}'.", 404)
@@ -655,6 +700,9 @@ def unregister():
 
     with REGISTERED_CLIENTS_LOCK:
         client_data = REGISTERED_CLIENTS.pop(client_hash.strip(), None)
+
+    if client_data is not None:
+        _remove_from_service_name_index(client_data.get("name", ""))
 
     if client_data is None:
         return _error_response("Hash not found.", 404)
@@ -793,6 +841,8 @@ def register_endpoint():
     with REGISTERED_CLIENTS_LOCK:
         REGISTERED_CLIENTS[hash_val].setdefault("endpoints", []).append(endpoint)
 
+    _add_to_endpoint_index(client_data.get("name", ""), endpoint)
+
     logger.info(
         f"Endpoint '{verb} {path}' registered for '{client_data.get('name', 'unknown')}' "
         f"({hash_val[:8]}...)"
@@ -817,18 +867,21 @@ def get_endpoints(name=None):
     if not isinstance(target_name, str) or not target_name.strip():
         return _error_response("The name of the service is required.")
 
+    target_name_stripped = target_name.strip()
+    with SERVICE_NAME_INDEX_LOCK:
+        client_hash = SERVICE_NAME_INDEX.get(target_name_stripped.lower())
+
+    if client_hash is None:
+        return _error_response(f"No service found with name '{target_name}'.", 404)
+
     with REGISTERED_CLIENTS_LOCK:
-        target = None
-        for client in REGISTERED_CLIENTS.values():
-            if client.get("name") == target_name.strip():
-                target = client
-                break
+        target = REGISTERED_CLIENTS.get(client_hash)
 
     if target is None:
         return _error_response(f"No service found with name '{target_name}'.", 404)
 
     endpoints = target.get("endpoints", [])
-    return _success_response({"name": target_name.strip(), "endpoints": endpoints})
+    return _success_response({"name": target_name_stripped, "endpoints": endpoints})
 
 
 @app.route("/api/services/endpoints", methods=["GET", "HEAD", "OPTIONS"])
@@ -864,24 +917,28 @@ def search_endpoints():
     if not isinstance(query, str) or not query.strip():
         return _error_response("A non-empty query is required.")
 
-    query_lower = query.strip().lower()
-    results = []
+    query_tokens = _tokenize(query.strip())
+    if not query_tokens:
+        return _success_response({"query": query.strip(), "results": []})
 
-    with REGISTERED_CLIENTS_LOCK:
-        for client in REGISTERED_CLIENTS.values():
-            service_name = client.get("name", "")
-            endpoints = client.get("endpoints", [])
-            for ep in endpoints:
-                desc = ep.get("description", "")
-                if isinstance(desc, str) and query_lower in desc.lower():
-                    results.append({
-                        "service": service_name,
-                        "verb": ep.get("verb", ""),
-                        "path": ep.get("path", ""),
-                        "description": desc,
-                        "path_variables": ep.get("path_variables", []),
-                        "body_schema": ep.get("body_schema", {}),
-                    })
+    with ENDPOINT_INDEX_LOCK:
+        matching = None
+        for token in query_tokens:
+            token_results = ENDPOINT_SEARCH_INDEX.get(token)
+            if token_results is None:
+                matching = None
+                break
+            if matching is None:
+                matching = token_results.copy()
+            else:
+                matching &= token_results
+
+        results = []
+        if matching:
+            for ep_id in matching:
+                entry = ENDPOINT_BY_ID.get(ep_id)
+                if entry:
+                    results.append(entry)
 
     return _success_response({"query": query.strip(), "results": results})
 
@@ -908,28 +965,18 @@ def validate_json_body():
     if json_body is None:
         return _error_response("A json_body is required.")
 
-    with REGISTERED_CLIENTS_LOCK:
-        target = None
-        for client in REGISTERED_CLIENTS.values():
-            if client.get("name") == service_name.strip():
-                target = client
-                break
-
-    if target is None:
-        return _error_response(f"No service found with name '{service_name.strip()}'.", 404)
-
     verb_stripped = verb.strip().upper()
     path_stripped = path.strip()
-    target_endpoint = None
-    for ep in target.get("endpoints", []):
-        if ep.get("verb") == verb_stripped and ep.get("path") == path_stripped:
-            target_endpoint = ep
-            break
+    service_name_stripped = service_name.strip()
+    ep_id = f"{service_name_stripped}:{verb_stripped}:{path_stripped}"
+
+    with ENDPOINT_INDEX_LOCK:
+        target_endpoint = ENDPOINT_BY_ID.get(ep_id)
 
     if target_endpoint is None:
         return _error_response(
             f"No endpoint found with verb '{verb_stripped}' and path "
-            f"'{path_stripped}' for service '{service_name.strip()}'.",
+            f"'{path_stripped}' for service '{service_name_stripped}'.",
             404,
         )
 
