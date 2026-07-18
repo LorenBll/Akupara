@@ -92,6 +92,14 @@ PENDING_API_KEY_REQUESTS_LOCK = threading.Lock()
 
 API_KEYS_DATA: dict = {"keys": {}}
 API_KEYS_LOCK = threading.Lock()
+API_KEY_LOOKUP: dict[str, str] = {}
+
+
+def _rebuild_api_key_lookup() -> None:
+    API_KEY_LOOKUP.clear()
+    for name, data in API_KEYS_DATA.get("keys", {}).items():
+        if isinstance(data, dict) and "api_key" in data:
+            API_KEY_LOOKUP[data["api_key"]] = name
 
 API_KEY_STORE_KEY_PATH: str | None = None
 API_KEY_SESSION_READY: bool = False
@@ -99,6 +107,8 @@ API_KEY_SESSION_READY: bool = False
 HEALTH_CHECK_INTERVAL_SECONDS = 15
 
 NO_GUI: bool = False
+
+_PROJECT_ROOT = Path(__file__).parent.parent
 
 
 class _SimpleCache:
@@ -140,8 +150,7 @@ def _load_configuration() -> dict:
     cached = _CONFIG_CACHE.get("config")
     if cached is not None:
         return cached
-    script_dir = Path(__file__).parent
-    config_path = script_dir.parent / "resources" / "configuration.json"
+    config_path = _PROJECT_ROOT / "resources" / "configuration.json"
     if not config_path.exists():
         raise FileNotFoundError(
             f"Configuration file not found at {config_path}."
@@ -228,9 +237,7 @@ def _is_authorized_strict(payload: dict) -> bool:
     api_key = payload.get("api_key") if isinstance(payload, dict) else None
     if isinstance(api_key, str) and api_key.strip():
         with API_KEYS_LOCK:
-            for data in API_KEYS_DATA.get("keys", {}).values():
-                if isinstance(data, dict) and data.get("api_key") == api_key.strip():
-                    return True
+            return api_key.strip() in API_KEY_LOOKUP
     return False
 
 
@@ -255,9 +262,8 @@ def _check_authorization(payload):
     api_key = payload.get("api_key") if isinstance(payload, dict) else None
     if isinstance(api_key, str) and api_key.strip():
         with API_KEYS_LOCK:
-            for data in API_KEYS_DATA.get("keys", {}).values():
-                if isinstance(data, dict) and data.get("api_key") == api_key.strip():
-                    return (True, False)
+            if api_key.strip() in API_KEY_LOOKUP:
+                return (True, False)
         return (False, True)
     return (_is_localhost_request(), False)
 
@@ -299,6 +305,33 @@ def _initialize_service_config() -> None:
         API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(raw_key_path.strip())
 
     NO_GUI = config.get("noGUI", False)
+
+
+def _extract_pid(client_data: dict) -> int | None:
+    stored = client_data.get("pid")
+    if isinstance(stored, int):
+        return stored
+    if isinstance(stored, str) and stored.strip().isdigit():
+        return int(stored)
+    return None
+
+
+def _launch_script(script_path: str) -> subprocess.Popen:
+    path = script_path.strip()
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".py":
+        cmd = [sys.executable, path]
+    elif ext in (".bat", ".cmd"):
+        cmd = ["cmd", "/c", path]
+    elif ext == ".ps1":
+        cmd = ["powershell", "-File", path]
+    else:
+        cmd = [path]
+    return subprocess.Popen(
+        cmd,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        close_fds=True,
+    )
 
 
 def _resolve_service(name: str, default_host: str, default_port: int) -> tuple[str, int]:
@@ -437,7 +470,7 @@ def index():
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-    web_dir = Path(__file__).parent.parent / "ui" / "pages"
+    web_dir = _PROJECT_ROOT / "ui" / "pages"
     return send_from_directory(web_dir, "index.html")
 
 
@@ -446,7 +479,7 @@ def css_files(filename):
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-    css_dir = Path(__file__).parent.parent / "ui" / "css"
+    css_dir = _PROJECT_ROOT / "ui" / "css"
     return send_from_directory(css_dir, filename)
 
 
@@ -700,14 +733,11 @@ def clients():
     if invalid_key:
         return _error_response("API key is not valid.", 403)
 
-    def _strip_endpoints(client):
-        return {k: v for k, v in client.items() if k != "endpoints"}
-
     with REGISTERED_CLIENTS_LOCK:
         client_list = [
-            _strip_endpoints(client) if authorized else _strip_endpoints(
-                {k: v for k, v in client.items() if k != "hash"}
-            )
+            {k: v for k, v in client.items() if k != "endpoints"}
+            if authorized
+            else {k: v for k, v in client.items() if k not in ("endpoints", "hash")}
             for client in REGISTERED_CLIENTS.values()
         ]
 
@@ -928,11 +958,11 @@ def validate_json_body():
 
 
 def _get_config_path() -> Path:
-    return Path(__file__).parent.parent / "resources" / "configuration.json"
+    return _PROJECT_ROOT / "resources" / "configuration.json"
 
 
 def _get_api_keys_path() -> Path:
-    return Path(__file__).parent.parent / "resources" / "api_keys.json"
+    return _PROJECT_ROOT / "resources" / "api_keys.json"
 
 
 def sort_order():
@@ -1041,9 +1071,7 @@ def terminate():
         with REGISTERED_CLIENTS_LOCK:
             client_data = REGISTERED_CLIENTS.get(client_hash.strip())
         if client_data is not None:
-            stored = client_data.get("pid")
-            if isinstance(stored, int) or (isinstance(stored, str) and stored.strip().isdigit()):
-                pid = int(stored)
+            pid = _extract_pid(client_data)
 
     if pid is not None:
         try:
@@ -1096,9 +1124,7 @@ def restart():
     if raw_pid is not None and str(raw_pid).strip().isdigit():
         pid = int(raw_pid)
     else:
-        stored = client_data.get("pid")
-        if isinstance(stored, int) or (isinstance(stored, str) and stored.strip().isdigit()):
-            pid = int(stored)
+        pid = _extract_pid(client_data)
 
     if pid is None:
         return _error_response("No PID available for this service.", 400)
@@ -1115,23 +1141,8 @@ def restart():
     logger.info(f"Terminated PID {pid} (hash {client_hash[:16]}...)")
 
     try:
-        path = script_path.strip()
-        ext = os.path.splitext(path)[1].lower()
-        if ext == ".py":
-            cmd = [sys.executable, path]
-        elif ext in (".bat", ".cmd"):
-            cmd = ["cmd", "/c", path]
-        elif ext == ".ps1":
-            cmd = ["powershell", "-File", path]
-        else:
-            cmd = [path]
-        subprocess.Popen(
-            cmd,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
-        )
+        _launch_script(script_path)
     except Exception as exc:
-        logger.error(f"Failed to start script '{script_path}': {exc}")
         return _error_response(f"Failed to start script: {exc}", 500)
 
     logger.info(f"Restarted with script '{script_path}' (hash {client_hash[:16]}...)")
@@ -1167,9 +1178,7 @@ def broken_forget():
     with REGISTERED_CLIENTS_LOCK:
         client_data = REGISTERED_CLIENTS.get(hash_val)
         if client_data is not None:
-            stored = client_data.get("pid")
-            if isinstance(stored, int) or (isinstance(stored, str) and stored.strip().isdigit()):
-                pid = int(stored)
+            pid = _extract_pid(client_data)
             REGISTERED_CLIENTS.pop(hash_val, None)
 
     if pid is not None:
@@ -1213,9 +1222,7 @@ def broken_restart():
         client_data = REGISTERED_CLIENTS.get(hash_val)
         if client_data is not None:
             script_path = client_data.get("starting_script", "")
-            stored = client_data.get("pid")
-            if isinstance(stored, int) or (isinstance(stored, str) and stored.strip().isdigit()):
-                pid = int(stored)
+            pid = _extract_pid(client_data)
             REGISTERED_CLIENTS.pop(hash_val, None)
 
     if not isinstance(script_path, str) or not script_path.strip():
@@ -1228,23 +1235,8 @@ def broken_restart():
             logger.warning(f"Could not kill PID {pid} during broken restart (hash {hash_val[:16]}...)")
 
     try:
-        path = script_path.strip()
-        ext = os.path.splitext(path)[1].lower()
-        if ext == ".py":
-            cmd = [sys.executable, path]
-        elif ext in (".bat", ".cmd"):
-            cmd = ["cmd", "/c", path]
-        elif ext == ".ps1":
-            cmd = ["powershell", "-File", path]
-        else:
-            cmd = [path]
-        subprocess.Popen(
-            cmd,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
-        )
+        _launch_script(script_path)
     except Exception as exc:
-        logger.error(f"Failed to start script '{script_path}': {exc}")
         return _error_response(f"Failed to start script: {exc}", 500)
 
     logger.info(f"Restarted broken service with script '{script_path}' (hash {hash_val[:16]}...)")
@@ -1447,6 +1439,7 @@ def _init_api_keys() -> None:
             json.dump({"keys": {}}, f)
     with API_KEYS_LOCK:
         API_KEYS_DATA = _load_api_keys()
+        _rebuild_api_key_lookup()
     logger.info(
         f"Loaded {len(API_KEYS_DATA.get('keys', {}))} API key(s) from store. "
         "Session initialization deferred until first request."
@@ -1465,8 +1458,6 @@ def _ensure_api_key_session() -> str | None:
     with REGISTERED_CLIENTS_LOCK:
         if not any(c.get("name") == "DiskIdentifier" for c in REGISTERED_CLIENTS.values()):
             return "DiskIdentifier service not registered. Required for API key operations."
-
-    with REGISTERED_CLIENTS_LOCK:
         if not any(c.get("name") == "Cipher" for c in REGISTERED_CLIENTS.values()):
             return "Cipher service not registered. Required for API key operations."
 
@@ -1503,6 +1494,7 @@ def _save_and_encrypt_api_keys() -> bool:
             merged = dict(existing_keys)
             merged.update(current_keys)
             API_KEYS_DATA["keys"] = merged
+            _rebuild_api_key_lookup()
             data = dict(API_KEYS_DATA)
         with open(api_keys_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -1634,6 +1626,7 @@ def api_key_grant():
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "service_hash": hash_val,
             }
+            API_KEY_LOOKUP[api_key] = service_name
 
         if not _save_and_encrypt_api_keys():
             with API_KEYS_LOCK:
