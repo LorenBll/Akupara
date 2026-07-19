@@ -23,7 +23,7 @@ from pathlib import Path
 import jsonschema
 from flask import Flask, jsonify, request, send_from_directory
 
-from models import PostResponse
+from models import GetRequest, GetResponse, PostRequest, PostResponse
 
 logger = logging.getLogger(__name__)
 
@@ -474,6 +474,89 @@ def _resolve_service(name: str, default_host: str, default_port: int) -> tuple[s
     return default_host, default_port
 
 
+def _send_get_request(request: GetRequest) -> GetResponse:
+    try:
+        req = urllib.request.Request(request.url, method="GET", headers=request.headers)
+        with urllib.request.urlopen(req, timeout=request.timeout) as resp:
+            body = resp.read().decode("utf-8")
+            body_size = len(body)
+            headers = dict(resp.headers)
+            json_body = None
+            try:
+                json_body = json.loads(body)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            return GetResponse(
+                status_code=resp.status,
+                reason=resp.reason,
+                body=body,
+                body_size=body_size,
+                headers=headers,
+                json_body=json_body,
+            )
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8")
+        body_size = len(body)
+        headers = dict(exc.headers)
+        json_body = None
+        try:
+            json_body = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return GetResponse(
+            status_code=exc.code,
+            reason=str(exc.reason),
+            body=body,
+            body_size=body_size,
+            headers=headers,
+            json_body=json_body,
+        )
+
+
+def _send_post_request(request: PostRequest) -> PostResponse:
+    try:
+        req = urllib.request.Request(
+            request.url,
+            data=request.body,
+            headers=request.headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=request.timeout) as resp:
+            body = resp.read().decode("utf-8")
+            body_size = len(body)
+            headers = dict(resp.headers)
+            json_body = None
+            try:
+                json_body = json.loads(body)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            return PostResponse(
+                status_code=resp.status,
+                reason=resp.reason,
+                body=body,
+                body_size=body_size,
+                headers=headers,
+                json_body=json_body,
+            )
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8")
+        body_size = len(body)
+        headers = dict(exc.headers)
+        json_body = None
+        try:
+            json_body = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return PostResponse(
+            status_code=exc.code,
+            reason=str(exc.reason),
+            body=body,
+            body_size=body_size,
+            headers=headers,
+            json_body=json_body,
+        )
+
+
 def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
     cache_key = f"health:{ip}:{port}"
     cached = _HEALTH_CACHE.get(cache_key)
@@ -489,11 +572,10 @@ def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
         return False
     url = f"http://{ip}:{port}/api/health"
     try:
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = resp.status == 200
-            _HEALTH_CACHE.set(cache_key, result)
-            return result
+        resp = _send_get_request(GetRequest(url=url, timeout=timeout))
+        result = resp.status_code == 200
+        _HEALTH_CACHE.set(cache_key, result)
+        return result
     except (urllib.error.URLError, OSError, ValueError):
         _HEALTH_CACHE.set(cache_key, False)
         return False
@@ -1623,14 +1705,14 @@ def api_key_grant():
                 notify_payload = json.dumps(
                     {"api_key": api_key, "status": "granted"}
                 ).encode("utf-8")
-                notify_req = urllib.request.Request(
-                    f"http://{service_ip}:{service_port}/api/key/granted",
-                    data=notify_payload,
+                req = PostRequest(
+                    url=f"http://{service_ip}:{service_port}/api/key/granted",
+                    body=notify_payload,
                     headers={"Content-Type": "application/json"},
-                    method="POST",
+                    timeout=10,
                 )
-                with urllib.request.urlopen(notify_req, timeout=10) as notify_resp:
-                    notified = notify_resp.status == 200
+                resp = _send_post_request(req)
+                notified = resp.status_code == 200
             except Exception as exc:
                 logger.warning(
                     f"Failed to notify service '{request_info.get('name', 'unknown')}' "
@@ -1685,23 +1767,23 @@ def api_key_reject():
     service_port = request_info.get("port", 0)
     notified = False
     if service_port:
-        try:
-            notify_payload = json.dumps(
-                {"status": "rejected", "reason": "API key registration refused by the device owner."}
-            ).encode("utf-8")
-            notify_req = urllib.request.Request(
-                f"http://{service_ip}:{service_port}/api/key/rejected",
-                data=notify_payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(notify_req, timeout=10) as notify_resp:
-                notified = notify_resp.status == 200
-        except Exception as exc:
-            logger.warning(
-                f"Failed to notify service '{request_info.get('name', 'unknown')}' "
-                f"about rejected API key: {exc}"
-            )
+            try:
+                notify_payload = json.dumps(
+                    {"status": "rejected", "reason": "API key registration refused by the device owner."}
+                ).encode("utf-8")
+                req = PostRequest(
+                    url=f"http://{service_ip}:{service_port}/api/key/rejected",
+                    body=notify_payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=10,
+                )
+                resp = _send_post_request(req)
+                notified = resp.status_code == 200
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to notify service '{request_info.get('name', 'unknown')}' "
+                    f"about rejected API key: {exc}"
+                )
 
     logger.info(
         f"API key request rejected for '{request_info.get('name', 'unknown')}' "
