@@ -11,7 +11,6 @@
     "pid"
   ],
   "accuracy": 30,
-  "api_key_store_key_path": "",
   "group_by": "protected",
   "original_sort_order": [
     "status",

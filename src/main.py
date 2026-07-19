@@ -143,6 +143,27 @@ def _rebuild_api_key_lookup() -> None:
 API_KEY_STORE_KEY_PATH: str | None = None
 API_KEY_SESSION_READY: bool = False
 
+def _cipher_data_operation(operation: str, data: str, timeout_seconds: int = 120) -> str | None:
+    import tempfile
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            temp_path = f.name
+            f.write(data)
+        file_path = Path(temp_path)
+        if _cipher_file_operation(operation, file_path, timeout_seconds):
+            return file_path.read_text(encoding="utf-8")
+        return None
+    except Exception as exc:
+        logger.error(f"Cipher data {operation} failed: {exc}")
+        return None
+    finally:
+        if temp_path:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
 HEALTH_CHECK_INTERVAL_SECONDS = 15
 
 NO_GUI: bool = False
@@ -342,10 +363,6 @@ def _initialize_service_config() -> None:
     env_key_path = os.getenv("API_KEY_STORE_KEY_PATH")
     if env_key_path:
         API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(env_key_path.strip())
-    else:
-        raw_key_path = config.get("api_key_store_key_path", "")
-        if isinstance(raw_key_path, str) and raw_key_path.strip():
-            API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(raw_key_path.strip())
 
     NO_GUI = config.get("noGUI", False)
 
@@ -1012,10 +1029,6 @@ def _get_config_path() -> Path:
     return _PROJECT_ROOT / "resources" / "configuration.json"
 
 
-def _get_api_keys_path() -> Path:
-    return _PROJECT_ROOT / "resources" / "api_keys.json"
-
-
 def sort_order():
     if request.method == "OPTIONS":
         return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
@@ -1455,45 +1468,13 @@ def _cipher_file_operation(
         return False
 
 
-def _load_api_keys() -> dict:
-    api_keys_path = _get_api_keys_path()
-    if not api_keys_path.exists():
-        return {"keys": {}}
-    try:
-        with open(api_keys_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict) or not isinstance(data.get("keys"), dict):
-            data = {"keys": {}}
-    except (json.JSONDecodeError, Exception):
-        data = {"keys": {}}
-    return data
-
-
-def _save_api_keys(data: dict) -> bool:
-    api_keys_path = _get_api_keys_path()
-    try:
-        api_keys_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(api_keys_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception as exc:
-        logger.error(f"Failed to write API keys to {api_keys_path}: {exc}")
-        return False
-    return True
-
-
 def _init_api_keys() -> None:
     global API_KEYS_DATA
-    api_keys_path = _get_api_keys_path()
-    api_keys_path.parent.mkdir(parents=True, exist_ok=True)
-    if not api_keys_path.exists():
-        with open(api_keys_path, "w", encoding="utf-8") as f:
-            json.dump({"keys": {}}, f)
     with API_KEYS_LOCK:
-        API_KEYS_DATA = _load_api_keys()
-        _rebuild_api_key_lookup()
+        API_KEYS_DATA = {"keys": {}}
     logger.info(
-        f"Loaded {len(API_KEYS_DATA.get('keys', {}))} API key(s) from store. "
-        "Session initialization deferred until first request."
+        "API key store initialized. "
+        "Keys will be loaded from SH_API_KEYS environment variable on first request."
     )
 
 
@@ -1504,7 +1485,7 @@ def _ensure_api_key_session() -> str | None:
         return None
 
     if not API_KEY_STORE_KEY_PATH:
-        return "API key store key path not configured in configuration.json."
+        return "API_KEY_STORE_KEY_PATH environment variable not set."
 
     with REGISTERED_CLIENTS_LOCK:
         if not any(c.get("name") == "DiskIdentifier" for c in REGISTERED_CLIENTS.values()):
@@ -1519,44 +1500,40 @@ def _ensure_api_key_session() -> str | None:
         return "Failed to resolve API key store key path via DiskIdentifier."
     API_KEY_STORE_KEY_PATH = resolved
 
-    loaded = _load_api_keys()
+    env_data = os.getenv("SH_API_KEYS")
+    encrypted_keys: dict = {}
+    if env_data:
+        try:
+            parsed = json.loads(env_data)
+            if isinstance(parsed, dict):
+                encrypted_keys = parsed
+        except json.JSONDecodeError:
+            logger.warning("SH_API_KEYS env var contains invalid JSON.")
+
+    decrypted: dict = {}
     with API_KEYS_LOCK:
-        API_KEYS_DATA = loaded
+        for service_name, encrypted_value in encrypted_keys.items():
+            if not isinstance(encrypted_value, str):
+                continue
+            try:
+                raw_key = _cipher_data_operation("decrypt", encrypted_value)
+                if raw_key:
+                    decrypted[service_name] = {
+                        "api_key": raw_key.strip(),
+                        "source": "env_var",
+                    }
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to decrypt API key for '{service_name}': {exc}"
+                )
+        API_KEYS_DATA["keys"] = decrypted
+        _rebuild_api_key_lookup()
 
     API_KEY_SESSION_READY = True
     logger.info(
-        f"API key session ready. Loaded {len(API_KEYS_DATA.get('keys', {}))} key(s)."
+        f"API key session ready. Loaded {len(decrypted)} key(s) from SH_API_KEYS."
     )
     return None
-
-
-def _save_and_encrypt_api_keys() -> bool:
-    global API_KEYS_DATA
-
-    api_keys_path = _get_api_keys_path()
-    try:
-        api_keys_path.parent.mkdir(parents=True, exist_ok=True)
-        if api_keys_path.exists():
-            _cipher_file_operation("decrypt", api_keys_path)
-        existing = _load_api_keys()
-        with API_KEYS_LOCK:
-            existing_keys = existing.get("keys", {})
-            current_keys = API_KEYS_DATA.get("keys", {})
-            merged = dict(existing_keys)
-            merged.update(current_keys)
-            API_KEYS_DATA["keys"] = merged
-            _rebuild_api_key_lookup()
-            data = dict(API_KEYS_DATA)
-        with open(api_keys_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        if not _cipher_file_operation("encrypt", api_keys_path):
-            logger.error("Failed to encrypt api_keys.json after save.")
-            return False
-        logger.info("API keys saved and encrypted.")
-        return True
-    except Exception as exc:
-        logger.error(f"Failed to save and encrypt API keys: {exc}")
-        return False
 
 
 def _generate_api_key_value() -> str:
@@ -1679,10 +1656,7 @@ def api_key_grant():
             }
             API_KEY_LOOKUP[api_key] = service_name
 
-        if not _save_and_encrypt_api_keys():
-            with API_KEYS_LOCK:
-                API_KEYS_DATA.get("keys", {}).pop(service_name, None)
-            return _error_response("Failed to persist API key.", 500)
+        encrypted_key = _cipher_data_operation("encrypt", api_key)
 
         service_ip = request_info.get("ip", "127.0.0.1")
         service_port = request_info.get("port", 0)
@@ -1715,6 +1689,8 @@ def api_key_grant():
             {
                 "status": "granted",
                 "api_key": api_key,
+                "encrypted_api_key": encrypted_key,
+                "env_var_entry": f'SH_API_KEYS={json.dumps({service_name: encrypted_key})}',
                 "service": request_info.get("name", ""),
                 "notified": notified,
             }
