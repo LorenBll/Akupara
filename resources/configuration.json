@@ -1,24 +1,3 @@
 {
-  "noGUI": false,
-  "port": 49155,
-  "sort_order": [
-    "protected",
-    "status",
-    "port",
-    "name",
-    "bind_address",
-    "hostname",
-    "pid"
-  ],
-  "accuracy": 30,
-  "group_by": "protected",
-  "original_sort_order": [
-    "status",
-    "protected",
-    "port",
-    "name",
-    "bind_address",
-    "hostname",
-    "pid"
-  ]
+  "port": 49155
 }

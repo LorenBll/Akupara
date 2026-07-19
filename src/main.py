@@ -140,35 +140,79 @@ def _rebuild_api_key_lookup() -> None:
         if isinstance(data, dict) and "api_key" in data:
             API_KEY_LOOKUP[data["api_key"]] = name
 
-API_KEY_STORE_KEY_PATH: str | None = None
 API_KEY_SESSION_READY: bool = False
-
-def _cipher_data_operation(operation: str, data: str, timeout_seconds: int = 120) -> str | None:
-    import tempfile
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            temp_path = f.name
-            f.write(data)
-        file_path = Path(temp_path)
-        if _cipher_file_operation(operation, file_path, timeout_seconds):
-            return file_path.read_text(encoding="utf-8")
-        return None
-    except Exception as exc:
-        logger.error(f"Cipher data {operation} failed: {exc}")
-        return None
-    finally:
-        if temp_path:
-            try:
-                Path(temp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
 
 HEALTH_CHECK_INTERVAL_SECONDS = 15
 
 NO_GUI: bool = False
 
 _PROJECT_ROOT = Path(__file__).parent.parent
+ENV_PATH = _PROJECT_ROOT / ".env"
+
+
+# ============================================================================
+# ENVIRONMENT FILE HELPERS
+# ============================================================================
+
+
+def _parse_env_file() -> dict[str, str]:
+    if not ENV_PATH.exists():
+        return {}
+    env_dict: dict[str, str] = {}
+    try:
+        with open(ENV_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                if key:
+                    env_dict[key] = value
+    except OSError:
+        return {}
+    return env_dict
+
+
+def _write_env_file(env_dict: dict[str, str]) -> None:
+    lines: list[str] = []
+    if ENV_PATH.exists():
+        try:
+            with open(ENV_PATH, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except OSError:
+            lines = []
+
+    updated_keys: set[str] = set()
+    output_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            output_lines.append(line)
+            continue
+        key, _, _ = stripped.partition("=")
+        key = key.strip()
+        if key in env_dict:
+            output_lines.append(f"{key}={env_dict[key]}\n")
+            updated_keys.add(key)
+        else:
+            output_lines.append(line)
+
+    for key, value in env_dict.items():
+        if key not in updated_keys:
+            output_lines.append(f"{key}={value}\n")
+
+    ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(ENV_PATH, "w", encoding="utf-8") as f:
+        f.writelines(output_lines)
+
+
+def _set_env_var(key: str, value: str) -> None:
+    os.environ[key] = value
+    env_dict = _parse_env_file()
+    env_dict[key] = value
+    _write_env_file(env_dict)
 
 
 class _SimpleCache:
@@ -347,7 +391,7 @@ def _check_authorization_all(payload):
 
 def _initialize_service_config() -> None:
     global SERVICE_HOST, SERVICE_PORT
-    global API_KEY_STORE_KEY_PATH, NO_GUI
+    global NO_GUI
     config = _load_configuration()
 
     SERVICE_HOST = "127.0.0.1"
@@ -360,11 +404,11 @@ def _initialize_service_config() -> None:
 
     SERVICE_PORT = configured_port
 
-    env_key_path = os.getenv("API_KEY_STORE_KEY_PATH")
-    if env_key_path:
-        API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(env_key_path.strip())
-
-    NO_GUI = config.get("noGUI", False)
+    env_no_gui = os.getenv("SH_NO_GUI")
+    if env_no_gui is not None:
+        NO_GUI = env_no_gui.strip().lower() in ("true", "1", "yes")
+    else:
+        NO_GUI = config.get("noGUI", False)
 
 
 def _extract_pid(client_data: dict) -> int | None:
@@ -1025,8 +1069,17 @@ def validate_json_body():
         })
 
 
-def _get_config_path() -> Path:
-    return _PROJECT_ROOT / "resources" / "configuration.json"
+def _get_env_json_list(key: str, default: list) -> list:
+    val = os.getenv(key)
+    if not val:
+        return default
+    try:
+        parsed = json.loads(val)
+        if isinstance(parsed, list):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return default
 
 
 def sort_order():
@@ -1035,73 +1088,57 @@ def sort_order():
     if request.method == "HEAD":
         return _head_response()
 
-    config_path = _get_config_path()
-
     if request.method == "GET":
-        config = _load_configuration()
-        order = config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
-        group_by = config.get("group_by")
-        original_sort_order = config.get("original_sort_order")
-        accuracy = config.get("accuracy", 30)
-        resp = {"sort_order": order}
-        if group_by is not None:
-            resp["group_by"] = group_by
-        if original_sort_order is not None:
-            resp["original_sort_order"] = original_sort_order
-        resp["accuracy"] = accuracy
+        sort_order_val = _get_env_json_list("SH_SORT_ORDER", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
+        group_by_val = os.getenv("SH_GROUP_BY") or None
+        original_sort_order_val = _get_env_json_list("SH_ORIGINAL_SORT_ORDER", sort_order_val)
+        accuracy_val = int(os.getenv("SH_ACCURACY", "30"))
+
+        resp = {"sort_order": sort_order_val, "accuracy": accuracy_val}
+        if group_by_val:
+            resp["group_by"] = group_by_val
+        if original_sort_order_val:
+            resp["original_sort_order"] = original_sort_order_val
         return _success_response(resp)
 
     payload = request.get_json(silent=True) or {}
-
-    try:
-        with open(config_path, "r", encoding="utf-8-sig") as f:
-            config = json.load(f)
-    except Exception:
-        return _error_response("Failed to read configuration.", 500)
 
     if isinstance(payload, dict):
         if "sort_order" in payload:
             new_order = payload["sort_order"]
             if not isinstance(new_order, list) or not new_order:
                 return _error_response("sort_order must be a non-empty list.")
-            config["sort_order"] = new_order
+            _set_env_var("SH_SORT_ORDER", json.dumps(new_order))
 
         if "group_by" in payload:
             group_by = payload["group_by"]
             if group_by is not None:
-                config["group_by"] = group_by
+                _set_env_var("SH_GROUP_BY", str(group_by))
             else:
-                config.pop("group_by", None)
+                _set_env_var("SH_GROUP_BY", "")
 
         if "original_sort_order" in payload:
-            original_sort_order = payload["original_sort_order"]
-            if original_sort_order is not None:
-                config["original_sort_order"] = original_sort_order
+            original = payload["original_sort_order"]
+            if original is not None:
+                _set_env_var("SH_ORIGINAL_SORT_ORDER", json.dumps(original))
             else:
-                config.pop("original_sort_order", None)
+                _set_env_var("SH_ORIGINAL_SORT_ORDER", "")
 
         if "accuracy" in payload:
             acc_val = payload["accuracy"]
             if acc_val is not None:
-                config["accuracy"] = acc_val
-            else:
-                config.pop("accuracy", None)
+                _set_env_var("SH_ACCURACY", str(acc_val))
 
-    try:
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2)
-        _CONFIG_CACHE.invalidate("config")
-    except Exception:
-        return _error_response("Failed to write configuration.", 500)
+    sort_order_val = _get_env_json_list("SH_SORT_ORDER", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
+    group_by_val = os.getenv("SH_GROUP_BY") or None
+    original_sort_order_val = _get_env_json_list("SH_ORIGINAL_SORT_ORDER", sort_order_val)
+    accuracy_val = int(os.getenv("SH_ACCURACY", "30"))
 
-    resp = {"sort_order": config.get("sort_order", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])}
-    current_group_by = config.get("group_by")
-    if current_group_by is not None:
-        resp["group_by"] = current_group_by
-    current_original = config.get("original_sort_order")
-    if current_original is not None:
-        resp["original_sort_order"] = current_original
-    resp["accuracy"] = config.get("accuracy", 30)
+    resp = {"sort_order": sort_order_val, "accuracy": accuracy_val}
+    if group_by_val:
+        resp["group_by"] = group_by_val
+    if original_sort_order_val:
+        resp["original_sort_order"] = original_sort_order_val
     return _success_response(resp)
 
 
@@ -1383,91 +1420,6 @@ def unprotect():
 # ============================================================================
 
 
-def _resolve_ultimate_path(ultimate_path: str) -> str:
-    raw = ultimate_path
-    disk_id = None
-    rel_path = ""
-    for sep in (":", "\\"):
-        if sep in raw:
-            parts = raw.split(sep, 1)
-            if len(parts[0]) == 64:
-                disk_id = parts[0]
-                rel_path = parts[1]
-                break
-    if not disk_id:
-        return raw
-    try:
-        disk_host, disk_port = _resolve_service("DiskIdentifier", "127.0.0.1", 49157)
-        req = urllib.request.Request(
-            f"http://{disk_host}:{disk_port}/api/locate/disk",
-            data=json.dumps({"disk_identifier": disk_id}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="GET",
-        )
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            disk_root = data.get("path", "")
-            if disk_root:
-                return str(Path(disk_root) / rel_path.lstrip("/\\"))
-    except Exception as exc:
-        logger.warning(f"Failed to resolve ultimate path via DiskIdentifier: {exc}")
-    return raw
-
-
-def _cipher_file_operation(
-    operation: str, file_path: Path, timeout_seconds: int = 120
-) -> bool:
-    if not API_KEY_STORE_KEY_PATH:
-        logger.error("API key store key path not configured")
-        return False
-    if not file_path.exists():
-        logger.error(f"File not found: {file_path}")
-        return False
-    try:
-        payload = json.dumps(
-            {
-                "key_path": API_KEY_STORE_KEY_PATH,
-                "file_path": str(file_path),
-                "encrypt_file_name": False,
-                "decrypt_file_name": False,
-                "overwrite_file": True,
-            }
-        ).encode("utf-8")
-        endpoint = "encrypt" if operation == "encrypt" else "decrypt"
-        cipher_host, cipher_port = _resolve_service("Cipher", "127.0.0.1", 49158)
-        req = urllib.request.Request(
-            f"http://{cipher_host}:{cipher_port}/api/{endpoint}",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            task_id = result.get("task_id")
-            if not task_id:
-                return False
-            deadline = time.time() + timeout_seconds
-            while time.time() < deadline:
-                time.sleep(1)
-                try:
-                    poll_req = urllib.request.Request(
-                        f"http://{cipher_host}:{cipher_port}/api/task/{task_id}",
-                        method="GET",
-                    )
-                    with urllib.request.urlopen(poll_req, timeout=3) as poll_resp:
-                        poll_result = json.loads(poll_resp.read().decode("utf-8"))
-                        if poll_result.get("status") == "completed":
-                            return True
-                        if poll_result.get("status") == "failed":
-                            return False
-                except Exception:
-                    continue
-            return False
-    except Exception as exc:
-        logger.error(f"Cipher {operation} failed: {exc}")
-        return False
-
-
 def _init_api_keys() -> None:
     global API_KEYS_DATA
     with API_KEYS_LOCK:
@@ -1479,59 +1431,33 @@ def _init_api_keys() -> None:
 
 
 def _ensure_api_key_session() -> str | None:
-    global API_KEY_SESSION_READY, API_KEY_STORE_KEY_PATH, API_KEYS_DATA
+    global API_KEY_SESSION_READY, API_KEYS_DATA
 
     if API_KEY_SESSION_READY:
         return None
 
-    if not API_KEY_STORE_KEY_PATH:
-        return "API_KEY_STORE_KEY_PATH environment variable not set."
-
-    with REGISTERED_CLIENTS_LOCK:
-        if not any(c.get("name") == "DiskIdentifier" for c in REGISTERED_CLIENTS.values()):
-            return "DiskIdentifier service not registered. Required for API key operations."
-        if not any(c.get("name") == "Cipher" for c in REGISTERED_CLIENTS.values()):
-            return "Cipher service not registered. Required for API key operations."
-
-    raw_path = API_KEY_STORE_KEY_PATH
-    resolved = _resolve_ultimate_path(raw_path)
-    raw_prefix_64 = raw_path.split("\\", 1)[0] if "\\" in raw_path else raw_path.split(":", 1)[0]
-    if resolved == raw_path and len(raw_prefix_64) == 64:
-        return "Failed to resolve API key store key path via DiskIdentifier."
-    API_KEY_STORE_KEY_PATH = resolved
-
     env_data = os.getenv("SH_API_KEYS")
-    encrypted_keys: dict = {}
+    loaded: dict = {}
     if env_data:
         try:
             parsed = json.loads(env_data)
             if isinstance(parsed, dict):
-                encrypted_keys = parsed
+                for service_name, api_key in parsed.items():
+                    if isinstance(api_key, str) and api_key.strip():
+                        loaded[service_name] = {
+                            "api_key": api_key.strip(),
+                            "source": "env_var",
+                        }
         except json.JSONDecodeError:
             logger.warning("SH_API_KEYS env var contains invalid JSON.")
 
-    decrypted: dict = {}
     with API_KEYS_LOCK:
-        for service_name, encrypted_value in encrypted_keys.items():
-            if not isinstance(encrypted_value, str):
-                continue
-            try:
-                raw_key = _cipher_data_operation("decrypt", encrypted_value)
-                if raw_key:
-                    decrypted[service_name] = {
-                        "api_key": raw_key.strip(),
-                        "source": "env_var",
-                    }
-            except Exception as exc:
-                logger.warning(
-                    f"Failed to decrypt API key for '{service_name}': {exc}"
-                )
-        API_KEYS_DATA["keys"] = decrypted
+        API_KEYS_DATA["keys"] = loaded
         _rebuild_api_key_lookup()
 
     API_KEY_SESSION_READY = True
     logger.info(
-        f"API key session ready. Loaded {len(decrypted)} key(s) from SH_API_KEYS."
+        f"API key session ready. Loaded {len(loaded)} key(s) from SH_API_KEYS."
     )
     return None
 
@@ -1656,8 +1582,6 @@ def api_key_grant():
             }
             API_KEY_LOOKUP[api_key] = service_name
 
-        encrypted_key = _cipher_data_operation("encrypt", api_key)
-
         service_ip = request_info.get("ip", "127.0.0.1")
         service_port = request_info.get("port", 0)
         notified = False
@@ -1689,8 +1613,7 @@ def api_key_grant():
             {
                 "status": "granted",
                 "api_key": api_key,
-                "encrypted_api_key": encrypted_key,
-                "env_var_entry": f'SH_API_KEYS={json.dumps({service_name: encrypted_key})}',
+                "env_var_entry": f'SH_API_KEYS={json.dumps({service_name: api_key})}',
                 "service": request_info.get("name", ""),
                 "notified": notified,
             }

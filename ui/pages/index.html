@@ -1072,7 +1072,7 @@
             content.innerHTML = '';
             if (healthyClients.length === 0 && brokenClients.length === 0) {
                 var emptyEl = document.createElement('div');
-                emptyEl.className = 'empty-state';
+                emptyEl.className = 'empty-state' + (animate ? ' init-hidden' : '');
                 emptyEl.textContent = 'No Service Registered';
                 content.appendChild(emptyEl);
                 updateVisibility(0, 0, animate);
@@ -1827,6 +1827,9 @@
             items.push({ el: document.getElementById('filterTweak'), delay: 0.3 });
             items.push({ el: document.getElementById('sortItemsCasing'), delay: 0.3 });
 
+            var emptyState = document.querySelector('.empty-state');
+            if (emptyState) items.push({ el: emptyState, delay: 0.3 });
+
             document.querySelectorAll('.group-header').forEach(function(h) {
                 items.push({ el: h, delay: 0.3 });
             });
@@ -2024,6 +2027,10 @@
                         apiCall(apiPath, data, onDone, cleanup);
                     });
                 } else {
+                    var loader = document.createElement('div');
+                    loader.className = 'content-loader';
+                    loader.innerHTML = '<div class="spinner"></div>';
+                    content.appendChild(loader);
                     apiCall(apiPath, data, onDone, cleanup);
                 }
             }

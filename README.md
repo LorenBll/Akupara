@@ -24,41 +24,35 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 
 ## Setup
 1. Install Python dependencies: `pip install -r requirements.txt`.
-2. Review `resources/configuration.json` if you want to change the port. Set `API_KEY_STORE_KEY_PATH` and `SH_API_KEYS` in `.env` for API key encryption (see below).
+2. Review `resources/configuration.json` if you want to change the port. Set `SH_API_KEYS` and other settings in `.env` (see below).
 3. Leave the project structure intact so the service can find `resources/` and `src/`.
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `API_KEY_STORE_KEY_PATH` | Path to the Fernet encryption key file (resolved via DiskIdentifier). Required for API key operations. |
-| `SH_API_KEYS` | JSON object mapping service names to cipher-encrypted API keys. Loaded at session initialization. |
+| `SH_API_KEYS` | JSON object mapping service names to plain API keys. Loaded at session initialization. API keys are stored as plain text in `.env`. |
+| `SH_NO_GUI` | Set to `true` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). Default: `false`. |
+| `SH_SORT_ORDER` | JSON array of column keys for the UI sort order. Persisted across restarts. |
+| `SH_ACCURACY` | Fuzzy matching threshold (0–100). Default: `30`. Persisted across restarts. |
+| `SH_GROUP_BY` | Key to group services by in the UI (e.g. `protected`, `status`). Persisted across restarts. |
+| `SH_ORIGINAL_SORT_ORDER` | JSON array for the ungrouped sort order baseline. Persisted across restarts. |
 
-### API Key Encryption Setup (Optional)
+### API Key Persistence (Optional)
 
-ServiceHandler can encrypt API keys using the [Cipher](https://github.com/LorenBll/Cipher) and [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier) services. To enable:
+ServiceHandler stores API keys as plain text in the `SH_API_KEYS` environment variable in `.env`. There is no encryption layer — API keys are stored and loaded as-is.
 
-1. **Set the encryption key path** via the `API_KEY_STORE_KEY_PATH` environment variable:
+1. **Pre-configure persistent API keys** via the `SH_API_KEYS` environment variable:
    ```
-   API_KEY_STORE_KEY_PATH=<disk_id>\\path\\to\\encryption.key
+   SH_API_KEYS={"service_name":"<plain_text_api_key>"}
    ```
-   - `<disk_id>` is a 64-character hex disk identifier resolved by [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier).
-   - The path after the disk ID is relative to the disk root returned by [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier).
-   - If unset, API key registration is disabled.
+   The value is a JSON object where each key is a service name and each value is the plain text API key. On session initialization, ServiceHandler reads this env var and loads each key into memory.
 
-2. Ensure **[DiskIdentifier](https://github.com/LorenBll/DiskIdentifier)** and **[Cipher](https://github.com/LorenBll/DiskIdentifier)** services are running and registered with ServiceHandler before making any API key requests. These services are discovered automatically from the registered clients list.
-
-3. **Pre-configure persistent API keys** via the `SH_API_KEYS` environment variable:
-   ```
-   SH_API_KEYS={"service_name":"<cipher_encrypted_key>"}
-   ```
-   The value is a JSON object where each key is a service name and each value is the API key encrypted via the Cipher service. On session initialization, ServiceHandler reads this env var, decrypts each key through Cipher, and loads them into memory.
-
-4. When a new API key is granted through the web UI or API, the response includes an `encrypted_api_key` and an `env_var_entry` string that can be copied directly into your `.env` file for persistence across restarts.
+2. When a new API key is granted through the web UI or API, the response includes an `env_var_entry` string that can be copied directly into your `.env` file for persistence across restarts.
 
 ### Headless Mode (Optional)
 
-Set `"noGUI": true` in `resources/configuration.json` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). These routes return `404` when the flag is enabled. The API endpoints under `/api/` remain fully operational.
+Set `SH_NO_GUI=true` in `.env` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). These routes return `404` when the flag is enabled. The API endpoints under `/api/` remain fully operational.
 
 ## Run
 1. Windows: run `scripts\run.bat`.
@@ -339,13 +333,13 @@ Searches endpoint descriptions across all registered services, returning matches
 	- `200` ->
 		```json
 		{
-			"query": "encrypt",
+			"query": "health",
 			"results": [
 				{
 					"service": "my-service",
-					"verb": "POST",
-					"path": "/api/data/encrypt",
-					"description": "Encrypt the given payload",
+					"verb": "GET",
+					"path": "/api/health",
+					"description": "Service health check",
 					"path_variables": [],
 					"body_schema": {}
 				}
@@ -653,7 +647,7 @@ Lists all pending API key requests with full details and an array of hashes.
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/api-key/grant` (also `HEAD`, `OPTIONS`)
-Approves a pending API key request, generates a key, and notifies the requesting service. Requires the DiskIdentifier and Cipher services to be registered.
+Approves a pending API key request, generates a key, and notifies the requesting service.
 - Auth: localhost or valid API key
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash from the pending request to grant.
