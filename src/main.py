@@ -102,20 +102,10 @@ SERVICE_NAME_INDEX: dict[str, str] = {}
 SERVICE_NAME_INDEX_LOCK = threading.Lock()
 
 
-def _damerau_levenshtein(a: str, b: str) -> int:
-    a_len, b_len = len(a), len(b)
-    d = [[0] * (b_len + 1) for _ in range(a_len + 1)]
-    for i in range(a_len + 1):
-        d[i][0] = i
-    for j in range(b_len + 1):
-        d[0][j] = j
-    for i in range(1, a_len + 1):
-        for j in range(1, b_len + 1):
-            cost = 0 if a[i - 1] == b[j - 1] else 1
-            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
-            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
-                d[i][j] = min(d[i][j], d[i - 2][j - 2] + cost)
-    return d[a_len][b_len]
+def _subsequence_match(query: str, text: str) -> bool:
+    """Return True if query is a subsequence of text (case-insensitive)."""
+    it = iter(text.lower())
+    return all(ch in it for ch in query.lower())
 
 
 def _add_to_endpoint_index(service_name: str, ep: dict) -> None:
@@ -1080,12 +1070,7 @@ def search_endpoints():
                 if qt in search_text:
                     continue
                 words = [w for w in re.split(r"[^a-z0-9]+", search_text) if len(w) >= 2]
-                found = False
-                for word in words:
-                    dist = _damerau_levenshtein(qt, word)
-                    if dist <= 2 or dist <= len(qt) * 0.3:
-                        found = True
-                        break
+                found = any(_subsequence_match(qt, word) for word in words)
                 if not found:
                     all_match = False
                     break

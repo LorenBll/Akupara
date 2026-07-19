@@ -140,29 +140,20 @@
                 el.classList.add('hidden');
             }
         }
-        function damerauLevenshtein(a, b) {
-            var m = a.length, n = b.length;
-            var dp = [];
-            for (var i = 0; i <= m; i++) { dp[i] = [i]; }
-            for (var j = 0; j <= n; j++) { dp[0][j] = j; }
-            for (var i = 1; i <= m; i++) {
-                for (var j = 1; j <= n; j++) {
-                    var cost = a[i-1] === b[j-1] ? 0 : 1;
-                    dp[i][j] = Math.min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + cost);
-                    if (i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1]) {
-                        dp[i][j] = Math.min(dp[i][j], dp[i-2][j-2] + cost);
-                    }
+        function isSubsequence(query, text) {
+            var lowerText = text.toLowerCase();
+            var lowerQuery = query.toLowerCase();
+            var qi = 0;
+            for (var ti = 0; ti < lowerText.length && qi < lowerQuery.length; ti++) {
+                if (lowerText[ti] === lowerQuery[qi]) {
+                    qi++;
                 }
             }
-            return dp[m][n];
+            return qi === lowerQuery.length;
         }
 
         function matchesQuery(text, query) {
-            var lowerText = String(text).toLowerCase();
-            var lowerQuery = query.toLowerCase();
-            if (lowerText.includes(lowerQuery)) return true;
-            var dist = damerauLevenshtein(lowerText, lowerQuery);
-            return dist <= 2 || dist <= lowerQuery.length * _fuzzyThreshold;
+            return isSubsequence(query, String(text));
         }
 
         function cardEndpointMatches(card, query) {
