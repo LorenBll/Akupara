@@ -339,9 +339,13 @@ def _initialize_service_config() -> None:
 
     SERVICE_PORT = configured_port
 
-    raw_key_path = config.get("api_key_store_key_path", "")
-    if isinstance(raw_key_path, str) and raw_key_path.strip():
-        API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(raw_key_path.strip())
+    env_key_path = os.getenv("API_KEY_STORE_KEY_PATH")
+    if env_key_path:
+        API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(env_key_path.strip())
+    else:
+        raw_key_path = config.get("api_key_store_key_path", "")
+        if isinstance(raw_key_path, str) and raw_key_path.strip():
+            API_KEY_STORE_KEY_PATH = _resolve_ultimate_path(raw_key_path.strip())
 
     NO_GUI = config.get("noGUI", False)
 

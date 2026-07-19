@@ -40,8 +40,8 @@ nohup.out
 .coverage
 htmlcov/
 
-# Configuration (uncomment if you want to ignore config with API keys)
-# resources/configuration.json
+# Configuration (config contains API keys and should not be tracked)
+resources/configuration.json
 
 # Runtime data (not persisted)
 resources/clients.json
