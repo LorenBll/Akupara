@@ -24,24 +24,37 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 
 ## Setup
 1. Install Python dependencies: `pip install -r requirements.txt`.
-2. Review `resources/configuration.json` if you want to change the port or set up API key encryption.
+2. Review `resources/configuration.json` if you want to change the port. Set `API_KEY_STORE_KEY_PATH` and `SH_API_KEYS` in `.env` for API key encryption (see below).
 3. Leave the project structure intact so the service can find `resources/` and `src/`.
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `API_KEY_STORE_KEY_PATH` | Path to the Fernet encryption key file (resolved via DiskIdentifier). Required for API key operations. |
+| `SH_API_KEYS` | JSON object mapping service names to cipher-encrypted API keys. Loaded at session initialization. |
 
 ### API Key Encryption Setup (Optional)
 
-ServiceHandler can encrypt stored API keys using the [Cipher](https://github.com/LorenBll/Cipher) and [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier) services. To enable:
+ServiceHandler can encrypt API keys using the [Cipher](https://github.com/LorenBll/Cipher) and [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier) services. To enable:
 
-1. **Set the encryption key path** in `resources/configuration.json`:
-   ```json
-   "api_key_store_key_path": "<disk_id>\\path\\to\\encryption.key"
+1. **Set the encryption key path** via the `API_KEY_STORE_KEY_PATH` environment variable:
+   ```
+   API_KEY_STORE_KEY_PATH=<disk_id>\\path\\to\\encryption.key
    ```
    - `<disk_id>` is a 64-character hex disk identifier resolved by [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier).
    - The path after the disk ID is relative to the disk root returned by [DiskIdentifier](https://github.com/LorenBll/DiskIdentifier).
-   - If left empty (`""`), API key registration is disabled.
+   - If unset, API key registration is disabled.
 
-2. Ensure **[DiskIdentifier](https://github.com/LorenBll/DiskIdentifier)** and **[Cipher](https://github.com/LorenBll/Cipher)** services are running and registered with ServiceHandler before making any API key requests. These services are discovered automatically from the registered clients list.
+2. Ensure **[DiskIdentifier](https://github.com/LorenBll/DiskIdentifier)** and **[Cipher](https://github.com/LorenBll/DiskIdentifier)** services are running and registered with ServiceHandler before making any API key requests. These services are discovered automatically from the registered clients list.
 
-3. When a valid key path is configured and both services are available, ServiceHandler decrypts `resources/api_keys.json` on session initialization, stores the keys in memory, and re-encrypts the file. On each key grant, the file is updated with the new key and re-encrypted.
+3. **Pre-configure persistent API keys** via the `SH_API_KEYS` environment variable:
+   ```
+   SH_API_KEYS={"service_name":"<cipher_encrypted_key>"}
+   ```
+   The value is a JSON object where each key is a service name and each value is the API key encrypted via the Cipher service. On session initialization, ServiceHandler reads this env var, decrypts each key through Cipher, and loads them into memory.
+
+4. When a new API key is granted through the web UI or API, the response includes an `encrypted_api_key` and an `env_var_entry` string that can be copied directly into your `.env` file for persistence across restarts.
 
 ### Headless Mode (Optional)
 
