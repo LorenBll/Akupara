@@ -95,17 +95,11 @@ API_KEYS_DATA: dict = {"keys": {}}
 API_KEYS_LOCK = threading.Lock()
 API_KEY_LOOKUP: list[str] = []
 
-ENDPOINT_SEARCH_INDEX: dict[str, set[str]] = {}
 ENDPOINT_BY_ID: dict[str, dict] = {}
 ENDPOINT_INDEX_LOCK = threading.Lock()
 
 SERVICE_NAME_INDEX: dict[str, str] = {}
 SERVICE_NAME_INDEX_LOCK = threading.Lock()
-
-
-def _tokenize(text: str) -> set[str]:
-    text = text.lower()
-    return {word for word in re.split(r"[^a-z0-9]+", text) if len(word) >= 2}
 
 
 def _damerau_levenshtein(a: str, b: str) -> int:
@@ -136,8 +130,6 @@ def _add_to_endpoint_index(service_name: str, ep: dict) -> None:
     }
     with ENDPOINT_INDEX_LOCK:
         ENDPOINT_BY_ID[ep_id] = result_entry
-        for token in _tokenize(ep.get("description", "") + " " + ep.get("path", "")):
-            ENDPOINT_SEARCH_INDEX.setdefault(token, set()).add(ep_id)
 
 
 def _add_to_service_name_index(name: str, client_hash: str) -> None:
@@ -261,15 +253,6 @@ class _SimpleCache:
         expires_at = time.monotonic() + (ttl if ttl is not None else self._default_ttl)
         with self._lock:
             self._data[key] = (expires_at, value)
-
-    def invalidate(self, key: str) -> None:
-        with self._lock:
-            self._data.pop(key, None)
-
-    def clear(self) -> None:
-        with self._lock:
-            self._data.clear()
-
 
 _CONFIG_CACHE = _SimpleCache(default_ttl=300.0)
 _HEALTH_CACHE = _SimpleCache(default_ttl=7.5)
@@ -461,17 +444,6 @@ def _launch_script(script_path: str) -> subprocess.Popen:
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         close_fds=True,
     )
-
-
-def _resolve_service(name: str, default_host: str, default_port: int) -> tuple[str, int]:
-    with REGISTERED_CLIENTS_LOCK:
-        for client in REGISTERED_CLIENTS.values():
-            if client.get("name") == name:
-                ip = client.get("ip", default_host)
-                port = client.get("port", default_port)
-                if isinstance(port, int) and 1 <= port <= 65535:
-                    return ip, port
-    return default_host, default_port
 
 
 def _send_get_request(request: GetRequest) -> GetResponse:
