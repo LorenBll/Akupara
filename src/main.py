@@ -63,6 +63,7 @@ def _resolve_pid(ip: str, port: int) -> int | None:
                 )
                 for line in proc.stdout.splitlines():
                     if f":{port_str}" in line:
+                        import re
                         match = re.search(r"pid=(\d+)", line)
                         if match:
                             return int(match.group(1))
@@ -72,6 +73,7 @@ def _resolve_pid(ip: str, port: int) -> int | None:
                 )
                 for line in proc.stdout.splitlines():
                     if f":{port_str}" in line and "LISTEN" in line:
+                        import re
                         match = re.search(r"(\d+)/", line.strip().split()[-1])
                         if match:
                             return int(match.group(1))
@@ -259,6 +261,15 @@ class _SimpleCache:
         expires_at = time.monotonic() + (ttl if ttl is not None else self._default_ttl)
         with self._lock:
             self._data[key] = (expires_at, value)
+
+    def invalidate(self, key: str) -> None:
+        with self._lock:
+            self._data.pop(key, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
 
 _CONFIG_CACHE = _SimpleCache(default_ttl=300.0)
 _HEALTH_CACHE = _SimpleCache(default_ttl=7.5)
@@ -450,6 +461,17 @@ def _launch_script(script_path: str) -> subprocess.Popen:
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         close_fds=True,
     )
+
+
+def _resolve_service(name: str, default_host: str, default_port: int) -> tuple[str, int]:
+    with REGISTERED_CLIENTS_LOCK:
+        for client in REGISTERED_CLIENTS.values():
+            if client.get("name") == name:
+                ip = client.get("ip", default_host)
+                port = client.get("port", default_port)
+                if isinstance(port, int) and 1 <= port <= 65535:
+                    return ip, port
+    return default_host, default_port
 
 
 def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:

@@ -5,17 +5,17 @@ ServiceHandler is a local web service registry with a web UI. It solves the prob
 ## About
 ServiceHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time ServiceHandler starts. A background health-check thread pings registered clients every 15 seconds and identifies unreachable ones.
 
-The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking the sort order and group-by of columns, a health-check button, an accuracy slider for fuzzy search threshold, and checkbox-based batch selection for bulk actions (terminate, restart, or protect selected services).
+The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking the sort order and group-by of columns, a health-check button, an accuracy slider for fuzzy search threshold, and checkbox-based batch selection for bulk actions.
 
 **Features:**
 
 - **Search** — real-time filtering with fuzzy matching (Damerau-Levenshtein distance). The accuracy threshold defaults to 30% and is adjustable via a slider with a reset button.
 - **Filter panel** — expandable filter menu with text inputs per column and a status dropdown (Any / Operational / Broken). Tab navigates in column-major order (top-to-bottom, then next column). Shift+Tab from the search input returns focus to the last filter.
-- **Sort & Group-by** — drag-to-reorder sort columns; group by a selected key; sort order persisted across restarts. The group-by zone appears when the sort menu is opened.
+- **Sort & Group-by** — drag-to-reorder sort columns; group by a selected key; sort order persisted across restarts. The group-by zone is always visible regardless of card count.
 - **Status grouping** — services are automatically tagged as Operational or Broken; can be sorted/grouped by status.
 - **Card expansion/collapse** — click a card to expand it with full metadata; collapse returns the card to its grid position.
 - **Health check** — global button re-checks all services (shows a spinner, then reloads the grid with the active search/filter applied). Per-card health endpoint refreshes expanded content in-place. When services are selected via checkboxes, health check runs only on the selected subset and clears the selection afterward.
-- **Batch selection** — hover over any card to reveal checkboxes; click to select individual cards. When one or more cards are selected, Terminate Selected Services, Restart Selected Services, and Protect/Unprotect Selected Services buttons appear above the card grid. Press Escape to clear selection.
+- **Batch selection** — hover over any card to reveal checkboxes; click to select individual cards. When one or more cards are selected, the search bar is replaced by Terminate Selected Services and Restart Selected Services buttons that span the card grid. Press Escape to clear selection.
 - **Broken service management** — broken services shown with red styling immediately. "Forget All Broken Services" and "Restart All Broken Services" buttons for bulk actions.
 - **Keyboard shortcuts** — search auto-focused on load. Escape clears checkbox selection, closes expanded card, sort menu, or filter menu. Tab navigates filter inputs in column-major order.
 - **Accuracy slider** — adjustable fuzzy matching threshold (0-100%, default 30%). Persisted across restarts alongside sort settings.
