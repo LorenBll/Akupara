@@ -93,7 +93,7 @@ PENDING_API_KEY_REQUESTS_LOCK = threading.Lock()
 
 API_KEYS_DATA: dict = {"keys": {}}
 API_KEYS_LOCK = threading.Lock()
-API_KEY_LOOKUP: dict[str, str] = {}
+API_KEY_LOOKUP: list[str] = []
 
 ENDPOINT_SEARCH_INDEX: dict[str, set[str]] = {}
 ENDPOINT_BY_ID: dict[str, dict] = {}
@@ -152,9 +152,9 @@ def _remove_from_service_name_index(name: str) -> None:
 
 def _rebuild_api_key_lookup() -> None:
     API_KEY_LOOKUP.clear()
-    for name, data in API_KEYS_DATA.get("keys", {}).items():
+    for data in API_KEYS_DATA.get("keys", {}).values():
         if isinstance(data, dict) and "api_key" in data:
-            API_KEY_LOOKUP[data["api_key"]] = name
+            API_KEY_LOOKUP.append(data["api_key"])
 
 API_KEY_SESSION_READY: bool = False
 
@@ -1613,7 +1613,7 @@ def api_key_grant():
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "service_hash": hash_val,
             }
-            API_KEY_LOOKUP[api_key] = service_name
+            API_KEY_LOOKUP.append(api_key)
 
         service_ip = request_info.get("ip", "127.0.0.1")
         service_port = request_info.get("port", 0)
