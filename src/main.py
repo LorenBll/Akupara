@@ -108,6 +108,22 @@ def _tokenize(text: str) -> set[str]:
     return {word for word in re.split(r"[^a-z0-9]+", text) if len(word) >= 2}
 
 
+def _damerau_levenshtein(a: str, b: str) -> int:
+    a_len, b_len = len(a), len(b)
+    d = [[0] * (b_len + 1) for _ in range(a_len + 1)]
+    for i in range(a_len + 1):
+        d[i][0] = i
+    for j in range(b_len + 1):
+        d[0][j] = j
+    for i in range(1, a_len + 1):
+        for j in range(1, b_len + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + cost)
+    return d[a_len][b_len]
+
+
 def _add_to_endpoint_index(service_name: str, ep: dict) -> None:
     ep_id = f"{service_name}:{ep.get('verb', '')}:{ep.get('path', '')}"
     result_entry = {
@@ -120,7 +136,7 @@ def _add_to_endpoint_index(service_name: str, ep: dict) -> None:
     }
     with ENDPOINT_INDEX_LOCK:
         ENDPOINT_BY_ID[ep_id] = result_entry
-        for token in _tokenize(ep.get("description", "")):
+        for token in _tokenize(ep.get("description", "") + " " + ep.get("path", "")):
             ENDPOINT_SEARCH_INDEX.setdefault(token, set()).add(ep_id)
 
 
@@ -991,28 +1007,36 @@ def search_endpoints():
     if not isinstance(query, str) or not query.strip():
         return _error_response("A non-empty query is required.")
 
-    query_tokens = _tokenize(query.strip())
-    if not query_tokens:
-        return _success_response({"query": query.strip(), "results": []})
+    query_lower = query.strip().lower()
+    query_tokens = [t for t in re.split(r"[^a-z0-9]+", query_lower) if len(t) >= 2]
 
+    results = []
     with ENDPOINT_INDEX_LOCK:
-        matching = None
-        for token in query_tokens:
-            token_results = ENDPOINT_SEARCH_INDEX.get(token)
-            if token_results is None:
-                matching = None
-                break
-            if matching is None:
-                matching = token_results.copy()
-            else:
-                matching &= token_results
-
-        results = []
-        if matching:
-            for ep_id in matching:
-                entry = ENDPOINT_BY_ID.get(ep_id)
-                if entry:
-                    results.append(entry)
+        for ep_id, entry in ENDPOINT_BY_ID.items():
+            search_text = (entry.get("description", "") + " " + entry.get("path", "")).lower()
+            if not search_text.strip():
+                continue
+            if query_lower in search_text:
+                results.append(entry)
+                continue
+            if not query_tokens:
+                continue
+            all_match = True
+            for qt in query_tokens:
+                if qt in search_text:
+                    continue
+                words = [w for w in re.split(r"[^a-z0-9]+", search_text) if len(w) >= 2]
+                found = False
+                for word in words:
+                    dist = _damerau_levenshtein(qt, word)
+                    if dist <= 2 or dist <= len(qt) * 0.3:
+                        found = True
+                        break
+                if not found:
+                    all_match = False
+                    break
+            if all_match:
+                results.append(entry)
 
     return _success_response({"query": query.strip(), "results": results})
 
