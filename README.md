@@ -9,7 +9,7 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 
 **Features:**
 
-- **Search** — real-time filtering with fuzzy matching (Levenshtein distance). The accuracy threshold defaults to 30% and is adjustable via a slider with a reset button.
+- **Search** — real-time filtering with fuzzy matching (Damerau-Levenshtein distance). The accuracy threshold defaults to 30% and is adjustable via a slider with a reset button.
 - **Filter panel** — expandable filter menu with text inputs per column and a status dropdown (Any / Operational / Broken). Tab navigates in column-major order (top-to-bottom, then next column). Shift+Tab from the search input returns focus to the last filter.
 - **Sort & Group-by** — drag-to-reorder sort columns; group by a selected key; sort order persisted across restarts. The group-by zone is always visible regardless of card count.
 - **Status grouping** — services are automatically tagged as Operational or Broken; can be sorted/grouped by status.
