@@ -215,6 +215,15 @@ def _set_env_var(key: str, value: str) -> None:
     _write_env_file(env_dict)
 
 
+def _load_env_file() -> None:
+    env_dict = _parse_env_file()
+    for key, value in env_dict.items():
+        os.environ[key] = value
+
+
+_load_env_file()
+
+
 class _SimpleCache:
     def __init__(self, default_ttl: float = 30.0):
         self._data: dict[str, tuple[float, object]] = {}
@@ -1097,7 +1106,7 @@ def sort_order():
         resp = {"sort_order": sort_order_val, "accuracy": accuracy_val}
         if group_by_val:
             resp["group_by"] = group_by_val
-        if original_sort_order_val:
+        if group_by_val and original_sort_order_val:
             resp["original_sort_order"] = original_sort_order_val
         return _success_response(resp)
 
@@ -1137,7 +1146,7 @@ def sort_order():
     resp = {"sort_order": sort_order_val, "accuracy": accuracy_val}
     if group_by_val:
         resp["group_by"] = group_by_val
-    if original_sort_order_val:
+    if group_by_val and original_sort_order_val:
         resp["original_sort_order"] = original_sort_order_val
     return _success_response(resp)
 

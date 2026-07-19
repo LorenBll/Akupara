@@ -636,8 +636,11 @@
             } else if (!groupByKey) {
                 body.original_sort_order = null;
             } else {
-                body.group_by = null;
                 body.original_sort_order = sortOrder.slice();
+            }
+            var slider = document.getElementById('filterTweakSlider');
+            if (slider) {
+                body.accuracy = parseInt(slider.value);
             }
             fetch('/ui/sort-settings', {
                 method: 'PUT',
