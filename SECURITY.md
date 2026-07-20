@@ -2,25 +2,30 @@
 
 ## Supported Versions
 
-We only provide security updates for versions and deployments that are currently maintained by the project owner or release process. If this repository uses versioned releases, the supported versions should be listed here.
+Only the latest released version receives security updates.
 
 | Version | Supported |
 | ------- | --------- |
-| Latest   | Yes       |
+| Latest  | Yes       |
 
 ## Reporting a Vulnerability
 
-If you believe you have found a security issue, please report it privately to the project maintainers rather than opening a public issue.
+If you believe you have found a security issue in ServiceHandler, please report it privately to the maintainers rather than opening a public issue.
+
+ServiceHandler is a local web service registry that involves:
+- **HTTP API endpoints** under `/api/*` for registering and unregistering services, managing endpoints, performing health checks, and granting API keys
+- **A web UI dashboard** with sort, filter, and batch operation controls
+- **API key authentication** using keys stored as plain text in the `.env` file
+- **SHA-256 hash-based identity** for self-service authentication
+- **A background health-check thread** that pings registered clients every 15 seconds
 
 Include as much detail as possible, such as:
-
-- A clear description of the issue
-- The affected component or feature
+- A clear description of the issue and the affected endpoint or component
 - Steps to reproduce the problem
 - Any relevant logs, screenshots, or proof of concept code
 - The potential impact and how severe you believe it is
 
-If the report involves credentials, API keys, tokens, or other secrets, do not post them publicly. Redact sensitive values before sharing.
+If the report involves API keys, hashes, tokens, or other secrets, do not post them publicly. Redact sensitive values before sharing.
 
 ## What To Expect
 
@@ -35,11 +40,15 @@ After a report is received:
 
 This project is intended to follow basic security hygiene:
 
-- Keep secrets out of source control.
-- Use environment variables or local configuration files for sensitive values.
-- Review third-party dependencies before adding them.
-- Prefer the least-privilege deployment and runtime configuration that works for your use case.
-- Treat all externally supplied input as untrusted and validate it before use.
+- **API keys are stored as plain text** in the `SH_API_KEYS` environment variable inside `.env`. There is no encryption layer. Treat `.env` as a sensitive file and exclude it from version control.
+- **ServiceHandler binds to `127.0.0.1`** by default (port 49155). The before-request hook rejects non-local traffic before any endpoint-specific auth runs. Do not change the bind address to `0.0.0.0` without additional network-layer protections.
+- **SHA-256 hashes serve as proof of identity** for self-service authentication. If a hash is leaked, any party that knows it can act on behalf of that service. Treat hashes as credentials.
+- **Access control is layered** — localhost-only check runs first, then endpoint-specific logic. Review the access control table in the README before deploying.
+- **Sensitive endpoints** (terminate, restart, protect, shutdown) require a valid API key or localhost access.
+- **Review third-party dependencies** before adding them. ServiceHandler currently depends on Flask and jsonschema — vet any new libraries for known vulnerabilities.
+- **Headless mode** (`SH_NO_GUI=true`) disables UI endpoints for a reduced attack surface when the dashboard is not needed.
+- **Protected services** flagged via the protect endpoint cannot be terminated, restarted, or forgotten by anyone.
+- **Treat all externally supplied input as untrusted** and validate it before use. The API validates port ranges, JSON schemas, and input types across all endpoints.
 
 ## Disclosure Notes
 
