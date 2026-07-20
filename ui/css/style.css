@@ -4,10 +4,6 @@
     box-sizing: border-box;
 }
 
-.filter-tweak.hidden {
-    display: none;
-}
-
 body.expanding .search-bar,
 body.expanding .sidebar,
 body.expanding .service-card:not(.expanding),
@@ -16,7 +12,6 @@ body.expanding .empty-state,
 body.expanding .content-loader,
 body.expanding .broken-forget-btn,
 body.expanding .broken-restart-btn,
-body.expanding .filter-tweak,
 body.expanding .card-checkbox {
     opacity: 0 !important;
     pointer-events: none;
@@ -30,7 +25,6 @@ body.collapsing .empty-state,
 body.collapsing .content-loader,
 body.collapsing .broken-forget-btn,
 body.collapsing .broken-restart-btn,
-body.collapsing .filter-tweak,
 body.collapsing .card-checkbox {
     opacity: 0 !important;
     pointer-events: none;
@@ -1441,153 +1435,6 @@ body.has-error::before {
 
 .search-bar.expanded-vertical .search-x-icon {
     opacity: 1;
-}
-
-.filter-tweak {
-    position: absolute;
-    left: calc(100% + 10px);
-    bottom: 12px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0;
-    z-index: 1;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-}
-
-.filter-tweak-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 0;
-    cursor: pointer;
-    pointer-events: auto;
-    position: relative;
-}
-
-.filter-tweak-icon {
-    color: #9ca3af;
-    display: block;
-    transition: transform 0.1s ease;
-}
-
-.filter-tweak.active .filter-tweak-icon,
-.search-bar.expanded-vertical .filter-tweak .filter-tweak-icon {
-    transform: rotate(90deg);
-}
-
-.filter-tweak-btn:hover .filter-tweak-icon {
-    color: #374151;
-}
-
-.filter-tweak-btn:hover::after {
-    content: 'Tweak Accuracy';
-    position: absolute;
-    left: calc(100% + 8px);
-    top: 50%;
-    transform: translateY(-50%);
-    white-space: nowrap;
-    font-size: 0.75rem;
-    font-family: inherit;
-    line-height: normal;
-    color: #6b7280;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    padding: 4px 8px;
-    border-radius: 6px;
-    pointer-events: none;
-    z-index: 2147483647;
-}
-
-.filter-tweak-reset {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #9ca3af;
-    cursor: pointer;
-    opacity: 0;
-    transform: translateY(12px);
-    pointer-events: none;
-    margin-bottom: 10px;
-    transition: opacity 0.1s ease, transform 0.1s ease;
-}
-
-.filter-tweak-reset.show {
-    opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
-}
-
-.filter-tweak-reset:hover {
-    color: #374151;
-}
-
-.filter-tweak-reset:hover::after {
-    content: 'Reset';
-    position: absolute;
-    left: calc(100% + 8px);
-    top: 50%;
-    transform: translateY(-50%);
-    white-space: nowrap;
-    font-size: 0.75rem;
-    font-family: inherit;
-    line-height: normal;
-    color: #6b7280;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    padding: 4px 8px;
-    border-radius: 6px;
-    pointer-events: none;
-    z-index: 2147483647;
-}
-
-.filter-tweak-slider-wrap {
-    position: relative;
-    display: flex;
-    margin-bottom: 10px;
-    opacity: 0;
-    pointer-events: none;
-}
-
-.filter-tweak-slider-wrap:hover::after {
-    content: attr(data-label);
-    position: absolute;
-    left: calc(100% + 8px);
-    top: 50%;
-    transform: translateY(-50%);
-    white-space: nowrap;
-    font-size: 0.75rem;
-    font-family: inherit;
-    line-height: normal;
-    color: #6b7280;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    padding: 4px 8px;
-    border-radius: 6px;
-    pointer-events: none;
-    z-index: 2147483647;
-}
-
-.filter-tweak.active .filter-tweak-slider-wrap,
-.search-bar.expanded-vertical .filter-tweak .filter-tweak-slider-wrap {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.filter-tweak-slider {
-    -webkit-appearance: slider-vertical;
-    writing-mode: vertical-lr;
-    direction: rtl;
-    width: 4px;
-    height: 100px;
-    cursor: pointer;
-    accent-color: #d1d5db;
-    border: 1px solid #d1d5db;
-    border-radius: 999px;
-    background: #f9fafb;
-    margin: 0;
 }
 
 .search-filter-panel {

@@ -36,17 +36,6 @@
                     <svg class="search-lens" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     <input type="text" id="searchInput" placeholder="Search service...">
                 </div>
-                <div class="filter-tweak" id="filterTweak">
-                    <span class="filter-tweak-reset" id="filterTweakReset">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                    </span>
-                    <span class="filter-tweak-slider-wrap">
-                        <input type="range" class="filter-tweak-slider" id="filterTweakSlider" min="0" max="100" value="30">
-                    </span>
-                    <span class="filter-tweak-btn" id="filterTweakBtn">
-                        <svg class="filter-tweak-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="10" x2="20" y2="3"/><line x1="2" y1="14" x2="6" y2="14"/><line x1="10" y1="12" x2="14" y2="12"/><line x1="18" y1="16" x2="22" y2="16"/></svg>
-                    </span>
-                </div>
             </div>
             <div class="checkbox-actions" id="checkboxActions">
                 <button class="card-btn card-btn-red" id="checkboxTerminateSelected" data-label="Terminate Selected Services">
@@ -124,7 +113,6 @@
         var groupByKey = null;
         var originalSortOrder = null;
         var _expandTimeout = null;
-        var _fuzzyThreshold = 0.3;
         var _searchIndex = {};
         var _selectedCardHashes = {};
         var _checkboxVisible = false;
@@ -495,7 +483,6 @@
             toggleSortHealthBtn(healthButton, healthVisible);
             toggleSortHealthBtn(brokenForgetBtn, brokenVisible);
             toggleSortHealthBtn(brokenRestartBtn, brokenVisible);
-            toggleSortHealthBtn(document.getElementById('filterTweakBtn'), !singleCard);
         }
 
         function loadSortOrder() {
@@ -513,16 +500,6 @@
                         groupByKey = d.group_by;
                         originalSortOrder = d.original_sort_order || null;
                         applyGroupByFromLoad();
-                    }
-                    if (d.accuracy !== undefined) {
-                        var slider = document.getElementById('filterTweakSlider');
-                        if (slider) {
-                            slider.value = String(d.accuracy);
-                            _fuzzyThreshold = d.accuracy / 100;
-                            var wrap = slider.parentNode;
-                            wrap.setAttribute('data-label', Math.round(d.accuracy) + '%');
-                            updateResetVisibility();
-                        }
                     }
                     buildFilterPanel();
                 })
@@ -632,10 +609,6 @@
             } else {
                 body.original_sort_order = sortOrder.slice();
             }
-            var slider = document.getElementById('filterTweakSlider');
-            if (slider) {
-                body.accuracy = parseInt(slider.value);
-            }
             fetch('/ui/sort-settings', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
@@ -675,8 +648,6 @@
             toggleSortHealthBtn(healthButton, healthVisible);
             toggleSortHealthBtn(brokenForgetBtn, brokenVisible);
             toggleSortHealthBtn(brokenRestartBtn, brokenVisible);
-            toggleSortHealthBtn(document.getElementById('filterTweakBtn'), !singleCard);
-
             if (!sidebarVisible && sortBtn && sortBtn.classList.contains('is-x')) {
                 setSortMenuOpen(false);
             }
@@ -1322,14 +1293,6 @@
                     collapseExpandedCard(expandedCard, document.getElementById('content'), false);
                 }
             }
-            var sb = document.getElementById('searchBar');
-            if (!sb.classList.contains('expanded-vertical')) {
-                var ft = document.getElementById('filterTweak');
-                if (ft.classList.contains('active') && !e.target.closest('.filter-tweak')) {
-                    ft.classList.remove('active');
-                    updateResetVisibility();
-                }
-            }
             if (!document.querySelector('.sort-decoration.is-x')) return;
             if (!e.target.closest('#sidebar')) closeSortMenu();
         });
@@ -1821,7 +1784,6 @@
             items.push({ el: document.querySelector('.broken-forget-btn'), delay: 0.45 });
             items.push({ el: document.querySelector('.broken-restart-btn'), delay: 0.6 });
             items.push({ el: document.getElementById('searchBar'), delay: 0.3 });
-            items.push({ el: document.getElementById('filterTweak'), delay: 0.3 });
             items.push({ el: document.getElementById('sortItemsCasing'), delay: 0.3 });
 
             var emptyState = document.querySelector('.empty-state');
@@ -2155,12 +2117,6 @@
             var content = this;
             var isExpanding = !card.classList.contains('expanded');
             if (isExpanding) {
-                var ft = document.getElementById('filterTweak');
-                var sb = document.getElementById('searchBar');
-                if (ft.classList.contains('active') && !sb.classList.contains('expanded-vertical')) {
-                    ft.classList.remove('active');
-                    updateResetVisibility();
-                }
                 if (_expandTimeout) {
                     clearTimeout(_expandTimeout);
                     _expandTimeout = null;
@@ -2308,9 +2264,6 @@
             var sb = document.getElementById('searchBar');
             if (sb.classList.contains('expanded-vertical')) {
                 sb.classList.remove('expanded-vertical');
-                var ft = document.getElementById('filterTweak');
-                ft.classList.remove('active');
-                updateResetVisibility();
                 this.setAttribute('data-label', 'Expand Filter Options');
                 setTimeout(function() {
                     sb.classList.remove('expanded');
@@ -2321,7 +2274,6 @@
                 refreshFilterPlaceholders();
                 this.setAttribute('data-label', 'Collapse');
                 filterCards();
-                updateResetVisibility();
             } else {
                 sb.classList.add('expanded');
                 setTimeout(function() {
@@ -2329,7 +2281,6 @@
                     refreshFilterPlaceholders();
                     document.getElementById('searchToggle').setAttribute('data-label', 'Collapse');
                     filterCards();
-                    updateResetVisibility();
                 }, 150);
             }
         });
@@ -2353,60 +2304,6 @@
                 });
             }));
         }
-
-        function updateResetVisibility() {
-            var reset = document.getElementById('filterTweakReset');
-            var slider = document.getElementById('filterTweakSlider');
-            var ft = document.getElementById('filterTweak');
-            var sb = document.getElementById('searchBar');
-            var tweakVisible = ft.classList.contains('active') || sb.classList.contains('expanded-vertical');
-            reset.classList.toggle('show', tweakVisible && parseInt(slider.value) !== 30);
-        }
-
-        document.getElementById('filterTweakBtn').addEventListener('click', function() {
-            var sb = document.getElementById('searchBar');
-            if (sb.classList.contains('expanded-vertical')) return;
-            var ft = document.getElementById('filterTweak');
-            ft.classList.toggle('active');
-            updateResetVisibility();
-        });
-
-        function saveAccuracy(val) {
-            fetch('/ui/sort-settings', {
-                method: 'PUT',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({accuracy: val})
-            }).then(function(r) {
-                if (!r.ok) console.error('Save accuracy failed:', r.status, r.statusText);
-            }).catch(function(e) { console.error('Save accuracy error:', e); });
-        }
-
-        document.getElementById('filterTweakSlider').addEventListener('input', function() {
-            _fuzzyThreshold = this.value / 100;
-            var wrap = this.parentNode;
-            wrap.setAttribute('data-label', Math.round(this.value) + '%');
-            filterCards();
-            updateResetVisibility();
-            saveAccuracy(parseInt(this.value));
-        });
-
-        document.getElementById('filterTweakReset').addEventListener('click', function() {
-            var slider = document.getElementById('filterTweakSlider');
-            slider.value = '30';
-            _fuzzyThreshold = 0.3;
-            var wrap = slider.parentNode;
-            wrap.setAttribute('data-label', '30%');
-            filterCards();
-            updateResetVisibility();
-            saveAccuracy(30);
-        });
-
-        (function initSliderLabel() {
-            var slider = document.getElementById('filterTweakSlider');
-            var wrap = slider.parentNode;
-            wrap.setAttribute('data-label', Math.round(slider.value) + '%');
-            updateResetVisibility();
-        })();
 
         document.getElementById('checkboxTerminateSelected').addEventListener('click', function() {
             var selected = Object.keys(_selectedCardHashes).filter(function(h) { return _selectedCardHashes[h]; });
@@ -2555,16 +2452,8 @@
                     return;
                 }
                 var sb = document.getElementById('searchBar');
-                var ft = document.getElementById('filterTweak');
-                if (!isInput && !sb.classList.contains('expanded-vertical') && ft && ft.classList.contains('active')) {
-                    ft.classList.remove('active');
-                    updateResetVisibility();
-                    return;
-                }
                 if (!isInput && !sb.classList.contains('hidden') && (sb.classList.contains('expanded') || sb.classList.contains('expanded-vertical'))) {
                     sb.classList.remove('expanded-vertical');
-                    ft.classList.remove('active');
-                    updateResetVisibility();
                     document.getElementById('searchToggle').setAttribute('data-label', 'Expand Filter Options');
                     setTimeout(function() {
                         sb.classList.remove('expanded');

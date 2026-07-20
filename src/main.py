@@ -1164,9 +1164,8 @@ def sort_order():
         sort_order_val = _get_env_json_list("SH_SORT_ORDER", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
         group_by_val = os.getenv("SH_GROUP_BY") or None
         original_sort_order_val = _get_env_json_list("SH_ORIGINAL_SORT_ORDER", sort_order_val)
-        accuracy_val = int(os.getenv("SH_ACCURACY", "30"))
 
-        resp = {"sort_order": sort_order_val, "accuracy": accuracy_val}
+        resp = {"sort_order": sort_order_val}
         if group_by_val:
             resp["group_by"] = group_by_val
         if group_by_val and original_sort_order_val:
@@ -1196,17 +1195,11 @@ def sort_order():
             else:
                 _set_env_var("SH_ORIGINAL_SORT_ORDER", "")
 
-        if "accuracy" in payload:
-            acc_val = payload["accuracy"]
-            if acc_val is not None:
-                _set_env_var("SH_ACCURACY", str(acc_val))
-
     sort_order_val = _get_env_json_list("SH_SORT_ORDER", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
     group_by_val = os.getenv("SH_GROUP_BY") or None
     original_sort_order_val = _get_env_json_list("SH_ORIGINAL_SORT_ORDER", sort_order_val)
-    accuracy_val = int(os.getenv("SH_ACCURACY", "30"))
 
-    resp = {"sort_order": sort_order_val, "accuracy": accuracy_val}
+    resp = {"sort_order": sort_order_val}
     if group_by_val:
         resp["group_by"] = group_by_val
     if group_by_val and original_sort_order_val:

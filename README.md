@@ -5,11 +5,11 @@ ServiceHandler is a local web service registry with a web UI. It solves the prob
 ## About
 ServiceHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time ServiceHandler starts. A background health-check thread pings registered clients every 15 seconds and identifies unreachable ones.
 
-The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking the sort order and group-by of columns, a health-check button, an accuracy slider for fuzzy search threshold, and checkbox-based batch selection for bulk actions.
+The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking the sort order and group-by of columns, a health-check button, and checkbox-based batch selection for bulk actions.
 
 **Features:**
 
-- **Search** — real-time filtering with subsequence matching. The accuracy threshold defaults to 30% and is adjustable via a slider with a reset button.
+- **Search** — real-time filtering with subsequence matching.
 - **Filter panel** — expandable filter menu with text inputs per column and a status dropdown (Any / Operational / Broken). Tab navigates in column-major order (top-to-bottom, then next column). Shift+Tab from the search input returns focus to the last filter.
 - **Sort & Group-by** — drag-to-reorder sort columns; group by a selected key; sort order persisted across restarts. The group-by zone is always visible regardless of card count.
 - **Status grouping** — services are automatically tagged as Operational or Broken; can be sorted/grouped by status.
@@ -18,7 +18,6 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 - **Batch selection** — hover over any card to reveal checkboxes; click to select individual cards. When one or more cards are selected, the search bar is replaced by Terminate Selected Services and Restart Selected Services buttons that span the card grid. Press Escape to clear selection.
 - **Broken service management** — broken services shown with red styling immediately. "Forget All Broken Services" and "Restart All Broken Services" buttons for bulk actions.
 - **Keyboard shortcuts** — search auto-focused on load. Escape clears checkbox selection, closes expanded card, sort menu, or filter menu. Tab navigates filter inputs in column-major order.
-- **Accuracy slider** — adjustable fuzzy matching threshold (0-100%, default 30%). Persisted across restarts alongside sort settings.
 
 > **Safety notice**: ServiceHandler is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
 
@@ -34,7 +33,6 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 | `SH_API_KEYS` | JSON object mapping service names to plain API keys. Loaded at session initialization. API keys are stored as plain text in `.env`. |
 | `SH_NO_GUI` | Set to `true` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). Default: `false`. |
 | `SH_SORT_ORDER` | JSON array of column keys for the UI sort order. Persisted across restarts. |
-| `SH_ACCURACY` | Fuzzy matching threshold (0–100). Default: `30`. Persisted across restarts. |
 | `SH_GROUP_BY` | Key to group services by in the UI (e.g. `protected`, `status`). Persisted across restarts. |
 | `SH_ORIGINAL_SORT_ORDER` | JSON array for the ungrouped sort order baseline. Persisted across restarts. |
 
@@ -397,7 +395,7 @@ Validates a JSON body against the JSON schema of a registered endpoint. The resp
 	- `404` -> `{ "error": "No endpoint found with verb '...' and path '...' for service '...'." }`
 
 ### `GET /ui/sort-settings` (also `HEAD`, `OPTIONS`)
-Returns the current column sort order, group-by key, and fuzzy accuracy threshold used by the web UI.
+Returns the current column sort order and group-by key used by the web UI.
 - Auth: local-device only (no API key required)
 - Body: none
 - Returns:
@@ -406,27 +404,24 @@ Returns the current column sort order, group-by key, and fuzzy accuracy threshol
 		{
 			"sort_order": ["name", "port", "pid", "bind_address", "hostname", "status"],
 			"group_by": "name",
-			"original_sort_order": ["name", "port", "pid", "bind_address", "hostname", "status"],
-			"accuracy": 30
+			"original_sort_order": ["name", "port", "pid", "bind_address", "hostname", "status"]
 		}
 		```
 
 ### `PUT /ui/sort-settings` (also `HEAD`, `OPTIONS`)
-Updates the column sort order, group-by key, and/or fuzzy accuracy threshold.
+Updates the column sort order and/or group-by key.
 - Auth: local-device only (no API key required)
 - Body (JSON object):
 	- `sort_order` (array of strings, optional): column keys in desired order.
 	- `group_by` (string or null, optional): key to group by, or `null` to ungroup.
 	- `original_sort_order` (array of strings, optional): baseline sort order for the ungrouped view.
-	- `accuracy` (number, optional): fuzzy matching threshold (0–100). Persisted and used as the default on page load.
 - Returns:
 	- `200` ->
 		```json
 		{
 			"sort_order": ["port", "name", "pid"],
 			"group_by": "name",
-			"original_sort_order": ["port", "name", "pid"],
-			"accuracy": 30
+			"original_sort_order": ["port", "name", "pid"]
 		}
 		```
 	- `400` -> `{ "error": "sort_order must be a non-empty list." }`
