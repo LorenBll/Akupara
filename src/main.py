@@ -1736,10 +1736,10 @@ def api_key_reject():
                 )
                 resp = _send_post_request(req)
                 notified = resp.status_code == 200
-            except Exception as exc:
+            except Exception:
                 logger.warning(
                     f"Failed to notify service '{request_info.get('name', 'unknown')}' "
-                    f"about rejected API key: {exc}"
+                    f"about rejected API key"
                 )
 
     logger.info(
