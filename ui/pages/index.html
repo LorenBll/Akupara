@@ -93,10 +93,10 @@
             <button class="health-decoration" data-label="Check Services' Health">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7.828 13.07A3 3 0 0 1 12 8.764a3 3 0 0 1 4.172 4.306l-3.447 3.62a1 1 0 0 1-1.449 0z"/></svg>
             </button>
-            <button class="health-decoration broken-forget-btn hidden" data-label="Forget All Broken Services">
+            <button class="health-decoration broken-forget-btn init-hidden hidden" data-label="Forget All Broken Services">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>
             </button>
-            <button class="health-decoration broken-restart-btn hidden" data-label="Restart All Broken Services">
+            <button class="health-decoration broken-restart-btn init-hidden hidden" data-label="Restart All Broken Services">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
             </button>
         </div>
@@ -119,7 +119,16 @@
         function toggleSortHealthBtn(el, show) {
             if (!el) return;
             if (show) {
+                var wasHidden = el.classList.contains('hidden');
                 el.classList.remove('hidden');
+                if (wasHidden && el.classList.contains('init-hidden')) {
+                    el.classList.remove('init-hidden');
+                    el.classList.add('load-in');
+                    el.addEventListener('animationend', function() {
+                        this.classList.remove('load-in');
+                        this.style.animationDelay = '';
+                    }, { once: true });
+                }
             } else {
                 if (el.classList.contains('hidden')) return;
                 if (el.id === 'searchBar' && !document.querySelector('.service-card.expanded')) {
@@ -461,7 +470,7 @@
             var brokenRestartBtn = healthButton.querySelector('.broken-restart-btn');
             var sortItemsCasing = document.getElementById('sortItemsCasing');
 
-            var totalServices = currentClients.length + brokenClients.length;
+            var totalServices = document.querySelectorAll('.service-card').length;
             var searchVisible = totalServices >= 2 && !expandedEl;
             var sortVisible = visible > 0 && !expandedEl;
             var sidebarVisible = sortVisible || (visible >= 2 && !expandedEl);
@@ -634,7 +643,7 @@
                 if (card.classList.contains('service-card-unhealthy')) visibleBrokenCount++;
             });
 
-            var totalServices = currentClients.length + brokenClients.length;
+            var totalServices = totalCount;
             var searchVisible = totalServices >= 2 && !expanded;
             var sortVisible = visibleCount > 0 && !expanded;
             var sidebarVisible = sortVisible || (visibleCount >= 2 && !expanded);
@@ -861,7 +870,8 @@
                     port: card.getAttribute('data-port'),
                     starting_script: card.getAttribute('data-starting-script'),
                     bind_address: smetaVals[0] ? smetaVals[0].textContent : '',
-                    hostname: smetaVals[1] ? smetaVals[1].textContent : ''
+                    hostname: smetaVals[1] ? smetaVals[1].textContent : '',
+                    protected: card.getAttribute('data-protected') === 'true'
                 });
             }
         }
@@ -1274,7 +1284,7 @@
             if (!e.target.closest('#sidebar')) closeSortMenu();
         });
 
-        document.querySelector('.health-decoration').addEventListener('click', function() {
+        document.querySelector('#healthButton > .health-decoration:first-child').addEventListener('click', function() {
             var btn = this;
             btn.classList.remove('health-fetch-error');
             var expandedCard = document.querySelector('.service-card.expanded');
@@ -1284,55 +1294,58 @@
                 var cardPort = expandedCard.getAttribute('data-port');
                 var cardName = expandedCard.querySelector('.card-name').textContent;
                 var cardHash = expandedCard.getAttribute('data-hash');
+                var cardProtected = expandedCard.getAttribute('data-protected') === 'true';
                 if (cardPort) {
-                    new Promise(function(resolve, reject) {
-                        var hxhr = new XMLHttpRequest();
-                        hxhr.open('GET', 'http://127.0.0.1:' + cardPort + '/api/health', true);
-                        hxhr.timeout = 3000;
-                        hxhr.onload = function() {
-                            if (hxhr.status === 200) {
-                                try { resolve(JSON.parse(hxhr.responseText)); return; } catch(e) {}
-                            }
-                            reject();
-                        };
-                        hxhr.onerror = reject;
-                        hxhr.ontimeout = reject;
-                        hxhr.send();
-                    }).then(function(hd) {
-                        expandedCard.classList.remove('service-card-unhealthy');
-                        if (cardHash) removeBrokenClient(cardHash);
-                        updateCardButtonLabels(expandedCard);
-                        var exhr = new XMLHttpRequest();
-                        exhr.open('POST', '/api/service/endpoints', true);
-                        exhr.setRequestHeader('Content-Type', 'application/json');
-                        exhr.timeout = 3000;
-                        exhr.onload = function() {
-                            var eps = [];
-                            if (exhr.status === 200) {
-                                try { var ed = JSON.parse(exhr.responseText); eps = ed.endpoints || []; } catch(e) {}
-                            }
-                            populateExpandedContent(expandedCard, hd, eps);
-                        };
-                        exhr.onerror = function() { populateExpandedContent(expandedCard, hd, []); };
-                        exhr.ontimeout = function() { populateExpandedContent(expandedCard, hd, []); };
-                        exhr.send(JSON.stringify({name: cardName}));
-                    }).catch(function() {
-                        expandedCard.classList.add('service-card-unhealthy');
-                        if (cardHash) {
-                            var metaVals = expandedCard.querySelectorAll('.card-meta-value');
-                            addBrokenClient({
-                                hash: cardHash,
-                                name: cardName,
-                                port: cardPort,
-                                starting_script: expandedCard.getAttribute('data-starting-script'),
-                                bind_address: metaVals[0] ? metaVals[0].textContent : '',
-                                hostname: metaVals[1] ? metaVals[1].textContent : ''
-                            });
+                    var hxhr = new XMLHttpRequest();
+                    hxhr.open('GET', 'http://127.0.0.1:' + cardPort + '/api/health', true);
+                    hxhr.timeout = 3000;
+                    hxhr.onload = function() {
+                        if (hxhr.status === 200) {
+                            try {
+                                var hd = JSON.parse(hxhr.responseText);
+                                expandedCard.classList.remove('service-card-unhealthy');
+                                if (cardHash) removeBrokenClient(cardHash);
+                                updateCardButtonLabels(expandedCard);
+                                var exhr = new XMLHttpRequest();
+                                exhr.open('POST', '/api/service/endpoints', true);
+                                exhr.setRequestHeader('Content-Type', 'application/json');
+                                exhr.timeout = 3000;
+                                exhr.onload = function() {
+                                    var eps = [];
+                                    if (exhr.status === 200) {
+                                        try { var ed = JSON.parse(exhr.responseText); eps = ed.endpoints || []; } catch(e) {}
+                                    }
+                                    populateExpandedContent(expandedCard, hd, eps);
+                                };
+                                exhr.onerror = function() { populateExpandedContent(expandedCard, hd, []); };
+                                exhr.ontimeout = function() { populateExpandedContent(expandedCard, hd, []); };
+                                exhr.send(JSON.stringify({name: cardName}));
+                                return;
+                            } catch(e) {}
                         }
-                        updateCardButtonLabels(expandedCard);
-                        showExpandError(expandedCard, cardName);
-                    });
+                        markExpandedCardUnhealthy();
+                    };
+                    hxhr.onerror = markExpandedCardUnhealthy;
+                    hxhr.ontimeout = markExpandedCardUnhealthy;
+                    hxhr.send();
                 } else {
+                    showExpandError(expandedCard, cardName);
+                }
+                function markExpandedCardUnhealthy() {
+                    expandedCard.classList.add('service-card-unhealthy');
+                    if (cardHash) {
+                        var metaVals = expandedCard.querySelectorAll('.card-meta-value');
+                        addBrokenClient({
+                            hash: cardHash,
+                            name: cardName,
+                            port: cardPort,
+                            starting_script: expandedCard.getAttribute('data-starting-script'),
+                            bind_address: metaVals[0] ? metaVals[0].textContent : '',
+                            hostname: metaVals[1] ? metaVals[1].textContent : '',
+                            protected: cardProtected
+                        });
+                    }
+                    updateCardButtonLabels(expandedCard);
                     showExpandError(expandedCard, cardName);
                 }
             } else {
@@ -1361,7 +1374,8 @@
                                             port: card.getAttribute('data-port'),
                                             starting_script: card.getAttribute('data-starting-script'),
                                             bind_address: metaVals[0] ? metaVals[0].textContent : '',
-                                            hostname: metaVals[1] ? metaVals[1].textContent : ''
+                                            hostname: metaVals[1] ? metaVals[1].textContent : '',
+                                            protected: card.getAttribute('data-protected') === 'true'
                                         });
                                     }
                                 } else {
@@ -1395,29 +1409,9 @@
                 fetch('/api/services/healthcheck', { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
-                        var unhealthyHashes = {};
-                        if (d.unhealthy) {
-                            d.unhealthy.forEach(function(u) {
-                                addBrokenClient(u);
-                                unhealthyHashes[u.hash] = true;
-                            });
-                        }
-                        return fetch('/api/services').then(function(r) { return r.json(); }).then(function(sd) {
-                            return {clients: sd.clients, unhealthyHashes: unhealthyHashes};
-                        });
-                    })
-                    .then(function(o) {
-                        return enrichClientsWithHashes(o.clients).then(function(clients) {
-                            var recovered = [];
-                            brokenClients.forEach(function(bc) {
-                                var found = clients.some(function(rc) { return rc.hash === bc.hash; });
-                                if (found && !o.unhealthyHashes[bc.hash]) recovered.push(bc.hash);
-                            });
-                            recovered.forEach(function(h) { removeBrokenClient(h); });
-                            buildCards(clients, false);
-                            refreshPills();
-                            filterCards();
-                        });
+                        applyHealthUpdates(d.unhealthy);
+                        var l = content.querySelector('.content-loader');
+                        if (l) l.remove();
                     })
                     .catch(function() {
                         var l = content.querySelector('.content-loader');
@@ -1734,8 +1728,92 @@
             updateBrokenButtons();
         }
 
+        function repositionCard(card) {
+            var hash = card.getAttribute('data-hash');
+            if (!hash) return;
+            var content = document.getElementById('content');
+            if (content.querySelector('.group-section')) return;
+            var allCards = Array.from(content.querySelectorAll('.service-card'));
+            var allClients = [];
+            allCards.forEach(function(c) {
+                var h = c.getAttribute('data-hash');
+                for (var i = 0; i < currentClients.length; i++) {
+                    if (currentClients[i].hash === h) { allClients.push(currentClients[i]); return; }
+                }
+                for (var i = 0; i < brokenClients.length; i++) {
+                    if (brokenClients[i].hash === h) { allClients.push(brokenClients[i]); return; }
+                }
+            });
+            sortClients(allClients);
+            var idx = -1;
+            for (var i = 0; i < allClients.length; i++) {
+                if (allClients[i].hash === hash) { idx = i; break; }
+            }
+            if (idx < 0) return;
+            var insertBefore = null;
+            for (var i = idx + 1; i < allClients.length; i++) {
+                var next = content.querySelector('.service-card[data-hash="' + allClients[i].hash + '"]');
+                if (next && next !== card) { insertBefore = next; break; }
+            }
+            var parent = card.parentNode;
+            if (insertBefore) {
+                if (card.nextElementSibling !== insertBefore) {
+                    card.remove();
+                    parent.insertBefore(card, insertBefore);
+                }
+            } else {
+                var lastCard = parent.querySelector('.service-card:last-child');
+                if (card !== lastCard) {
+                    card.remove();
+                    parent.appendChild(card);
+                }
+            }
+        }
+
+        function applyHealthUpdates(unhealthyClients) {
+            var changed = false;
+            var unhealthyHashes = {};
+            if (unhealthyClients) {
+                unhealthyClients.forEach(function(u) {
+                    unhealthyHashes[u.hash] = true;
+                    if (!brokenClients.some(function(bc) { return bc.hash === u.hash; })) {
+                        changed = true;
+                        addBrokenClient(u);
+                    }
+                    var card = document.querySelector('.service-card[data-hash="' + u.hash + '"]');
+                    if (card) {
+                        var wasBroken = card.classList.contains('service-card-unhealthy');
+                        if (!wasBroken) changed = true;
+                        card.classList.add('service-card-unhealthy');
+                        updateCardButtonLabels(card);
+                        repositionCard(card);
+                    }
+                });
+            }
+            brokenClients.slice().forEach(function(bc) {
+                if (!unhealthyHashes[bc.hash]) {
+                    var card = document.querySelector('.service-card[data-hash="' + bc.hash + '"]');
+                    if (card) {
+                        changed = true;
+                        card.classList.remove('service-card-unhealthy');
+                        removeBrokenClient(bc.hash);
+                        updateCardButtonLabels(card);
+                        repositionCard(card);
+                    } else {
+                        changed = true;
+                        removeBrokenClient(bc.hash);
+                    }
+                }
+            });
+            if (changed) {
+                refreshPills();
+                filterCards();
+                _buildSearchIndex();
+            }
+        }
+
         function updateBrokenButtons() {
-            refreshPageVisibility(currentClients.length + brokenClients.length, document.querySelectorAll('.service-card:not([style*="display: none"])').length, false);
+            refreshPageVisibility(document.querySelectorAll('.service-card').length, document.querySelectorAll('.service-card:not([style*="display: none"])').length, false);
             var forgetBtn = document.querySelector('.broken-forget-btn');
             var restartBtn = document.querySelector('.broken-restart-btn');
             var protectedBrokenExists = brokenClients.some(function(bc) { return bc.protected; });
@@ -1904,6 +1982,16 @@
 
         setInterval(refreshPendingApiKeyHashes, 5000);
 
+        function runHealthCheck() {
+            fetch('/api/services/healthcheck', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    return applyHealthUpdates(d.unhealthy);
+                })
+                .catch(function() {});
+        }
+        setInterval(runHealthCheck, 15000);
+
         document.getElementById('content').addEventListener('mouseover', function(e) {
             var card = e.target.closest('.service-card');
             if (!card) return;
@@ -2052,6 +2140,8 @@
                         });
                         var idx = currentClients.findIndex(function(c) { return c.hash === hash; });
                         if (idx >= 0) currentClients[idx].protected = newProtected;
+                        var brokenIdx = brokenClients.findIndex(function(c) { return c.hash === hash; });
+                        if (brokenIdx >= 0) brokenClients[brokenIdx].protected = newProtected;
                         if (card.classList.contains('expanded')) {
                             filterCards();
                             var poll = setInterval(function() {
@@ -2189,7 +2279,8 @@
                                                     port: card.getAttribute('data-port'),
                                                     starting_script: card.getAttribute('data-starting-script'),
                                                     bind_address: cmetaVals[0] ? cmetaVals[0].textContent : '',
-                                                    hostname: cmetaVals[1] ? cmetaVals[1].textContent : ''
+                                                    hostname: cmetaVals[1] ? cmetaVals[1].textContent : '',
+                                                    protected: card.getAttribute('data-protected') === 'true'
                                                 });
                                             }
                                         }
@@ -2498,12 +2589,18 @@
                 }
                 fetch('/api/services')
                     .then(function(r) { return r.json(); })
-                    .then(function(cd) { return enrichClientsWithHashes(cd.clients).then(function(clients) { buildCards(clients, true); }); })
-                    .catch(function() {})
-                    .then(function() {
-                        return refreshPendingApiKeyHashes();
-                    })
-                    .then(function() {
+                    .then(function(cd) { return enrichClientsWithHashes(cd.clients).then(function(clients) {
+                        buildCards(clients, true);
+                        refreshPendingApiKeyHashes();
+                        triggerLoadInAnimation();
+                        fetch('/api/services/healthcheck', { method: 'POST' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(hd) {
+                                applyHealthUpdates(hd.unhealthy);
+                            })
+                            .catch(function() {});
+                    }); })
+                    .catch(function() {
                         triggerLoadInAnimation();
                     });
             })
