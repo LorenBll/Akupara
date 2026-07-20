@@ -163,7 +163,7 @@ body.has-error::before {
     transform: translateY(-50%);
     white-space: nowrap;
     font-size: 0.75rem;
-    font-family: inherit;
+    font-family: 'Cascadia Code', monospace;
     color: #6b7280;
     background: #ffffff;
     border: 1px solid #d1d5db;
@@ -223,7 +223,7 @@ body.has-error::before {
     transform: translateY(-50%);
     white-space: nowrap;
     font-size: 0.75rem;
-    font-family: inherit;
+    font-family: 'Cascadia Code', monospace;
     color: #6b7280;
     background: #ffffff;
     border: 1px solid #d1d5db;
@@ -745,7 +745,7 @@ body.has-error::before {
     transform: translateX(-50%);
     white-space: nowrap;
     font-size: 0.75rem;
-    font-family: inherit;
+    font-family: 'Cascadia Code', monospace;
     color: #6b7280;
     background: #ffffff;
     border: 1px solid #d1d5db;
@@ -1103,7 +1103,7 @@ body.has-error::before {
     transform: translateY(-50%);
     white-space: nowrap;
     font-size: 0.75rem;
-    font-family: inherit;
+    font-family: 'Cascadia Code', monospace;
     color: #6b7280;
     background: #ffffff;
     border: 1px solid #d1d5db;
@@ -1336,7 +1336,7 @@ body.has-error::before {
     right: 0;
     white-space: nowrap;
     font-size: 0.75rem;
-    font-family: inherit;
+    font-family: 'Cascadia Code', monospace;
     color: #6b7280;
     background: #ffffff;
     border: 1px solid #d1d5db;
@@ -1353,7 +1353,7 @@ body.has-error::before {
     right: 0;
     white-space: nowrap;
     font-size: 0.75rem;
-    font-family: inherit;
+    font-family: 'Cascadia Code', monospace;
     color: #6b7280;
     background: #ffffff;
     border: 1px solid #d1d5db;
@@ -1513,7 +1513,7 @@ body.has-error::before {
     transform: translateX(-50%);
     white-space: nowrap;
     font-size: 0.75rem;
-    font-family: inherit;
+    font-family: 'Cascadia Code', monospace;
     color: #6b7280;
     background: #ffffff;
     border: 1px solid #d1d5db;

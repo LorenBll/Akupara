@@ -852,6 +852,18 @@
             container.innerHTML = '<div class="expand-empty expand-error">' + serviceName + ' Health Fetch Failed</div>';
             card.classList.add('service-card-unhealthy');
             updateCardButtonLabels(card);
+            var shash = card.getAttribute('data-hash');
+            if (shash) {
+                var smetaVals = card.querySelectorAll('.card-meta-value');
+                addBrokenClient({
+                    hash: shash,
+                    name: serviceName,
+                    port: card.getAttribute('data-port'),
+                    starting_script: card.getAttribute('data-starting-script'),
+                    bind_address: smetaVals[0] ? smetaVals[0].textContent : '',
+                    hostname: smetaVals[1] ? smetaVals[1].textContent : ''
+                });
+            }
         }
 
         function cardHTML(name, port, pid, healthy, bind_address, hostname, startingScript, isApiAsker, hash, isProtected) {
@@ -1064,41 +1076,6 @@
                     if (alreadyBroken) {
                         card.classList.add('service-card-unhealthy');
                         updateCardButtonLabels(card);
-                    } else {
-                    var hc = new XMLHttpRequest();
-                    hc.open('GET', 'http://127.0.0.1:' + c.port + '/api/health', true);
-                    hc.timeout = 3000;
-                    hc.onload = function() {
-                        if (hc.status === 200) {
-                            try {
-                                var data = JSON.parse(hc.responseText);
-                                if (data.status !== 'ok') {
-                                    card.classList.add('service-card-unhealthy');
-                                    addBrokenClient(c);
-                                    updateCardButtonLabels(card);
-                                }
-                            } catch(e) {
-                                card.classList.add('service-card-unhealthy');
-                                addBrokenClient(c);
-                                updateCardButtonLabels(card);
-                            }
-                        } else {
-                            card.classList.add('service-card-unhealthy');
-                            addBrokenClient(c);
-                            updateCardButtonLabels(card);
-                        }
-                    };
-                    hc.ontimeout = function() {
-                        card.classList.add('service-card-unhealthy');
-                        addBrokenClient(c);
-                        updateCardButtonLabels(card);
-                    };
-                    hc.onerror = function() {
-                        card.classList.add('service-card-unhealthy');
-                        addBrokenClient(c);
-                        updateCardButtonLabels(card);
-                    };
-                    hc.send();
                     }
                 }
                 return card;
@@ -1304,69 +1281,59 @@
             if (expandedCard) {
                 var ec = expandedCard.querySelector('.card-expanded-content');
                 if (ec) ec.innerHTML = '<div class="expand-loader"><div class="spinner"></div></div>';
-                var hash = expandedCard.getAttribute('data-hash');
                 var cardPort = expandedCard.getAttribute('data-port');
-                if (hash) {
-                    fetch('/api/services/healthcheck', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({hash: hash}) })
-                        .then(function(r) { return r.json(); })
-                        .then(function(d) {
-                            if (d.healthy) {
-                                expandedCard.classList.remove('service-card-unhealthy');
-                                removeBrokenClient(hash);
-                                updateCardButtonLabels(expandedCard);
-                            } else {
-                                expandedCard.classList.add('service-card-unhealthy');
-                                updateCardButtonLabels(expandedCard);
-                                var metaVals = expandedCard.querySelectorAll('.card-meta-value');
-                                addBrokenClient({
-                                    hash: hash,
-                                    name: expandedCard.querySelector('.card-name').textContent,
-                                    port: cardPort,
-                                    starting_script: expandedCard.getAttribute('data-starting-script'),
-                                    bind_address: metaVals[0] ? metaVals[0].textContent : '',
-                                    hostname: metaVals[1] ? metaVals[1].textContent : ''
-                                });
+                var cardName = expandedCard.querySelector('.card-name').textContent;
+                var cardHash = expandedCard.getAttribute('data-hash');
+                if (cardPort) {
+                    new Promise(function(resolve, reject) {
+                        var hxhr = new XMLHttpRequest();
+                        hxhr.open('GET', 'http://127.0.0.1:' + cardPort + '/api/health', true);
+                        hxhr.timeout = 3000;
+                        hxhr.onload = function() {
+                            if (hxhr.status === 200) {
+                                try { resolve(JSON.parse(hxhr.responseText)); return; } catch(e) {}
                             }
-                            if (cardPort) {
-                                return new Promise(function(resolve, reject) {
-                                    var hxhr = new XMLHttpRequest();
-                                    hxhr.open('GET', 'http://127.0.0.1:' + cardPort + '/api/health', true);
-                                    hxhr.timeout = 3000;
-                                    hxhr.onload = function() {
-                                        if (hxhr.status === 200) {
-                                            try { resolve(JSON.parse(hxhr.responseText)); return; } catch(e) {}
-                                        }
-                                        reject();
-                                    };
-                                    hxhr.onerror = reject;
-                                    hxhr.ontimeout = reject;
-                                    hxhr.send();
-                                }).then(function(hd) {
-                                    var cardName = expandedCard.querySelector('.card-name').textContent;
-                                    var exhr = new XMLHttpRequest();
-                                    exhr.open('POST', '/api/service/endpoints', true);
-                                    exhr.setRequestHeader('Content-Type', 'application/json');
-                                    exhr.timeout = 3000;
-                                    exhr.onload = function() {
-                                        var eps = [];
-                                        if (exhr.status === 200) {
-                                            try { var ed = JSON.parse(exhr.responseText); eps = ed.endpoints || []; } catch(e) {}
-                                        }
-                                        populateExpandedContent(expandedCard, hd, eps);
-                                    };
-                                    exhr.onerror = function() { populateExpandedContent(expandedCard, hd, []); };
-                                    exhr.ontimeout = function() { populateExpandedContent(expandedCard, hd, []); };
-                                    exhr.send(JSON.stringify({name: cardName}));
-                                }).catch(function() {
-                                    showExpandError(expandedCard, expandedCard.querySelector('.card-name').textContent);
-                                });
-                            } else {
-                                showExpandError(expandedCard, expandedCard.querySelector('.card-name').textContent);
+                            reject();
+                        };
+                        hxhr.onerror = reject;
+                        hxhr.ontimeout = reject;
+                        hxhr.send();
+                    }).then(function(hd) {
+                        expandedCard.classList.remove('service-card-unhealthy');
+                        if (cardHash) removeBrokenClient(cardHash);
+                        updateCardButtonLabels(expandedCard);
+                        var exhr = new XMLHttpRequest();
+                        exhr.open('POST', '/api/service/endpoints', true);
+                        exhr.setRequestHeader('Content-Type', 'application/json');
+                        exhr.timeout = 3000;
+                        exhr.onload = function() {
+                            var eps = [];
+                            if (exhr.status === 200) {
+                                try { var ed = JSON.parse(exhr.responseText); eps = ed.endpoints || []; } catch(e) {}
                             }
-                        })
-                        .catch(function() {
-                            showExpandError(expandedCard, expandedCard.querySelector('.card-name').textContent);
-                        });
+                            populateExpandedContent(expandedCard, hd, eps);
+                        };
+                        exhr.onerror = function() { populateExpandedContent(expandedCard, hd, []); };
+                        exhr.ontimeout = function() { populateExpandedContent(expandedCard, hd, []); };
+                        exhr.send(JSON.stringify({name: cardName}));
+                    }).catch(function() {
+                        expandedCard.classList.add('service-card-unhealthy');
+                        if (cardHash) {
+                            var metaVals = expandedCard.querySelectorAll('.card-meta-value');
+                            addBrokenClient({
+                                hash: cardHash,
+                                name: cardName,
+                                port: cardPort,
+                                starting_script: expandedCard.getAttribute('data-starting-script'),
+                                bind_address: metaVals[0] ? metaVals[0].textContent : '',
+                                hostname: metaVals[1] ? metaVals[1].textContent : ''
+                            });
+                        }
+                        updateCardButtonLabels(expandedCard);
+                        showExpandError(expandedCard, cardName);
+                    });
+                } else {
+                    showExpandError(expandedCard, cardName);
                 }
             } else {
                 var hasSelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
@@ -1428,17 +1395,23 @@
                 fetch('/api/services/healthcheck', { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
+                        var unhealthyHashes = {};
                         if (d.unhealthy) {
-                            d.unhealthy.forEach(function(u) { addBrokenClient(u); });
+                            d.unhealthy.forEach(function(u) {
+                                addBrokenClient(u);
+                                unhealthyHashes[u.hash] = true;
+                            });
                         }
-                        return fetch('/api/services').then(function(r) { return r.json(); });
+                        return fetch('/api/services').then(function(r) { return r.json(); }).then(function(sd) {
+                            return {clients: sd.clients, unhealthyHashes: unhealthyHashes};
+                        });
                     })
-                    .then(function(d) {
-                        return enrichClientsWithHashes(d.clients).then(function(clients) {
+                    .then(function(o) {
+                        return enrichClientsWithHashes(o.clients).then(function(clients) {
                             var recovered = [];
                             brokenClients.forEach(function(bc) {
                                 var found = clients.some(function(rc) { return rc.hash === bc.hash; });
-                                if (found) recovered.push(bc.hash);
+                                if (found && !o.unhealthyHashes[bc.hash]) recovered.push(bc.hash);
                             });
                             recovered.forEach(function(h) { removeBrokenClient(h); });
                             buildCards(clients, false);
@@ -2207,6 +2180,18 @@
                                             container.innerHTML = '<div class="expand-empty expand-error">' + cardName + ' Health Fetch Failed</div>' + epHtml;
                                             card.classList.add('service-card-unhealthy');
                                             updateCardButtonLabels(card);
+                                            var chash = card.getAttribute('data-hash');
+                                            if (chash) {
+                                                var cmetaVals = card.querySelectorAll('.card-meta-value');
+                                                addBrokenClient({
+                                                    hash: chash,
+                                                    name: cardName,
+                                                    port: card.getAttribute('data-port'),
+                                                    starting_script: card.getAttribute('data-starting-script'),
+                                                    bind_address: cmetaVals[0] ? cmetaVals[0].textContent : '',
+                                                    hostname: cmetaVals[1] ? cmetaVals[1].textContent : ''
+                                                });
+                                            }
                                         }
                                     } else if (healthErr && endpointsErr) {
                                         showExpandError(card, cardName);
