@@ -1517,6 +1517,7 @@
                 if (searchInput) searchInput.disabled = false;
                 document.getElementById('sidebar').classList.remove('hidden');
                 document.getElementById('searchBar').classList.remove('hidden');
+                document.querySelector('.sort-decoration').classList.remove('hidden');
                 document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
                 document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
                 updateBrokenButtons();
@@ -1534,6 +1535,7 @@
                 document.body.classList.add('collapsing');
                 document.getElementById('sidebar').classList.remove('hidden');
                 document.getElementById('searchBar').classList.remove('hidden');
+                document.querySelector('.sort-decoration').classList.remove('hidden');
                 card.classList.remove('expanded-active', 'expanded-buttons');
                 if (btn) btn.setAttribute('data-label', 'Expand Information');
                 var p = content.querySelector('.expand-placeholder');
@@ -1581,6 +1583,7 @@
                 if (searchInput) searchInput.disabled = false;
                 document.getElementById('sidebar').classList.remove('hidden');
                 document.getElementById('searchBar').classList.remove('hidden');
+                document.querySelector('.sort-decoration').classList.remove('hidden');
                 document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
                 var p = content.querySelector('.expand-placeholder');
                 if (p) p.remove();

@@ -12,9 +12,11 @@ body.expanding .empty-state,
 body.expanding .content-loader,
 body.expanding .broken-forget-btn,
 body.expanding .broken-restart-btn,
-body.expanding .card-checkbox {
+body.expanding .card-checkbox,
+body.expanding .sort-decoration {
     opacity: 0 !important;
     pointer-events: none;
+    transition: opacity 0.1s ease;
 }
 
 body.collapsing .search-bar,
@@ -25,9 +27,11 @@ body.collapsing .empty-state,
 body.collapsing .content-loader,
 body.collapsing .broken-forget-btn,
 body.collapsing .broken-restart-btn,
-body.collapsing .card-checkbox {
+body.collapsing .card-checkbox,
+body.collapsing .sort-decoration {
     opacity: 0 !important;
     pointer-events: none;
+    transition: opacity 0s ease;
 }
 
 body.expanding [data-label]:hover::after,
