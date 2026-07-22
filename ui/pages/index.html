@@ -1577,6 +1577,7 @@
                             card.style.left = '';
                             card.style.width = '';
                             card.style.height = '';
+                            card.style.gridColumn = '';
                             card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons');
                             if (searchInput) searchInput.disabled = false;
                             document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
@@ -1615,6 +1616,7 @@
                 card.style.left = '';
                 card.style.width = '';
                 card.style.height = '';
+                card.style.gridColumn = '';
                 content.classList.remove('expanded');
                 content.style.height = '';
                 if (onComplete) onComplete();
@@ -1801,6 +1803,8 @@
                 var next = content.querySelector('.service-card[data-hash="' + allClients[i].hash + '"]');
                 if (next && next !== card) { insertBefore = next; break; }
             }
+            card.style.gridColumn = '';
+            card.style.width = '';
             var parent = card.parentNode;
             if (insertBefore) {
                 if (card.nextElementSibling !== insertBefore) {
