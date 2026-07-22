@@ -115,7 +115,7 @@ body.has-error::before {
     cursor: pointer;
     font-family: inherit;
     font-size: inherit;
-    transition: opacity 0.2s ease 0.3s;
+    transition: opacity 0.1s ease;
 }
 
 .sort-decoration-icons {
@@ -1314,7 +1314,7 @@ body.has-error::before {
     background: #f9fafb;
     padding: 0;
     color: #9ca3af;
-    transition: width 0.15s ease, opacity 0.2s ease 0.3s;
+    transition: width 0.15s ease, opacity 0.1s ease;
 }
 
 .search-toggle {

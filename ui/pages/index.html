@@ -112,7 +112,9 @@
         var sidebar = document.getElementById('sidebar');
         var groupByKey = null;
         var originalSortOrder = null;
+        var _sortApplied = false;
         var _expandTimeout = null;
+        var _loadAnimStartTime = null;
         var _searchIndex = {};
         var _selectedCardHashes = {};
         var _checkboxVisible = false;
@@ -123,6 +125,13 @@
                 el.classList.remove('hidden');
                 if (wasHidden && el.classList.contains('init-hidden')) {
                     el.classList.remove('init-hidden');
+                    var firstBroken = document.querySelector('.service-card.service-card-unhealthy');
+                    if (firstBroken && _loadAnimStartTime) {
+                        var elapsed = (Date.now() - _loadAnimStartTime) / 1000;
+                        var cardDelay = parseFloat(firstBroken.style.animationDelay) || 0;
+                        var syncDelay = Math.max(0, cardDelay - elapsed);
+                        if (syncDelay > 0) el.style.animationDelay = syncDelay + 's';
+                    }
                     el.classList.add('load-in');
                     el.addEventListener('animationend', function() {
                         this.classList.remove('load-in');
@@ -498,11 +507,13 @@
             fetch('/ui/sort-settings')
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
-                        if (d.sort_order && d.sort_order.length) {
-                            sortOrder = d.sort_order;
-                            if (sortOrder.indexOf('status') === -1) sortOrder.push('status');
-                            if (sortOrder.indexOf('protected') === -1) sortOrder.push('protected');
-                            applySortOrderToSidebar();
+                    if (_sortApplied) return;
+                    _sortApplied = true;
+                    if (d.sort_order && d.sort_order.length) {
+                        sortOrder = d.sort_order;
+                        if (sortOrder.indexOf('status') === -1) sortOrder.push('status');
+                        if (sortOrder.indexOf('protected') === -1) sortOrder.push('protected');
+                        applySortOrderToSidebar();
                         if (currentClients.length) buildCards(currentClients, false);
                     }
                     if (d.group_by) {
@@ -513,14 +524,17 @@
                     buildFilterPanel();
                 })
                 .catch(function() {
-                    buildFilterPanel();
+                    if (!_sortApplied) buildFilterPanel();
                 });
         }
 
-        function saveSortOrder(order) {
+        function saveSortOrder(order, skipRebuild) {
             sortOrder = order;
             buildFilterPanel();
             saveSortSettings();
+            if (!skipRebuild && currentClients.length) {
+                buildCards(currentClients, false);
+            }
         }
 
         function applySortOrderToSidebar() {
@@ -609,6 +623,7 @@
         }
 
         function saveSortSettings() {
+            _sortApplied = true;
             var body = {sort_order: sortOrder};
             body.group_by = groupByKey || null;
             if (groupByKey && originalSortOrder) {
@@ -1190,6 +1205,16 @@
         sidebar.addEventListener('dragend', function(e) {
             var item = e.target.closest('.sort-item');
             if (item) item.classList.remove('dragging');
+            var casing = document.getElementById('sortItemsCasing');
+            var items = Array.from(casing.querySelectorAll('.sort-item'));
+            sortOrder = items.map(function(el) { return el.getAttribute('data-key'); });
+            try {
+                reorderCardsBySort();
+            } catch (e) {
+                console.error('reorderCardsBySort error:', e);
+                if (currentClients.length) buildCards(currentClients, false);
+            }
+            saveSortSettings();
             draggedItem = null;
         });
 
@@ -1211,13 +1236,6 @@
 
         sidebar.addEventListener('drop', function(e) {
             e.preventDefault();
-            var casing = document.getElementById('sortItemsCasing');
-                var items = Array.from(casing.querySelectorAll('.sort-item'));
-                sortOrder = items.map(function(el) { return el.getAttribute('data-key'); });
-                saveSortOrder(sortOrder);
-                if (currentClients.length) {
-                    buildCards(currentClients, false);
-                }
         });
 
         var groupbyZone = document.getElementById('sortGroupbyZone');
@@ -1731,6 +1749,31 @@
             updateBrokenButtons();
         }
 
+        function reorderCardsBySort() {
+            var content = document.getElementById('content');
+            var allCards = Array.from(content.querySelectorAll('.service-card'));
+            if (allCards.length === 0) return;
+            var cardMap = {};
+            allCards.forEach(function(c) { cardMap[c.getAttribute('data-hash')] = c; });
+            var allClients = [];
+            var seen = {};
+            currentClients.forEach(function(c) {
+                if (!seen[c.hash] && cardMap[c.hash]) { seen[c.hash] = true; allClients.push(c); }
+            });
+            brokenClients.forEach(function(c) {
+                if (!seen[c.hash] && cardMap[c.hash]) { seen[c.hash] = true; allClients.push(c); }
+            });
+            sortClients(allClients);
+            var grouped = !!content.querySelector('.group-section');
+            allClients.forEach(function(client) {
+                var card = cardMap[client.hash];
+                if (card) {
+                    var parent = grouped ? card.closest('.group-section') : content;
+                    if (parent) parent.appendChild(card);
+                }
+            });
+        }
+
         function repositionCard(card) {
             var hash = card.getAttribute('data-hash');
             if (!hash) return;
@@ -1779,10 +1822,6 @@
             if (unhealthyClients) {
                 unhealthyClients.forEach(function(u) {
                     unhealthyHashes[u.hash] = true;
-                    if (!brokenClients.some(function(bc) { return bc.hash === u.hash; })) {
-                        changed = true;
-                        addBrokenClient(u);
-                    }
                     var card = document.querySelector('.service-card[data-hash="' + u.hash + '"]');
                     if (card) {
                         var wasBroken = card.classList.contains('service-card-unhealthy');
@@ -1790,6 +1829,12 @@
                         card.classList.add('service-card-unhealthy');
                         updateCardButtonLabels(card);
                         repositionCard(card);
+                    }
+                });
+                unhealthyClients.forEach(function(u) {
+                    if (!brokenClients.some(function(bc) { return bc.hash === u.hash; })) {
+                        changed = true;
+                        addBrokenClient(u);
                     }
                 });
             }
@@ -1836,7 +1881,7 @@
             items.push({ el: document.querySelector('.sort-decoration'), delay: 0.3 });
             items.push({ el: document.querySelector('#healthButton > .health-decoration:first-child'), delay: 0.3 });
             items.push({ el: document.querySelector('.broken-forget-btn'), delay: 0.45 });
-            items.push({ el: document.querySelector('.broken-restart-btn'), delay: 0.6 });
+            items.push({ el: document.querySelector('.broken-restart-btn'), delay: 0.45 });
             items.push({ el: document.getElementById('searchBar'), delay: 0.3 });
             items.push({ el: document.getElementById('sortItemsCasing'), delay: 0.3 });
 
@@ -1863,6 +1908,7 @@
             }
 
             requestAnimationFrame(function() {
+                _loadAnimStartTime = Date.now();
                 items.forEach(function(item) {
                     if (!item.el) return;
                     if (item.el.classList.contains('hidden')) return;
