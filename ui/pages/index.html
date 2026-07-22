@@ -118,6 +118,7 @@
         var _searchIndex = {};
         var _selectedCardHashes = {};
         var _checkboxVisible = false;
+        var _checkboxShowTimer = null;
         function toggleSortHealthBtn(el, show) {
             if (!el) return;
             if (show) {
@@ -1578,11 +1579,13 @@
                             card.style.width = '';
                             card.style.height = '';
                             card.style.gridColumn = '';
+                            if (card._healthXhr) { try { card._healthXhr.abort(); } catch(e) {} card._healthXhr = null; }
+                            if (card._endpointsXhr) { try { card._endpointsXhr.abort(); } catch(e) {} card._endpointsXhr = null; }
                             card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons');
                             if (searchInput) searchInput.disabled = false;
                             document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
                             var ec = card.querySelector('.card-expanded-content');
-                            if (ec) ec.innerHTML = '';
+                            if (ec) ec.innerHTML = '<div class="expand-loader"><div class="spinner"></div></div>';
                             document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
                             updateBrokenButtons();
                             filterCards();
@@ -1607,7 +1610,9 @@
                 var p = content.querySelector('.expand-placeholder');
                 if (p) p.remove();
                 var ec = card.querySelector('.card-expanded-content');
-                if (ec) ec.innerHTML = '';
+                if (ec) ec.innerHTML = '<div class="expand-loader"><div class="spinner"></div></div>';
+                if (card._healthXhr) { try { card._healthXhr.abort(); } catch(e) {} card._healthXhr = null; }
+                if (card._endpointsXhr) { try { card._endpointsXhr.abort(); } catch(e) {} card._endpointsXhr = null; }
                 document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
                 card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons');
                 updateBrokenButtons();
@@ -1779,8 +1784,10 @@
         function repositionCard(card) {
             var hash = card.getAttribute('data-hash');
             if (!hash) return;
-            card.style.gridColumn = '';
-            card.style.width = '';
+            if (!card.classList.contains('expanded')) {
+                card.style.gridColumn = '';
+                card.style.width = '';
+            }
             var content = document.getElementById('content');
             if (content.querySelector('.group-section')) return;
             var allCards = Array.from(content.querySelectorAll('.service-card'));
@@ -2049,13 +2056,17 @@
             var card = e.target.closest('.service-card');
             if (!card) return;
             if (document.querySelector('.service-card.expanded')) return;
-            _checkboxVisible = true;
-            _syncCheckboxUI();
+            if (_checkboxShowTimer) clearTimeout(_checkboxShowTimer);
+            _checkboxShowTimer = setTimeout(function() {
+                _checkboxVisible = true;
+                _syncCheckboxUI();
+            }, 500);
         });
 
         document.getElementById('content').addEventListener('mouseout', function(e) {
             var card = e.target.closest('.service-card');
             if (!card) return;
+            if (_checkboxShowTimer) { clearTimeout(_checkboxShowTimer); _checkboxShowTimer = null; }
             var related = e.relatedTarget;
             if (related && card.contains(related)) return;
             if (related && related.closest('.service-card')) return;
@@ -2213,7 +2224,8 @@
                 return;
             }
             var btn = e.target.closest('.card-btn-blue');
-            if (!btn) {
+            var nameEl = e.target.closest('.card-name');
+            if (!btn && !nameEl) {
                 var clickedCard = e.target.closest('.service-card');
                 if (clickedCard && cardCount > 1 && !clickedCard.classList.contains('expanded')) {
                     var h = clickedCard.getAttribute('data-hash');
@@ -2226,6 +2238,8 @@
                 }
                 return;
             }
+            if (!btn) btn = e.target.closest('.service-card').querySelector('.card-btn-blue');
+            if (!btn) return;
             var card = btn.closest('.service-card');
             if (!card) return;
             if (document.body.classList.contains('expanding') || document.body.classList.contains('collapsing')) return;
@@ -2277,6 +2291,8 @@
                     card.parentNode.insertBefore(placeholder, card);
                     var self = card;
                     self.classList.add('expanded');
+                    self.dataset.expandGen = (parseInt(self.dataset.expandGen) || 0) + 1;
+                    var expandGen = self.dataset.expandGen;
                     self.style.top = relTop + 'px';
                     self.style.left = relLeft + 'px';
                     self.style.width = cardRect.width + 'px';
@@ -2306,6 +2322,7 @@
                                 var endpointsErr = null;
 
                                 function tryPopulate() {
+                                    if (!card.classList.contains('expanded') || card.dataset.expandGen !== expandGen) return;
                                     if (healthData !== null && endpointsData !== null) {
                                         populateExpandedContent(card, healthData, endpointsData);
                                      } else if (healthErr && endpointsData !== null) {
@@ -2343,6 +2360,8 @@
                                 }
 
                                 var hxhr = new XMLHttpRequest();
+                                if (self._healthXhr) self._healthXhr.abort();
+                                self._healthXhr = hxhr;
                                 hxhr.open('GET', 'http://127.0.0.1:' + cardPort + '/api/health', true);
                                 hxhr.timeout = 3000;
                                 hxhr.onload = function() {
@@ -2373,6 +2392,8 @@
                                 exhr.onerror = function() { endpointsData = []; _endpointCache[cardName] = []; tryPopulate(); };
                                 exhr.ontimeout = function() { endpointsData = []; _endpointCache[cardName] = []; tryPopulate(); };
                                 exhr.send(JSON.stringify({name: cardName}));
+                                hxhr.onloadend = function() { if (card._healthXhr === hxhr) card._healthXhr = null; };
+                                exhr.onloadend = function() { if (card._endpointsXhr === exhr) card._endpointsXhr = null; };
                             }
                         }, 135);
                         setTimeout(function() {

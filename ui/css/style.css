@@ -570,12 +570,10 @@ body.has-error::before {
     transition: max-height 0.12s ease, opacity 0.12s ease, padding 0.12s ease, margin-bottom 0.12s ease;
 }
 
-.service-card.expanded-active .card-expanded-content::before {
-    content: '';
-    display: block;
-    height: 1px;
-    background: #d1d5db;
-    margin-bottom: 6px;
+.service-card.expanded-active .card-expanded-content {
+    border-top: 1px solid #d1d5db;
+    padding-top: 8px;
+    margin-top: 0;
 }
 
 .expand-info-row {
@@ -863,6 +861,7 @@ body.has-error::before {
 }
 
 .card-name {
+    cursor: pointer;
 }
 
 .service-card.expanded-active .card-name {
@@ -1587,12 +1586,22 @@ body.has-error::before {
     justify-content: center;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0s ease, background-color 0.12s ease, border-color 0.12s ease;
+    transition: opacity 0.25s ease, background-color 0.12s ease, border-color 0.12s ease;
 }
 
 .card-checkbox.visible {
     opacity: 1;
     pointer-events: auto;
+    animation: checkbox-wiggle 0.4s ease;
+}
+
+@keyframes checkbox-wiggle {
+    0% { transform: translateY(-50%) rotate(0deg); }
+    20% { transform: translateY(-50%) rotate(15deg); }
+    40% { transform: translateY(-50%) rotate(-10deg); }
+    60% { transform: translateY(-50%) rotate(6deg); }
+    80% { transform: translateY(-50%) rotate(-3deg); }
+    100% { transform: translateY(-50%) rotate(0deg); }
 }
 
 .card-checkbox.checked {
