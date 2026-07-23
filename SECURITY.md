@@ -46,7 +46,7 @@ This project is intended to follow basic security hygiene:
 - **Access control is layered** — localhost-only check runs first, then endpoint-specific logic. Review the access control table in the README before deploying.
 - **Sensitive endpoints** (terminate, restart, protect, shutdown) require a valid API key or localhost access.
 - **Review third-party dependencies** before adding them. ServiceHandler currently depends on Flask and jsonschema — vet any new libraries for known vulnerabilities.
-- **Headless mode** (`SH_NO_GUI=true`) disables UI endpoints for a reduced attack surface when the dashboard is not needed.
+- **Headless mode** (`"noGUI": true` in `resources/configuration.json`) disables UI endpoints for a reduced attack surface when the dashboard is not needed.
 - **Protected services** flagged via the protect endpoint cannot be terminated, restarted, or forgotten by anyone.
 - **Treat all externally supplied input as untrusted** and validate it before use. The API validates port ranges, JSON schemas, and input types across all endpoints.
 

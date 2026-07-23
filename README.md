@@ -31,7 +31,7 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 | Variable | Description |
 |----------|-------------|
 | `SH_API_KEYS` | JSON object mapping service names to plain API keys. Loaded at session initialization. API keys are stored as plain text in `.env`. |
-| `SH_NO_GUI` | Set to `true` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). Default: `false`. |
+| `SH_NO_GUI` | *(Deprecated — use `"noGUI"` in `resources/configuration.json`)* Set to `true` to disable all UI-related endpoints. Default: `false`. |
 | `SH_SORT_ORDER` | JSON array of column keys for the UI sort order. Persisted across restarts. |
 | `SH_GROUP_BY` | Key to group services by in the UI (e.g. `protected`, `status`). Persisted across restarts. |
 | `SH_ORIGINAL_SORT_ORDER` | JSON array for the ungrouped sort order baseline. Persisted across restarts. |
@@ -50,7 +50,7 @@ ServiceHandler stores API keys as plain text in the `SH_API_KEYS` environment va
 
 ### Headless Mode (Optional)
 
-Set `SH_NO_GUI=true` in `.env` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). These routes return `404` when the flag is enabled. The API endpoints under `/api/` remain fully operational.
+Set `"noGUI": true` in `resources/configuration.json` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). These routes return `404` when the flag is enabled. The API endpoints under `/api/` remain fully operational.
 
 ## Run
 1. Windows: run `scripts\run.bat`.

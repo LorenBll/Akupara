@@ -402,11 +402,7 @@ def _initialize_service_config() -> None:
 
     SERVICE_PORT = configured_port
 
-    env_no_gui = os.getenv("SH_NO_GUI")
-    if env_no_gui is not None:
-        NO_GUI = env_no_gui.strip().lower() in ("true", "1", "yes")
-    else:
-        NO_GUI = config.get("noGUI", False)
+    NO_GUI = config.get("noGUI", False)
 
 
 def _extract_pid(client_data: dict) -> int | None:
