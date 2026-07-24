@@ -55,6 +55,8 @@ if not exist ".venv" (
     exit /b 1
   )
   if %VERBOSE% equ 1 echo Virtual environment created.
+) else (
+  if %VERBOSE% equ 1 echo Virtual environment already exists.
 )
 
 REM Activate virtual environment.

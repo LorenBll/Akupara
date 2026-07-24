@@ -33,6 +33,8 @@ if [ ! -d ".venv" ]; then
   [ $VERBOSE -eq 1 ] && echo "Creating virtual environment..."
   python3 -m venv .venv
   [ $VERBOSE -eq 1 ] && echo "Virtual environment created."
+else
+  [ $VERBOSE -eq 1 ] && echo "Virtual environment already exists."
 fi
 
 # Activate virtual environment.
