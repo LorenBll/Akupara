@@ -1808,6 +1808,10 @@ if __name__ == "__main__":
         logger.info("=" * 50)
         logger.info(f"Binding to: http://{SERVICE_HOST}:{SERVICE_PORT}")
         logger.info(f"Clients registered in memory: {len(REGISTERED_CLIENTS)}")
+        if NO_GUI:
+            logger.info("GUI: disabled")
+        else:
+            logger.info("GUI: enabled")
         logger.info("Server starting...")
 
         app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)
