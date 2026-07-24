@@ -640,6 +640,7 @@ def index():
     if request.method == "HEAD":
         return _head_response()
     web_dir = _PROJECT_ROOT / "ui" / "pages"
+    logger.info("Serving index page")
     return send_from_directory(web_dir, "index.html")
 
 
@@ -649,6 +650,7 @@ def css_files(filename):
     if request.method == "HEAD":
         return _head_response()
     css_dir = _PROJECT_ROOT / "ui" / "css"
+    logger.info(f"Serving CSS file: {filename}")
     return send_from_directory(css_dir, filename)
 
 
@@ -784,10 +786,12 @@ def question(name=None):
     target_name = name if isinstance(name, str) and name.strip() else (payload.get("name") if isinstance(payload, dict) else None)
 
     if not isinstance(target_name, str) or not target_name.strip():
+        logger.warning("Service lookup attempted without a valid name")
         return _error_response("The name of the target client is required.")
 
     authorized, invalid_key = _check_authorization(payload)
     if invalid_key:
+        logger.warning(f"Invalid API key for service lookup: name={target_name_stripped}")
         return _error_response("API key is not valid.", 403)
 
     target_name_stripped = target_name.strip()
@@ -795,17 +799,21 @@ def question(name=None):
         client_hash = SERVICE_NAME_INDEX.get(target_name_stripped.lower())
 
     if client_hash is None:
+        logger.warning(f"Service not found for lookup: name={target_name_stripped}")
         return _error_response(f"No client found with name '{target_name_stripped}'.", 404)
 
     with REGISTERED_CLIENTS_LOCK:
         target = REGISTERED_CLIENTS.get(client_hash)
 
     if target is None:
+        logger.warning(f"Service not found by hash for lookup: name={target_name}")
         return _error_response(f"No client found with name '{target_name}'.", 404)
 
     if authorized:
+        logger.info(f"Service lookup: name={target_name_stripped}, authorized=true")
         return _success_response(target)
 
+    logger.info(f"Service lookup: name={target_name_stripped}, authorized=false")
     return _success_response({"name": target["name"], "port": target["port"]})
 
 
@@ -909,6 +917,7 @@ def clients():
     payload = request.get_json(silent=True) or {}
     authorized, invalid_key = _check_authorization(payload)
     if invalid_key:
+        logger.warning("Unauthorized attempt to list clients")
         return _error_response("API key is not valid.", 403)
 
     with REGISTERED_CLIENTS_LOCK:
@@ -919,6 +928,7 @@ def clients():
             for client in REGISTERED_CLIENTS.values()
         ]
 
+    logger.info(f"Clients listed: count={len(client_list)}, authorized={authorized}")
     return _success_response({"clients": client_list})
 
 
@@ -995,6 +1005,7 @@ def get_endpoints(name=None):
     target_name = name if isinstance(name, str) and name.strip() else (payload.get("name") if isinstance(payload, dict) else None)
 
     if not isinstance(target_name, str) or not target_name.strip():
+        logger.warning("Endpoints lookup attempted without a valid service name")
         return _error_response("The name of the service is required.")
 
     target_name_stripped = target_name.strip()
@@ -1002,15 +1013,18 @@ def get_endpoints(name=None):
         client_hash = SERVICE_NAME_INDEX.get(target_name_stripped.lower())
 
     if client_hash is None:
+        logger.warning(f"Service not found for endpoint lookup: name={target_name}")
         return _error_response(f"No service found with name '{target_name}'.", 404)
 
     with REGISTERED_CLIENTS_LOCK:
         target = REGISTERED_CLIENTS.get(client_hash)
 
     if target is None:
+        logger.warning(f"Service not found by hash for endpoint lookup: name={target_name}")
         return _error_response(f"No service found with name '{target_name}'.", 404)
 
     endpoints = target.get("endpoints", [])
+    logger.info(f"Endpoints listed for service: name={target_name_stripped}, count={len(endpoints)}")
     return _success_response({"name": target_name_stripped, "endpoints": endpoints})
 
 
@@ -1031,6 +1045,7 @@ def clients_details():
                 "endpoints": client.get("endpoints", []),
             })
 
+    logger.info(f"All endpoints listed: service_count={len(client_list)}")
     return _success_response({"clients": client_list})
 
 
@@ -1045,6 +1060,7 @@ def search_endpoints():
     query = payload.get("query") if isinstance(payload, dict) else None
 
     if not isinstance(query, str) or not query.strip():
+        logger.warning("Search endpoints attempted without a valid query")
         return _error_response("A non-empty query is required.")
 
     query_lower = query.strip().lower()
@@ -1073,6 +1089,7 @@ def search_endpoints():
             if all_match:
                 results.append(entry)
 
+    logger.info(f"Endpoints searched: query={query.strip()}, results={len(results)}")
     return _success_response({"query": query.strip(), "results": results})
 
 
@@ -1090,12 +1107,16 @@ def validate_json_body():
     json_body = payload.get("json_body") if isinstance(payload, dict) else None
 
     if not isinstance(service_name, str) or not service_name.strip():
+        logger.warning("JSON body validation attempted without a valid service name")
         return _error_response("A non-empty service name is required.")
     if not isinstance(verb, str) or not verb.strip():
+        logger.warning("JSON body validation attempted without a valid HTTP verb")
         return _error_response("A non-empty HTTP verb is required.")
     if not isinstance(path, str) or not path.strip():
+        logger.warning("JSON body validation attempted without a valid endpoint path")
         return _error_response("A non-empty endpoint path is required.")
     if json_body is None:
+        logger.warning("JSON body validation attempted without a json_body")
         return _error_response("A json_body is required.")
 
     verb_stripped = verb.strip().upper()
@@ -1107,6 +1128,7 @@ def validate_json_body():
         target_endpoint = ENDPOINT_BY_ID.get(ep_id)
 
     if target_endpoint is None:
+        logger.warning(f"JSON body validation failed: endpoint not found for service={service_name_stripped}, {verb_stripped} {path_stripped}")
         return _error_response(
             f"No endpoint found with verb '{verb_stripped}' and path "
             f"'{path_stripped}' for service '{service_name_stripped}'.",
@@ -1115,6 +1137,7 @@ def validate_json_body():
 
     schema = target_endpoint.get("body_schema", {})
     if not schema:
+        logger.info(f"JSON body validated: service={service_name_stripped}, {verb_stripped} {path_stripped}, schema_exists=false")
         return _success_response({
             "valid": True,
             "schema_exists": False,
@@ -1123,12 +1146,14 @@ def validate_json_body():
 
     try:
         jsonschema.validate(instance=json_body, schema=schema)
+        logger.info(f"JSON body validated: service={service_name_stripped}, {verb_stripped} {path_stripped}, valid=true")
         return _success_response({
             "valid": True,
             "schema_exists": True,
             "message": "JSON body is valid against the endpoint schema.",
         })
     except jsonschema.ValidationError as exc:
+        logger.info(f"JSON body validated: service={service_name_stripped}, {verb_stripped} {path_stripped}, valid=false")
         return _success_response({
             "valid": False,
             "schema_exists": True,
@@ -1166,6 +1191,7 @@ def sort_order():
             resp["group_by"] = group_by_val
         if group_by_val and original_sort_order_val:
             resp["original_sort_order"] = original_sort_order_val
+        logger.info(f"Sort settings retrieved")
         return _success_response(resp)
 
     payload = request.get_json(silent=True) or {}
@@ -1200,6 +1226,7 @@ def sort_order():
         resp["group_by"] = group_by_val
     if group_by_val and original_sort_order_val:
         resp["original_sort_order"] = original_sort_order_val
+    logger.info(f"Sort settings updated: sort_order={sort_order_val}, group_by={group_by_val}")
     return _success_response(resp)
 
 
@@ -1542,6 +1569,33 @@ def involving_api_keys(func):
 # ============================================================================
 
 
+@app.route("/api/validate-key", methods=["POST", "HEAD", "OPTIONS"])
+@involving_api_keys
+def validate_key():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    api_key = payload.get("api_key") if isinstance(payload, dict) else None
+
+    if not isinstance(api_key, str) or not api_key.strip():
+        logger.info("API key validation attempted with missing or empty api_key field")
+        return _error_response("A non-empty api_key is required.")
+
+    api_key_stripped = api_key.strip()
+    with API_KEYS_LOCK:
+        is_valid = api_key_stripped in API_KEY_LOOKUP
+
+    if is_valid:
+        logger.info(f"API key validated successfully (key suffix: ...{api_key_stripped[-8:]})")
+    else:
+        logger.info(f"API key validation failed for provided key (key suffix: ...{api_key_stripped[-8:]})")
+
+    return _success_response({"valid": is_valid})
+
+
 @app.route("/api/api-key/request", methods=["POST", "HEAD", "OPTIONS"])
 @involving_api_keys
 def api_key_request():
@@ -1597,12 +1651,14 @@ def api_key_pending():
 
     payload = request.get_json(silent=True) or {}
     if not _is_authorized(payload):
+        logger.warning("Unauthorized attempt to list pending API key requests")
         return _error_response("API key is not valid.", 403)
 
     with PENDING_API_KEY_REQUESTS_LOCK:
         pending_list = list(PENDING_API_KEY_REQUESTS.values())
         hashes = list(PENDING_API_KEY_REQUESTS.keys())
 
+    logger.info(f"Pending API key requests listed: count={len(pending_list)}")
     return _success_response({"pending": pending_list, "hashes": hashes})
 
 
@@ -1754,6 +1810,7 @@ def shutdown():
 
     payload = request.get_json(silent=True) or {}
     if not _is_authorized(payload):
+        logger.warning("Unauthorized attempt to shutdown the server")
         return _error_response("API key is not valid.", 403)
 
     environ = request.environ
@@ -1767,6 +1824,7 @@ def shutdown():
             os._exit(0)
 
     threading.Thread(target=_shutdown, daemon=True).start()
+    logger.info("Server shutdown initiated")
     return _success_response({"status": "shutdown"})
 
 

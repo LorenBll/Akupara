@@ -394,6 +394,27 @@ Validates a JSON body against the JSON schema of a registered endpoint. The resp
 	- `404` -> `{ "error": "No service found with name '...'." }`
 	- `404` -> `{ "error": "No endpoint found with verb '...' and path '...' for service '...'." }`
 
+### `POST /api/validate-key` (also `HEAD`, `OPTIONS`)
+Validates whether a given API key exists in the server's key store. Useful for clients to verify a key before using it.
+- Auth: local-device only (no API key required)
+- Body (JSON object):
+	- `api_key` (string, required): the API key to validate.
+- Returns (valid):
+	- `200` ->
+		```json
+		{
+			"valid": true
+		}
+		```
+- Returns (invalid):
+	- `200` ->
+		```json
+		{
+			"valid": false
+		}
+		```
+	- `400` -> `{ "error": "A non-empty api_key is required." }`
+
 ### `GET /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Returns the current column sort order and group-by key used by the web UI.
 - Auth: local-device only (no API key required)

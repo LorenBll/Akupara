@@ -598,13 +598,6 @@ body.has-error::before {
     grid-column: 1 / -1;
 }
 
-.expand-separator {
-    height: 1px;
-    width: 50%;
-    margin: 4px auto 0;
-    background: #d1d5db;
-}
-
 .expand-endpoint-verb {
     font-size: 0.65rem;
     font-weight: 700;
