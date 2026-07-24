@@ -1,3 +1,4 @@
 {
-  "port": 49155
+  "port": 49155,
+  "noGUI": false
 }
