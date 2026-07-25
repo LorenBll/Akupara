@@ -119,6 +119,7 @@
         var _selectedCardHashes = {};
         var _checkboxVisible = false;
         var _checkboxShowTimer = null;
+        var _selectionAnchor = null;
         function toggleSortHealthBtn(el, show) {
             if (!el) return;
             if (show) {
@@ -1006,6 +1007,7 @@
         function _clearCheckboxSelection() {
             _selectedCardHashes = {};
             _checkboxVisible = false;
+            _selectionAnchor = null;
             _syncCheckboxUI();
         }
 
@@ -2125,8 +2127,31 @@
                 e.stopPropagation();
                 var hash = checkboxEl.getAttribute('data-card-hash');
                 if (hash) {
-                    _selectedCardHashes[hash] = !_selectedCardHashes[hash];
-                    if (!_selectedCardHashes[hash]) delete _selectedCardHashes[hash];
+                    if (e.shiftKey && _selectionAnchor && _selectionAnchor !== hash) {
+                        _selectedCardHashes = {};
+                        var cards = document.querySelectorAll('.service-card:not([style*="display: none"])');
+                        var anchorIdx = -1, clickIdx = -1;
+                        cards.forEach(function(c, i) {
+                            var ch = c.getAttribute('data-hash');
+                            if (ch === _selectionAnchor) anchorIdx = i;
+                            if (ch === hash) clickIdx = i;
+                        });
+                        if (anchorIdx >= 0 && clickIdx >= 0) {
+                            var start = Math.min(anchorIdx, clickIdx);
+                            var end = Math.max(anchorIdx, clickIdx);
+                            for (var i = start; i <= end; i++) {
+                                var ch = cards[i].getAttribute('data-hash');
+                                if (ch) _selectedCardHashes[ch] = true;
+                            }
+                        } else {
+                            _selectionAnchor = hash;
+                            _selectedCardHashes[hash] = true;
+                        }
+                    } else {
+                        _selectionAnchor = hash;
+                        _selectedCardHashes[hash] = !_selectedCardHashes[hash];
+                        if (!_selectedCardHashes[hash]) delete _selectedCardHashes[hash];
+                    }
                 }
                 _checkboxVisible = true;
                 _syncCheckboxUI();
@@ -2229,8 +2254,31 @@
                 if (clickedCard && cardCount > 1 && !clickedCard.classList.contains('expanded')) {
                     var h = clickedCard.getAttribute('data-hash');
                     if (h) {
-                        _selectedCardHashes[h] = !_selectedCardHashes[h];
-                        if (!_selectedCardHashes[h]) delete _selectedCardHashes[h];
+                        if (e.shiftKey && _selectionAnchor && _selectionAnchor !== h) {
+                            _selectedCardHashes = {};
+                            var cards = document.querySelectorAll('.service-card:not([style*="display: none"])');
+                            var anchorIdx = -1, clickIdx = -1;
+                            cards.forEach(function(c, i) {
+                                var ch = c.getAttribute('data-hash');
+                                if (ch === _selectionAnchor) anchorIdx = i;
+                                if (ch === h) clickIdx = i;
+                            });
+                            if (anchorIdx >= 0 && clickIdx >= 0) {
+                                var start = Math.min(anchorIdx, clickIdx);
+                                var end = Math.max(anchorIdx, clickIdx);
+                                for (var i = start; i <= end; i++) {
+                                    var ch = cards[i].getAttribute('data-hash');
+                                    if (ch) _selectedCardHashes[ch] = true;
+                                }
+                            } else {
+                                _selectionAnchor = h;
+                                _selectedCardHashes[h] = true;
+                            }
+                        } else {
+                            _selectionAnchor = h;
+                            _selectedCardHashes[h] = !_selectedCardHashes[h];
+                            if (!_selectedCardHashes[h]) delete _selectedCardHashes[h];
+                        }
                         _checkboxVisible = true;
                         _syncCheckboxUI();
                     }
