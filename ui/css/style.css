@@ -831,6 +831,7 @@ body.has-error::before {
     gap: 8px;
     min-height: 145px;
     transition: opacity 0.1s ease;
+    user-select: none;
 }
 
 .content.expanded .service-card:not(.expanded):not(.expanding),
