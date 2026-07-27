@@ -250,6 +250,18 @@ body.has-error::before {
     background: #fef2f2 !important;
 }
 
+.restart-btn {
+    color: #2563eb;
+}
+
+.restart-btn:hover {
+    color: #2563eb;
+}
+
+#restartButton:hover {
+    background: #eff6ff !important;
+}
+
 
 
 .sort-items-casing {

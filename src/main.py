@@ -1912,7 +1912,7 @@ def api_key_reject():
 
 
 @app.route("/api/shutdown", methods=["POST", "HEAD", "OPTIONS"])
-def shutdown():
+def terminate_server():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
@@ -1936,6 +1936,40 @@ def shutdown():
     threading.Thread(target=_shutdown, daemon=True).start()
     logger.info("Server shutdown initiated")
     return _success_response({"status": "shutdown"})
+
+
+@app.route("/api/restart", methods=["POST", "HEAD", "OPTIONS"])
+def restart_server():
+    if request.method == "OPTIONS":
+        return _options_response(["POST", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    payload = request.get_json(silent=True) or {}
+    if not _is_authorized(payload):
+        logger.warning("Unauthorized attempt to restart the server")
+        return _error_response("API key is not valid.", 403)
+
+    environ = request.environ
+    script = os.path.join(os.path.dirname(__file__), "main.py")
+
+    def _restart():
+        time.sleep(0.5)
+        subprocess.Popen(
+            [sys.executable, script],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
+        time.sleep(1)
+        func = environ.get("werkzeug.server.shutdown")
+        if func:
+            func()
+        else:
+            os._exit(0)
+
+    threading.Thread(target=_restart, daemon=True).start()
+    logger.info("Server restart initiated")
+    return _success_response({"status": "restart"})
 
 
 def _register_ui_routes(app_instance: Flask) -> None:
