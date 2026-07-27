@@ -5,7 +5,12 @@ ServiceHandler is a local web service registry with a web UI. It solves the prob
 ## About
 ServiceHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time ServiceHandler starts. A background health-check thread pings registered clients every 15 seconds and identifies unreachable ones.
 
-The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking the sort order and group-by of columns, a health-check button, and checkbox-based batch selection for bulk actions.
+The web UI serves two pages:
+
+- **Dashboard** (`/`) — `ui/pages/index.html` displays a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking sort order and group-by, a health-check button, and checkbox-based batch selection for bulk actions.
+- **Settings** (`/settings`) — `ui/pages/settings.html` provides auto-protect and auto-restart configuration via tag-cloud inputs, and a shutdown button.
+
+Page transitions use a fade-out animation triggered by the `page-exit` CSS class, with `sessionStorage._navFromApp` signalling the incoming page to skip initial hidden-state animations.
 
 **Features:**
 
@@ -17,6 +22,9 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 - **Health check** — global button re-checks all services (shows a spinner, then updates card colours, buttons, and grid positions in-place). A background health-check loop runs automatically every 15 seconds. Per-card health endpoint refreshes expanded content in-place. When services are selected via checkboxes, health check runs only on the selected subset and clears the selection afterward.
 - **Batch selection** — hover over any card to reveal checkboxes; click to select individual cards. When one or more cards are selected, the search bar is replaced by Terminate Selected Services and Restart Selected Services buttons that span the card grid. Press Escape to clear selection.
 - **Broken service management** — broken services shown with red styling immediately. "Forget All Broken Services" and "Restart All Broken Services" buttons for bulk actions.
+- **Auto-Protect** — services matching names in the auto-protect list are automatically marked as protected on registration. Managed via the Settings page or `GET/PUT /api/settings/auto-protect`.
+- **Auto-Restart** — services matching names in the auto-restart list are automatically restarted when they fail a health check. Managed via the Settings page or `GET/PUT /api/settings/auto-restart`.
+- **Shutdown button** — a pill-shaped button on the Settings page that sends `POST /api/shutdown` to stop the ServiceHandler process.
 - **Keyboard shortcuts** — search auto-focused on load. Escape clears checkbox selection, closes expanded card, sort menu, or filter menu. Tab navigates filter inputs in column-major order.
 
 > **Safety notice**: ServiceHandler is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
@@ -35,6 +43,8 @@ The web UI (`ui/pages/index.html`) displays a dashboard with a status pill, a se
 | `SH_SORT_ORDER` | JSON array of column keys for the UI sort order. Persisted across restarts. |
 | `SH_GROUP_BY` | Key to group services by in the UI (e.g. `protected`, `status`). Persisted across restarts. |
 | `SH_ORIGINAL_SORT_ORDER` | JSON array for the ungrouped sort order baseline. Persisted across restarts. |
+| `SH_AUTO_PROTECT_SERVICES` | JSON array of service names that are automatically protected on registration. Persisted across restarts. |
+| `SH_AUTO_RESTART_SERVICES` | JSON array of service names that are automatically restarted when they fail a health check. Persisted across restarts. |
 
 ### API Key Persistence (Optional)
 
@@ -86,6 +96,13 @@ These restrictions apply to the main HTTP method only; `HEAD` and `OPTIONS` are 
 
 ### `GET /` (also `HEAD`, `OPTIONS`)
 Serves the web UI dashboard (`ui/pages/index.html`).
+- Auth: local-device only (no API key required)
+- Body: none
+- Returns:
+	- `200` -> `text/html`
+
+### `GET /settings` (also `HEAD`, `OPTIONS`)
+Serves the settings page (`ui/pages/settings.html`) with auto-protect and auto-restart configuration widgets and a shutdown button.
 - Auth: local-device only (no API key required)
 - Body: none
 - Returns:
@@ -584,6 +601,62 @@ Shuts down the ServiceHandler service.
 		}
 		```
 	- `403` -> `{ "error": "API key is not valid." }`
+
+### `GET /api/settings/auto-protect` (also `HEAD`, `OPTIONS`)
+Returns the list of service names that are automatically protected on registration.
+- Auth: local-device only (no API key required)
+- Body: none
+- Returns:
+	- `200` ->
+		```json
+		{
+			"services": ["service-a", "service-b"]
+		}
+		```
+
+### `PUT /api/settings/auto-protect` (also `HEAD`, `OPTIONS`)
+Updates the list of service names that are automatically protected on registration. The provided services are sorted alphabetically and duplicate names (after stripping whitespace) are rejected.
+- Auth: local-device only (no API key required)
+- Body (JSON object):
+	- `services` (array of strings, required): list of service names.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"services": ["service-a", "service-b"]
+		}
+		```
+	- `400` -> `{ "error": "services must be a non-empty list." }`
+	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
+	- `400` -> `{ "error": "Each service name must be a non-empty string." }`
+
+### `GET /api/settings/auto-restart` (also `HEAD`, `OPTIONS`)
+Returns the list of service names that are automatically restarted when they fail a health check.
+- Auth: local-device only (no API key required)
+- Body: none
+- Returns:
+	- `200` ->
+		```json
+		{
+			"services": ["service-a", "service-b"]
+		}
+		```
+
+### `PUT /api/settings/auto-restart` (also `HEAD`, `OPTIONS`)
+Updates the list of service names that are automatically restarted when they fail a health check. The provided services are sorted alphabetically and duplicate names (after stripping whitespace) are rejected.
+- Auth: local-device only (no API key required)
+- Body (JSON object):
+	- `services` (array of strings, required): list of service names.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"services": ["service-a", "service-b"]
+		}
+		```
+	- `400` -> `{ "error": "services must be a non-empty list." }`
+	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
+	- `400` -> `{ "error": "Each service name must be a non-empty string." }`
 
 ### `POST /api/service/protect` (also `HEAD`, `OPTIONS`)
 Flags a registered service as protected. Protected services cannot be terminated, restarted, or forgotten by anyone.

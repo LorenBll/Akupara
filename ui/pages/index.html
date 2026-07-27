@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ServiceHandler</title>
     <link rel="stylesheet" href="css/style.css">
+    <script>if (sessionStorage._navFromApp === 'true') { document.write('<style>.title, #pill, .settings-btn { opacity: 1 !important; transform: none !important; }</style>'); document.documentElement.dataset.navFromApp = 'true'; sessionStorage._navFromApp = ''; }</script>
 </head>
 <body>
     <div class="page">
@@ -18,8 +19,8 @@
                     <div class="pill-item"><span class="pill-label">status</span><span class="pill-value">--</span></div>
                     <div class="pill-item"><span class="pill-label">registered clients</span><span class="pill-value">--</span></div>
                 </div>
-                <button class="health-decoration shutdown-btn init-hidden" data-label="Shut Down ServiceHandler">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+                <button class="health-decoration settings-btn init-hidden" data-label="Settings">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
                 </button>
             </div>
         </div>
@@ -1442,8 +1443,10 @@
         }
         });
 
-        document.querySelector('.shutdown-btn').addEventListener('click', function() {
-            fetch('/api/shutdown', { method: 'POST' }).catch(function() {});
+        document.querySelector('.settings-btn').addEventListener('click', function() {
+            sessionStorage._navFromApp = 'true';
+            document.body.classList.add('page-exit');
+            setTimeout(function() { window.location.href = '/settings'; }, 200);
         });
 
         document.querySelector('.broken-forget-btn').addEventListener('click', function() {
@@ -1886,22 +1889,31 @@
 
         function triggerLoadInAnimation() {
             var items = [];
+            var navFromApp = document.documentElement.dataset.navFromApp === 'true';
+            var delayShift = navFromApp ? -0.30 : 0;
 
-            items.push({ el: document.querySelector('.title'), delay: 0 });
-            items.push({ el: document.getElementById('pill'), delay: 0.15 });
-            items.push({ el: document.querySelector('.shutdown-btn'), delay: 0.15 });
-            items.push({ el: document.querySelector('.sort-decoration'), delay: 0.3 });
-            items.push({ el: document.querySelector('#healthButton > .health-decoration:first-child'), delay: 0.3 });
-            items.push({ el: document.querySelector('.broken-forget-btn'), delay: 0.45 });
-            items.push({ el: document.querySelector('.broken-restart-btn'), delay: 0.45 });
-            items.push({ el: document.getElementById('searchBar'), delay: 0.3 });
-            items.push({ el: document.getElementById('sortItemsCasing'), delay: 0.3 });
+            if (navFromApp) {
+                var skipEls = [document.querySelector('.title'), document.getElementById('pill'), document.querySelector('.settings-btn')];
+                skipEls.forEach(function(el) {
+                    if (el) { el.classList.remove('init-hidden'); el.classList.remove('load-in'); el.style.animationDelay = ''; }
+                });
+            } else {
+                items.push({ el: document.querySelector('.title'), delay: 0 });
+                items.push({ el: document.getElementById('pill'), delay: 0.15 });
+                items.push({ el: document.querySelector('.settings-btn'), delay: 0.15 });
+            }
+            items.push({ el: document.querySelector('.sort-decoration'), delay: 0.3 + delayShift });
+            items.push({ el: document.querySelector('#healthButton > .health-decoration:first-child'), delay: 0.3 + delayShift });
+            items.push({ el: document.querySelector('.broken-forget-btn'), delay: 0.45 + delayShift });
+            items.push({ el: document.querySelector('.broken-restart-btn'), delay: 0.45 + delayShift });
+            items.push({ el: document.getElementById('searchBar'), delay: 0.3 + delayShift });
+            items.push({ el: document.getElementById('sortItemsCasing'), delay: 0.3 + delayShift });
 
             var emptyState = document.querySelector('.empty-state');
-            if (emptyState) items.push({ el: emptyState, delay: 0.3 });
+            if (emptyState) items.push({ el: emptyState, delay: 0.3 + delayShift });
 
             document.querySelectorAll('.group-header').forEach(function(h) {
-                items.push({ el: h, delay: 0.3 });
+                items.push({ el: h, delay: 0.3 + delayShift });
             });
 
             var groupSections = document.querySelectorAll('.group-section');
@@ -1909,13 +1921,13 @@
                 groupSections.forEach(function(section) {
                     var cards = section.querySelectorAll('.service-card');
                     cards.forEach(function(card, i) {
-                        items.push({ el: card, delay: 0.45 + i * 0.15 });
+                        items.push({ el: card, delay: 0.45 + i * 0.15 + delayShift });
                     });
                 });
             } else {
                 var cards = document.querySelectorAll('.service-card');
                 cards.forEach(function(card, i) {
-                    items.push({ el: card, delay: 0.3 + i * 0.15 });
+                    items.push({ el: card, delay: 0.3 + i * 0.15 + delayShift });
                 });
             }
 
@@ -2692,7 +2704,7 @@
                     item('registered clients', d.registered_clients);
                 var content = document.getElementById('content');
                 var pw = document.querySelector('.pill').offsetWidth;
-                var shutBtn = document.querySelector('.shutdown-btn');
+                var shutBtn = document.querySelector('.settings-btn');
                 var btnW = shutBtn ? shutBtn.offsetWidth : 42;
                 var rowW = pw + 10 + btnW;
                 content.style.width = rowW + 'px';
@@ -2735,7 +2747,7 @@
                     item('registered clients', 'error');
                 var content = document.getElementById('content');
                 var pw = document.querySelector('.pill').offsetWidth;
-                var shutBtn = document.querySelector('.shutdown-btn');
+                var shutBtn = document.querySelector('.settings-btn');
                 var btnW = shutBtn ? shutBtn.offsetWidth : 42;
                 var rowW = pw + 10 + btnW;
                 content.style.width = rowW + 'px';
