@@ -85,6 +85,9 @@ def _resolve_pid(ip: str, port: int) -> int | None:
 SERVICE_HOST = None
 SERVICE_PORT = None
 
+AUTO_PROTECT_SERVICES: list[str] = []
+AUTO_RESTART_SERVICES: list[str] = []
+
 REGISTERED_CLIENTS: dict[str, dict] = {}
 REGISTERED_CLIENTS_LOCK = threading.Lock()
 
@@ -543,6 +546,8 @@ def _run_health_check() -> list[dict]:
     with REGISTERED_CLIENTS_LOCK:
         current_clients = dict(REGISTERED_CLIENTS)
 
+    auto_restart = _get_env_json_list("SH_AUTO_RESTART_SERVICES", [])
+
     unhealthy = []
     for client_hash, client_data in current_clients.items():
         ip = client_data.get("ip", "127.0.0.1")
@@ -553,6 +558,35 @@ def _run_health_check() -> list[dict]:
                 f"Client '{client_data.get('name', 'unknown')}' "
                 f"({client_hash[:8]}...) unhealthy (health check failed)"
             )
+
+            name = client_data.get("name", "")
+            script_path = client_data.get("starting_script", "")
+            if (
+                name in auto_restart
+                and isinstance(script_path, str)
+                and script_path.strip()
+            ):
+                logger.info(
+                    f"Auto-restarting '{name}' ({client_hash[:8]}...)"
+                )
+                pid = _extract_pid(client_data)
+                if pid is not None:
+                    try:
+                        _kill_pid(pid)
+                    except subprocess.CalledProcessError:
+                        pass
+                with REGISTERED_CLIENTS_LOCK:
+                    REGISTERED_CLIENTS.pop(client_hash, None)
+                try:
+                    _launch_script(script_path)
+                    logger.info(
+                        f"Auto-restarted '{name}' with script "
+                        f"'{script_path}'"
+                    )
+                except Exception as exc:
+                    logger.error(
+                        f"Failed to auto-restart '{name}': {exc}"
+                    )
 
     return unhealthy
 
@@ -642,6 +676,16 @@ def index():
     web_dir = _PROJECT_ROOT / "ui" / "pages"
     logger.info("Serving index page")
     return send_from_directory(web_dir, "index.html")
+
+
+def settings():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+    web_dir = _PROJECT_ROOT / "ui" / "pages"
+    logger.info("Serving settings page")
+    return send_from_directory(web_dir, "settings.html")
 
 
 def css_files(filename):
@@ -766,6 +810,12 @@ def register():
 
     with REGISTERED_CLIENTS_LOCK:
         REGISTERED_CLIENTS[client_hash] = client_data
+
+    auto_protect = _get_env_json_list("SH_AUTO_PROTECT_SERVICES", [])
+    if name.strip() in auto_protect:
+        with REGISTERED_CLIENTS_LOCK:
+            REGISTERED_CLIENTS[client_hash]["protected"] = True
+        logger.info(f"Auto-protected service '{name.strip()}'")
 
     _add_to_service_name_index(name.strip(), client_hash)
 
@@ -1228,6 +1278,66 @@ def sort_order():
         resp["original_sort_order"] = original_sort_order_val
     logger.info(f"Sort settings updated: sort_order={sort_order_val}, group_by={group_by_val}")
     return _success_response(resp)
+
+
+@app.route("/api/settings/auto-protect", methods=["GET", "PUT", "HEAD", "OPTIONS"])
+def auto_protect_settings():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    if not _is_localhost_request():
+        return _error_response("Only accessible from the local device.", 403)
+
+    if request.method == "GET":
+        services = _get_env_json_list("SH_AUTO_PROTECT_SERVICES", [])
+        return _success_response({"services": services})
+
+    payload = request.get_json(silent=True) or {}
+    services = payload.get("services") if isinstance(payload, dict) else None
+    if not isinstance(services, list):
+        return _error_response("services must be a JSON array.")
+    if not all(isinstance(s, str) for s in services):
+        return _error_response("Each service name must be a string.")
+
+    stripped = [s.strip() for s in services]
+    if len(stripped) != len(set(stripped)):
+        return _error_response("Duplicate service names are not allowed.")
+
+    _set_env_var("SH_AUTO_PROTECT_SERVICES", json.dumps(stripped))
+    logger.info(f"Auto-protect services updated: {stripped}")
+    return _success_response({"services": stripped})
+
+
+@app.route("/api/settings/auto-restart", methods=["GET", "PUT", "HEAD", "OPTIONS"])
+def auto_restart_settings():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    if not _is_localhost_request():
+        return _error_response("Only accessible from the local device.", 403)
+
+    if request.method == "GET":
+        services = _get_env_json_list("SH_AUTO_RESTART_SERVICES", [])
+        return _success_response({"services": services})
+
+    payload = request.get_json(silent=True) or {}
+    services = payload.get("services") if isinstance(payload, dict) else None
+    if not isinstance(services, list):
+        return _error_response("services must be a JSON array.")
+    if not all(isinstance(s, str) for s in services):
+        return _error_response("Each service name must be a string.")
+
+    stripped = [s.strip() for s in services]
+    if len(stripped) != len(set(stripped)):
+        return _error_response("Duplicate service names are not allowed.")
+
+    _set_env_var("SH_AUTO_RESTART_SERVICES", json.dumps(stripped))
+    logger.info(f"Auto-restart services updated: {stripped}")
+    return _success_response({"services": stripped})
 
 
 @app.route("/api/service/terminate", methods=["POST", "HEAD", "OPTIONS"])
@@ -1833,6 +1943,11 @@ def _register_ui_routes(app_instance: Flask) -> None:
     if NO_GUI:
         return
     app_instance.add_url_rule("/", methods=["GET", "HEAD", "OPTIONS"], view_func=index)
+    app_instance.add_url_rule(
+        "/settings",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=settings,
+    )
     app_instance.add_url_rule(
         "/css/<path:filename>",
         methods=["GET", "HEAD", "OPTIONS"],

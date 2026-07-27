@@ -246,6 +246,12 @@ body.has-error::before {
     color: #dc2626;
 }
 
+#shutdownButton:hover {
+    background: #fef2f2 !important;
+}
+
+
+
 .sort-items-casing {
     position: relative;
     border-radius: 12px;
@@ -484,6 +490,122 @@ body.has-error::before {
     margin-top: 24px;
     padding-bottom: 24px;
     position: relative;
+}
+
+.settings-card {
+    margin-top: 24px;
+    border-radius: 12px;
+    background: #f9fafb;
+    border: 1px solid #d1d5db;
+    min-height: 290px;
+    max-height: 400px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-card-tag-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    width: 25%;
+}
+
+.settings-card-tag-input-row input {
+    flex: 1;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #ffffff;
+    outline: none;
+    font-size: 0.8rem;
+    color: #374151;
+    padding: 6px 10px;
+    font-family: inherit;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.settings-card-tag-input-row input.input-error,
+.settings-card-tag-input-row input.input-error:focus {
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.8);
+    background: #fef2f2;
+    border-color: transparent;
+}
+
+.settings-card-tag-input-row input::placeholder {
+    color: #9ca3af;
+}
+
+.settings-card-tag-input-row input:focus {
+    border-color: #9ca3af;
+}
+
+.settings-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 2px;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+.settings-card-empty {
+    color: #9ca3af;
+    font-size: 1rem;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+}
+
+.settings-card-tags::-webkit-scrollbar {
+    display: none;
+}
+
+.settings-card-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    background: #ffffff;
+    font-size: 0.8rem;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.settings-card-tag-x {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    cursor: pointer;
+    color: #9ca3af;
+    transition: color 0.1s ease, background 0.1s ease;
+}
+
+.settings-card-tag-x:hover {
+    color: #dc2626;
+    background: #fef2f2;
+}
+
+.settings-card-tag.duplicate {
+    animation: tagDuplicateFlash 1.25s ease;
+}
+
+@keyframes tagDuplicateFlash {
+    0%, 100% { border-color: #d1d5db; box-shadow: none; }
+    10%, 40% { border-color: transparent; box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.8); background: #fef2f2; }
 }
 
 .content.expanded {
@@ -751,6 +873,24 @@ body.has-error::before {
 }
 
 
+
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.page-exit .content,
+.page-exit .search-area,
+.page-exit .settings-card,
+.page-exit #shutdownStrip,
+.page-exit #healthButton,
+.page-exit #sidebar,
+.page-exit .sort-decoration,
+.page-exit .broken-forget-btn,
+.page-exit .broken-restart-btn {
+    animation: fadeOut 0.2s ease forwards;
+    pointer-events: none;
+}
 
 @keyframes expandFadeIn {
     from { opacity: 0; }
@@ -1237,6 +1377,8 @@ body.has-error::before {
     color: inherit;
     text-decoration: none;
 }
+
+
 
 .pill-row {
     display: flex;
