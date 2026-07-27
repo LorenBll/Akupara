@@ -8,7 +8,7 @@ ServiceHandler is scoped to service registration and discovery on the local devi
 The web UI serves two pages:
 
 - **Dashboard** (`/`) — `ui/pages/index.html` displays a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking sort order and group-by, a health-check button, and checkbox-based batch selection for bulk actions.
-- **Settings** (`/settings`) — `ui/pages/settings.html` provides auto-protect and auto-restart configuration via tag-cloud inputs, and a shutdown button.
+- **Settings** (`/settings`) — `ui/pages/settings.html` provides auto-protect and auto-restart configuration via tag-cloud inputs, along with shutdown and restart buttons.
 
 Page transitions use a fade-out animation triggered by the `page-exit` CSS class, with `sessionStorage._navFromApp` signalling the incoming page to skip initial hidden-state animations.
 
@@ -24,7 +24,7 @@ Page transitions use a fade-out animation triggered by the `page-exit` CSS class
 - **Broken service management** — broken services shown with red styling immediately. "Forget All Broken Services" and "Restart All Broken Services" buttons for bulk actions.
 - **Auto-Protect** — services matching names in the auto-protect list are automatically marked as protected on registration. Managed via the Settings page or `GET/PUT /api/settings/auto-protect`.
 - **Auto-Restart** — services matching names in the auto-restart list are automatically restarted when they fail a health check. Managed via the Settings page or `GET/PUT /api/settings/auto-restart`.
-- **Shutdown button** — a pill-shaped button on the Settings page that sends `POST /api/shutdown` to stop the ServiceHandler process.
+- **Shutdown & Restart buttons** — pill-shaped buttons on the Settings page that send `POST /api/shutdown` to stop the ServiceHandler process or `POST /api/restart` to restart it.
 - **Keyboard shortcuts** — search auto-focused on load. Escape clears checkbox selection, closes expanded card, sort menu, or filter menu. Tab navigates filter inputs in column-major order.
 
 > **Safety notice**: ServiceHandler is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
@@ -81,7 +81,7 @@ Sensitive endpoints require a valid API key, with these exceptions:
 | **API key, localhost, or self-service** (POST) — accepts if any of: valid API key, localhost, or service acting on itself (hash is proof of identity) | `/api/service/terminate`, `/api/service/restart`, `/api/unregister/service`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck` |
 | **Strict localhost or valid API key** (GET) — localhost allowed for bootstrapping | `/api/api-key/pending` |
 | **Strict localhost or valid API key** (POST + involving_api_keys) — localhost allowed for bootstrapping | `/api/api-key/grant`, `/api/api-key/reject` |
-| **Valid API key or localhost** (POST) | `/api/shutdown` |
+| **Valid API key or localhost** (POST) | `/api/shutdown`, `/api/restart` |
 | **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question/service`, `GET /api/services` |
 | **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
 | **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints`, `POST /api/validate/json-body` |
@@ -598,6 +598,20 @@ Shuts down the ServiceHandler service.
 		```json
 		{
 			"status": "shutdown"
+		}
+		```
+	- `403` -> `{ "error": "API key is not valid." }`
+
+### `POST /api/restart` (also `HEAD`, `OPTIONS`)
+Restarts the ServiceHandler service by spawning a new process before shutting down the current one.
+- Auth: API key or localhost
+- Body (JSON object):
+	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"status": "restart"
 		}
 		```
 	- `403` -> `{ "error": "API key is not valid." }`
