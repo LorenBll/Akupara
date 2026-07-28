@@ -585,7 +585,7 @@ body.has-error::before {
     color: #374151;
     padding: 6px 10px;
     font-family: inherit;
-    transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .settings-card-tag-input-row input.input-error,
@@ -776,7 +776,7 @@ body.has-error::before {
     border-radius: 999px;
     background-color: rgba(0, 0, 0, 0.02);
     border: 1px solid rgba(0, 0, 0, 0.04);
-    animation: expandFadeIn 0.15s ease both;
+    animation: expandFadeIn 0.08s ease both;
 }
 
 .expand-info-item-full {
@@ -827,7 +827,7 @@ body.has-error::before {
     background-color: rgba(0, 0, 0, 0.02);
     padding: 10px 16px;
     gap: 8px;
-    animation: expandFadeIn 0.15s ease both;
+    animation: expandFadeIn 0.08s ease both;
 }
 
 .expand-endpoint-card-header {
@@ -951,7 +951,7 @@ body.has-error::before {
 .page-exit .sort-decoration,
 .page-exit .broken-forget-btn,
 .page-exit .broken-restart-btn {
-    animation: fadeOut 0.2s ease forwards;
+    animation: fadeOut 0.1s ease forwards;
     pointer-events: none;
 }
 
@@ -967,7 +967,7 @@ body.has-error::before {
 
 .load-in {
     opacity: 0;
-    animation: slideUpFadeIn 0.4s ease both;
+    animation: slideUpFadeIn 0.2s ease both;
 }
 
 .init-hidden {
@@ -1007,7 +1007,7 @@ body.has-error::before {
 }
 
 .expand-empty-drop {
-    animation: expandEmptyDrop 0.35s ease both;
+    animation: expandEmptyDrop 0.2s ease both;
 }
 
 @keyframes expandEmptyDrop {
@@ -1804,7 +1804,7 @@ body.has-error::before {
 .card-checkbox.visible {
     opacity: 1;
     pointer-events: auto;
-    animation: checkbox-wiggle 0.4s ease;
+    animation: checkbox-wiggle 0.25s ease;
 }
 
 @keyframes checkbox-wiggle {
@@ -1868,7 +1868,7 @@ body.checkbox-active .service-card .card-btn-blue {
     display: flex;
     gap: 8px;
     width: 100%;
-    animation: apiKeyFadeIn 0.25s ease;
+    animation: apiKeyFadeIn 0.12s ease;
 }
 
 @keyframes apiKeyFadeIn {
@@ -1882,7 +1882,7 @@ body.checkbox-active .service-card .card-btn-blue {
 }
 
 .card-api-key-buttons.api-key-fade-out {
-    animation: apiKeyFadeOut 0.3s ease both;
+    animation: apiKeyFadeOut 0.15s ease both;
 }
 
 .card-api-key-buttons .card-btn {

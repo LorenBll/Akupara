@@ -1451,7 +1451,7 @@
         document.querySelector('.settings-btn').addEventListener('click', function() {
             sessionStorage._navFromApp = 'true';
             document.body.classList.add('page-exit');
-            setTimeout(function() { window.location.href = '/settings'; }, 200);
+            setTimeout(function() { window.location.href = '/settings'; }, 100);
         });
 
         document.querySelector('.broken-forget-btn').addEventListener('click', function() {
@@ -1610,8 +1610,8 @@
                             if (cs) cs.remove();
                             document.body.classList.remove('collapsing');
                             if (onComplete) onComplete();
-                        }, 150);
-                    }, 150);
+                        }, 100);
+                    }, 100);
                 } else {
                     if (onComplete) onComplete();
                 }
@@ -2482,7 +2482,7 @@
             if (this.classList.contains('animating')) return;
             this.classList.add('animating');
             var self = this;
-            setTimeout(function() { self.classList.remove('animating'); }, 200);
+            setTimeout(function() { self.classList.remove('animating'); }, 100);
             var sb = document.getElementById('searchBar');
             if (sb.classList.contains('expanded-vertical')) {
                 sb.classList.remove('expanded-vertical');
@@ -2490,7 +2490,7 @@
                 setTimeout(function() {
                     sb.classList.remove('expanded');
                     filterCards();
-                }, 150);
+                }, 80);
             } else if (sb.classList.contains('expanded')) {
                 sb.classList.add('expanded-vertical');
                 refreshFilterPlaceholders();
@@ -2503,7 +2503,7 @@
                     refreshFilterPlaceholders();
                     document.getElementById('searchToggle').setAttribute('data-label', 'Collapse');
                     filterCards();
-                }, 150);
+                }, 80);
             }
         });
 
@@ -2680,7 +2680,7 @@
                     setTimeout(function() {
                         sb.classList.remove('expanded');
                         filterCards();
-                    }, 150);
+                    }, 80);
                     return;
                 }
             }
