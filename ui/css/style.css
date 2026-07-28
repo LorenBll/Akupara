@@ -198,6 +198,46 @@ body.has-error::before {
     color: #374151;
 }
 
+.home-btn,
+.settings-btn {
+    background: none;
+    border: none;
+    border-radius: 999px;
+    padding: 4px 8px;
+    width: auto;
+    height: auto;
+    color: #6b7280;
+}
+
+.home-btn:hover,
+.settings-btn:hover {
+    color: #374151;
+}
+
+.home-btn svg,
+.settings-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.home-btn.is-active,
+.settings-btn.is-active {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.hero-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    background: #f9fafb;
+    margin-top: 8px;
+}
+
 .broken-forget-btn,
 .broken-restart-btn {
     opacity: 1;
@@ -236,6 +276,11 @@ body.has-error::before {
     pointer-events: none;
     z-index: 2147483647;
     text-transform: capitalize;
+}
+
+.home-btn:not(.is-active):hover::after {
+    left: auto;
+    right: calc(100% + 10px);
 }
 
 .shutdown-btn {
@@ -499,13 +544,14 @@ body.has-error::before {
     -ms-overflow-style: none;
     flex: 1;
     min-height: 0;
-    margin-top: 24px;
+    margin-top: 8px;
     padding-bottom: 24px;
     position: relative;
+    width: 100%;
 }
 
 .settings-card {
-    margin-top: 24px;
+    margin-top: 8px;
     border-radius: 12px;
     background: #f9fafb;
     border: 1px solid #d1d5db;
@@ -514,6 +560,11 @@ body.has-error::before {
     padding: 14px 18px;
     display: flex;
     flex-direction: column;
+    width: 100%;
+}
+
+#shutdownStrip {
+    width: 100%;
 }
 
 .settings-card-tag-input-row {
@@ -1015,6 +1066,17 @@ body.has-error::before {
     transition: font-size 0.12s ease;
 }
 
+.collapse-spinner-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.7);
+    z-index: 100;
+    pointer-events: none;
+}
+
 .card-buttons .card-btn {
 }
 
@@ -1396,6 +1458,7 @@ body.has-error::before {
     display: flex;
     align-items: center;
     gap: 10px;
+    width: 100%;
 }
 
 .pill {
@@ -1409,6 +1472,7 @@ body.has-error::before {
     background: #f9fafb;
     max-width: 100%;
     overflow-x: auto;
+    flex: 1;
 }
 
 .pill-item {

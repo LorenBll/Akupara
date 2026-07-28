@@ -5,16 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ServiceHandler</title>
     <link rel="stylesheet" href="css/style.css">
-    <script>if (sessionStorage._navFromApp === 'true') { document.write('<style>.title, #pill, .home-btn { opacity: 1 !important; transform: none !important; }</style>'); document.documentElement.dataset.navFromApp = 'true'; sessionStorage._navFromApp = ''; }</script>
+    <script>if (sessionStorage._navFromApp === 'true') { document.write('<style>.title, #pill, .hero-buttons { opacity: 1 !important; transform: none !important; }</style>'); document.documentElement.dataset.navFromApp = 'true'; sessionStorage._navFromApp = ''; }</script>
 </head>
 <body>
     <div class="page">
         <div class="hero">
             <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/ServiceHandler" target="_blank" class="title-link">ServiceHandler</a></h1>
             <div class="pill-row">
-                <button class="health-decoration home-btn init-hidden" data-label="Home">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V10"/></svg>
-                </button>
                 <div class="pill init-hidden" id="pill">
                     <div class="pill-item"><span class="pill-label">bind address</span><span class="pill-value">--</span></div>
                     <div class="pill-item"><span class="pill-label">hostname</span><span class="pill-value">--</span></div>
@@ -22,6 +19,14 @@
                     <div class="pill-item"><span class="pill-label">status</span><span class="pill-value">--</span></div>
                     <div class="pill-item"><span class="pill-label">registered clients</span><span class="pill-value">--</span></div>
                 </div>
+            </div>
+            <div class="hero-buttons init-hidden">
+                <button class="health-decoration home-btn" data-label="Home">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V10"/></svg>
+                </button>
+                <button class="health-decoration settings-btn is-active" data-label="Settings">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
             </div>
         </div>
         <div class="settings-card init-hidden" id="settingsCard">
@@ -69,18 +74,18 @@
             var delayShift = navFromApp ? -0.30 : 0;
 
             if (navFromApp) {
-                var skipEls = [document.querySelector('.title'), document.getElementById('pill'), document.querySelector('.home-btn')];
+                var skipEls = [document.querySelector('.title'), document.getElementById('pill'), document.querySelector('.hero-buttons')];
                 skipEls.forEach(function(el) {
                     if (el) { el.classList.remove('init-hidden'); el.classList.remove('load-in'); el.style.animationDelay = ''; }
                 });
             } else {
                 items.push({ el: document.querySelector('.title'), delay: 0 });
                 items.push({ el: document.getElementById('pill'), delay: 0.15 });
-                items.push({ el: document.querySelector('.home-btn'), delay: 0.15 });
+                items.push({ el: document.querySelector('.hero-buttons'), delay: 0.30 });
             }
-            items.push({ el: document.getElementById('shutdownStrip'), delay: 0.60 + delayShift });
-            items.push({ el: document.getElementById('settingsCard'), delay: 0.30 + delayShift });
-            items.push({ el: document.getElementById('settingsCard2'), delay: 0.45 + delayShift });
+            items.push({ el: document.getElementById('shutdownStrip'), delay: 0.90 + delayShift });
+            items.push({ el: document.getElementById('settingsCard'), delay: 0.60 + delayShift });
+            items.push({ el: document.getElementById('settingsCard2'), delay: 0.75 + delayShift });
             requestAnimationFrame(function() {
                 items.forEach(function(item) {
                     if (!item.el) return;
@@ -329,17 +334,6 @@
                 if (d.status !== 'ok') {
                     document.body.classList.add('has-error');
                 }
-                var pw = document.querySelector('.pill').offsetWidth;
-                var homeBtn = document.querySelector('.home-btn');
-                var btnW = homeBtn ? homeBtn.offsetWidth : 42;
-                var rowW = pw + 10 + btnW;
-                document.querySelector('.pill-row').style.width = rowW + 'px';
-                var card = document.getElementById('settingsCard');
-                card.style.width = rowW + 'px';
-                var card2 = document.getElementById('settingsCard2');
-                card2.style.width = rowW + 'px';
-                var ss = document.getElementById('shutdownStrip');
-                if (ss) ss.style.width = rowW + 'px';
                 fetch('/api/settings/auto-protect').then(function(r) { return r.json(); }).then(function(d) { renderAutoProtectTags(d.services); }).catch(function() {});
                 fetch('/api/settings/auto-restart').then(function(r) { return r.json(); }).then(function(d) { renderAutoRestartTags(d.services); }).catch(function() {});
                 triggerLoadInAnimation();
@@ -352,19 +346,6 @@
                     item('pid', 'error') +
                     item('status', 'ERROR', 'status-error') +
                     item('registered clients', 'error');
-                var pw = document.querySelector('.pill').offsetWidth;
-                var homeBtn = document.querySelector('.home-btn');
-                var btnW = homeBtn ? homeBtn.offsetWidth : 42;
-                var rowW = pw + 10 + btnW;
-                document.querySelector('.pill-row').style.width = rowW + 'px';
-                var card = document.getElementById('settingsCard');
-                card.style.width = rowW + 'px';
-                var card2 = document.getElementById('settingsCard2');
-                card2.style.width = rowW + 'px';
-                var ss = document.getElementById('shutdownStrip');
-                if (ss) ss.style.width = rowW + 'px';
-                fetch('/api/settings/auto-protect').then(function(r) { return r.json(); }).then(function(d) { renderAutoProtectTags(d.services); }).catch(function() {});
-                fetch('/api/settings/auto-restart').then(function(r) { return r.json(); }).then(function(d) { renderAutoRestartTags(d.services); }).catch(function() {});
                 triggerLoadInAnimation();
             });
     </script>
