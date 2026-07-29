@@ -643,6 +643,13 @@ body.has-error::before {
     font-size: 0.8rem;
     color: #374151;
     white-space: nowrap;
+    cursor: default;
+    transition: background 0.1s ease, border-color 0.1s ease;
+}
+
+.settings-card-tag:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
 }
 
 .settings-card-tag-x {
