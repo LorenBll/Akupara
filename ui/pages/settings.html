@@ -147,6 +147,7 @@
             }).then(function(r) { if (r) return r.json(); }).then(function(d) {
                 if (d) renderAutoProtectTags(d.services);
             }).catch(function() {});
+            return true;
         }
 
         function flashInputError(input) {
@@ -213,6 +214,7 @@
             }).then(function(r) { if (r) return r.json(); }).then(function(d) {
                 if (d) renderAutoRestartTags(d.services);
             }).catch(function() {});
+            return true;
         }
 
         function renderAutoRestartTags(services) {
