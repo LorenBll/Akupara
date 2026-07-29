@@ -48,13 +48,11 @@
             <div class="settings-card-tags" id="autoRestartTags"></div>
         </div>
         <div class="init-hidden" id="shutdownStrip" style="display:flex;justify-content:flex-start;margin-top:18px;gap:10px;">
-            <button id="shutdownButton" class="shutdown-btn" style="display:flex;align-items:center;gap:8px;padding:10px 20px;border:1px solid #d1d5db;border-radius:999px;background:#f9fafb;cursor:pointer;color:#dc2626;font-family:inherit;font-size:0.8rem;transition:background 0.1s ease;">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>
-                Terminate ServiceHandler
+            <button id="shutdownButton" class="card-btn card-btn-red" data-label="Terminate ServiceHandler">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>
             </button>
-            <button id="restartButton" class="restart-btn" style="display:flex;align-items:center;gap:8px;padding:10px 20px;border:1px solid #d1d5db;border-radius:999px;background:#fef9c3;cursor:pointer;color:#ca8a04;font-family:inherit;font-size:0.8rem;transition:background 0.1s ease;">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-                Restart ServiceHandler
+            <button id="restartButton" class="card-btn card-btn-yellow" data-label="Restart ServiceHandler">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
             </button>
         </div>
     </div>
