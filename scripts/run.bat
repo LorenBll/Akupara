@@ -92,7 +92,7 @@ if %VERBOSE% equ 1 (
   echo.
   echo ServiceHandler starting...
   echo.
-  "%PYTHON_EXE%" src/main.py
+  "%PYTHON_EXE%" src/main.py --verbose
 ) else (
   start "" /B "%PYTHON_EXE%" src/main.py >nul 2>&1
   echo ServiceHandler started in background. Run 'run.bat --verbose' to see output.
