@@ -1183,11 +1183,11 @@ body.has-error::before {
     background: #fef2f2;
 }
 
-.service-card.service-card-protected:not(.expanded) {
+.service-card.service-card-protected {
     overflow: hidden;
 }
 
-.service-card.service-card-protected:not(.expanded)::before {
+.service-card.service-card-protected::before {
     content: '';
     position: absolute;
     top: 0;
@@ -1198,6 +1198,12 @@ body.has-error::before {
     animation: cardSheen 5s ease-in-out -2.5s infinite;
     pointer-events: none;
     z-index: 1;
+}
+
+.service-card.service-card-protected.expanded::before,
+.service-card.service-card-protected.expanding::before,
+.service-card.service-card-protected.expanding-height::before {
+    opacity: 0;
 }
 
 @keyframes cardSheen {
