@@ -1183,7 +1183,27 @@ body.has-error::before {
     background: #fef2f2;
 }
 
-.service-card.service-card-protected {
+.service-card.service-card-protected:not(.expanded) {
+    overflow: hidden;
+}
+
+.service-card.service-card-protected:not(.expanded)::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    animation: cardSheen 5s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 1;
+}
+
+@keyframes cardSheen {
+    0% { left: -100%; }
+    50% { left: 100%; }
+    100% { left: -100%; }
 }
 
 .card-top {
