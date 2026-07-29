@@ -1835,6 +1835,19 @@ body.has-error::before {
     border-color: #2563eb;
 }
 
+body.checkbox-active .service-card:not(.selected):not(.expanded) {
+    animation: cardWiggle 0.6s ease-in-out infinite;
+    transform-origin: center;
+}
+
+@keyframes cardWiggle {
+    0%, 100% { transform: rotate(0deg); }
+    20% { transform: rotate(0.6deg); }
+    40% { transform: rotate(-0.6deg); }
+    60% { transform: rotate(0.4deg); }
+    80% { transform: rotate(-0.4deg); }
+}
+
 body.checkbox-active .service-card .card-btn,
 body.checkbox-active .service-card .card-btn-blue {
     opacity: 0 !important;
