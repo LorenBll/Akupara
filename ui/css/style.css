@@ -283,28 +283,23 @@ body.has-error::before {
     right: calc(100% + 10px);
 }
 
-.shutdown-btn {
-    color: #dc2626;
+#shutdownStrip .card-btn {
+    height: 46px;
+    border-radius: 999px;
+    width: auto;
+    padding: 0 24px;
+    gap: 8px;
+    font-family: inherit;
+    font-size: 0.8rem;
 }
 
-.shutdown-btn:hover {
-    color: #dc2626;
+#shutdownStrip .card-btn svg {
+    width: 22px;
+    height: 22px;
 }
 
-#shutdownButton:hover {
-    background: #fef2f2 !important;
-}
-
-.restart-btn {
-    color: #ca8a04;
-}
-
-.restart-btn:hover {
-    color: #ca8a04;
-}
-
-#restartButton:hover {
-    background: #fef3c7 !important;
+#shutdownStrip .card-btn::after {
+    display: none;
 }
 
 
