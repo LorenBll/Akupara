@@ -296,15 +296,15 @@ body.has-error::before {
 }
 
 .restart-btn {
-    color: #2563eb;
+    color: #ca8a04;
 }
 
 .restart-btn:hover {
-    color: #2563eb;
+    color: #ca8a04;
 }
 
 #restartButton:hover {
-    background: #eff6ff !important;
+    background: #fef3c7 !important;
 }
 
 
