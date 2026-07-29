@@ -1,4 +1,4 @@
 {
   "port": 49155,
-  "noGUI": false
+  "guiEnabled": true
 }

@@ -49,4 +49,4 @@ python -m pip install --quiet -r requirements.txt
 
 # Start ServiceHandler.
 [ $VERBOSE -eq 1 ] && echo "" && echo "ServiceHandler starting..." && echo ""
-python src/main.py
+python src/main.py ${VERBOSE:+--verbose}

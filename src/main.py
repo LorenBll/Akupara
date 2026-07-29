@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import functools
 import hashlib
 import ipaddress
@@ -145,7 +146,7 @@ API_KEY_SESSION_READY: bool = False
 
 HEALTH_CHECK_INTERVAL_SECONDS = 15
 
-NO_GUI: bool = False
+GUI_ENABLED: bool = True
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 ENV_PATH = _PROJECT_ROOT / ".env"
@@ -392,7 +393,7 @@ def _check_authorization_all(payload):
 
 def _initialize_service_config() -> None:
     global SERVICE_HOST, SERVICE_PORT
-    global NO_GUI
+    global GUI_ENABLED
     config = _load_configuration()
 
     SERVICE_HOST = "127.0.0.1"
@@ -405,7 +406,7 @@ def _initialize_service_config() -> None:
 
     SERVICE_PORT = configured_port
 
-    NO_GUI = config.get("noGUI", False)
+    GUI_ENABLED = config.get("guiEnabled", True)
 
 
 def _extract_pid(client_data: dict) -> int | None:
@@ -615,7 +616,7 @@ app = Flask(__name__)
 
 @app.before_request
 def restrict_to_local_device() -> tuple | None:
-    if request.path.startswith("/api/") or (not NO_GUI and (request.path in ("/",) or request.path.startswith(("/ui/", "/css/")))):
+    if request.path.startswith("/api/") or (GUI_ENABLED and (request.path in ("/",) or request.path.startswith(("/ui/", "/css/")))):
         if not _is_local_request():
             return _error_response("Local device access only.", 403)
 
@@ -1973,8 +1974,7 @@ def restart_server():
 
 
 def _register_ui_routes(app_instance: Flask) -> None:
-    """Conditionally register UI-related routes when NO_GUI is False."""
-    if NO_GUI:
+    if not GUI_ENABLED:
         return
     app_instance.add_url_rule("/", methods=["GET", "HEAD", "OPTIONS"], view_func=index)
     app_instance.add_url_rule(
@@ -1995,12 +1995,17 @@ def _register_ui_routes(app_instance: Flask) -> None:
 
 
 if __name__ == "__main__":
-    try:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        )
+    parser = argparse.ArgumentParser(description="ServiceHandler")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose/debug logging")
+    args, _ = parser.parse_known_args()
 
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    try:
         _initialize_service_config()
         _register_ui_routes(app)
         _start_health_check_loop()
@@ -2015,10 +2020,10 @@ if __name__ == "__main__":
         logger.info("=" * 50)
         logger.info(f"Binding to: http://{SERVICE_HOST}:{SERVICE_PORT}")
         logger.info(f"Clients registered in memory: {len(REGISTERED_CLIENTS)}")
-        if NO_GUI:
-            logger.info("GUI: disabled")
-        else:
+        if GUI_ENABLED:
             logger.info("GUI: enabled")
+        else:
+            logger.info("GUI: disabled")
         logger.info("Server starting...")
 
         app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)

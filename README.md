@@ -3,6 +3,7 @@
 ServiceHandler is a local web service registry with a web UI. It solves the problem of registering named services on the local machine so clients can look up each other by name, port, and metadata through a small HTTP API.
 
 ## About
+
 ServiceHandler is scoped to service registration and discovery on the local device. The service binds to `127.0.0.1` on port `49155` and rejects API calls that do not come from the local device. Registered clients are kept in memory only — each service must re-register every time ServiceHandler starts. A background health-check thread pings registered clients every 15 seconds and identifies unreachable ones.
 
 The web UI serves two pages:
@@ -30,6 +31,7 @@ Page transitions use a fade-out animation triggered by the `page-exit` CSS class
 > **Safety notice**: ServiceHandler is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
 
 ## Setup
+
 1. Install Python dependencies: `pip install -r requirements.txt`.
 2. Review `resources/configuration.json` if you want to change the port. Set `SH_API_KEYS` and other settings in `.env` (see below).
 3. Leave the project structure intact so the service can find `resources/` and `src/`.
@@ -39,7 +41,7 @@ Page transitions use a fade-out animation triggered by the `page-exit` CSS class
 | Variable | Description |
 |----------|-------------|
 | `SH_API_KEYS` | JSON object mapping service names to plain API keys. Loaded at session initialization. API keys are stored as plain text in `.env`. |
-| `SH_NO_GUI` | *(Deprecated — use `"noGUI"` in `resources/configuration.json`)* Set to `true` to disable all UI-related endpoints. Default: `false`. |
+| `SH_NO_GUI` | *(Deprecated — use `"guiEnabled"` in `resources/configuration.json`)* Set to `true` to disable all UI-related endpoints. Default: `true`. |
 | `SH_SORT_ORDER` | JSON array of column keys for the UI sort order. Persisted across restarts. |
 | `SH_GROUP_BY` | Key to group services by in the UI (e.g. `protected`, `status`). Persisted across restarts. |
 | `SH_ORIGINAL_SORT_ORDER` | JSON array for the ungrouped sort order baseline. Persisted across restarts. |
@@ -60,12 +62,13 @@ ServiceHandler stores API keys as plain text in the `SH_API_KEYS` environment va
 
 ### Headless Mode (Optional)
 
-Set `"noGUI": true` in `resources/configuration.json` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). These routes return `404` when the flag is enabled. The API endpoints under `/api/` remain fully operational.
+Set `"guiEnabled": false` in `resources/configuration.json` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). These routes return `404` when the flag is disabled. The API endpoints under `/api/` remain fully operational.
 
 ## Run
-1. Windows: run `scripts\run.bat`.
-2. Unix-like systems: run `bash scripts/run.sh`.
-3. Manual: run `python src/main.py` from the project root.
+
+1. Windows: run `scripts\run.bat` (add `--verbose` for debug output).
+2. Unix-like: run `bash scripts/run.sh` (add `--verbose` for debug output).
+3. Manual: run `python src/main.py` from the project root (add `--verbose` for debug output).
 
 ## Access Control
 
@@ -793,10 +796,13 @@ Rejects a pending API key request and notifies the requesting service.
 ---
 
 ## Support
+
 - Open an issue on [GitHub](https://github.com/LorenBll/ServiceHandler/issues) for bug reports, feature requests, or help.
 
 ## License
+
 - [LICENSE](LICENSE)
 
 ## Author
+
 - [LorenBll](https://github.com/LorenBll)
