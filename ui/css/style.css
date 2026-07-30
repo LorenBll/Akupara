@@ -1191,11 +1191,10 @@ body.has-error::before {
     content: '';
     position: absolute;
     top: 0;
-    left: -100%;
+    left: var(--sheen-left, -100%);
     width: 100%;
     height: 100%;
     background: linear-gradient(90deg, transparent, rgba(34, 197, 94, 0.3), transparent);
-    animation: cardSheen 5s ease-in-out -2.5s infinite;
     pointer-events: none;
     z-index: 1;
 }
@@ -1204,12 +1203,6 @@ body.has-error::before {
 .service-card.service-card-protected.expanding::before,
 .service-card.service-card-protected.expanding-height::before {
     opacity: 0;
-}
-
-@keyframes cardSheen {
-    0% { left: -100%; }
-    50% { left: 100%; }
-    100% { left: -100%; }
 }
 
 .card-top {
