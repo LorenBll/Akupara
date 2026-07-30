@@ -1327,7 +1327,8 @@
                 closeSortMenu();
             }
             var hasSelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
-            if (hasSelection && !e.target.closest('.service-card') && !e.target.closest('#checkboxActions')) {
+            var hasActiveResearch = document.getElementById('searchInput').value || getActiveFilters();
+            if (hasSelection && !hasActiveResearch && !e.target.closest('.service-card') && !e.target.closest('#checkboxActions')) {
                 _clearCheckboxSelection();
             }
         });
