@@ -715,6 +715,8 @@ def register():
 
     if not isinstance(name, str) or not name.strip():
         return _error_response("A non-empty name is required.")
+    if name.strip() == "ServiceHandler":
+        return _error_response("The name 'ServiceHandler' is reserved.", 400)
 
     if port is None:
         return _error_response("A port number is required.")
@@ -1305,6 +1307,8 @@ def auto_protect_settings():
     stripped = [s.strip() for s in services]
     if len(stripped) != len(set(stripped)):
         return _error_response("Duplicate service names are not allowed.")
+    if "ServiceHandler" in stripped:
+        return _error_response("'ServiceHandler' is reserved and cannot be added to auto-protect.", 400)
 
     _set_env_var("SH_AUTO_PROTECT_SERVICES", json.dumps(stripped))
     logger.info(f"Auto-protect services updated: {stripped}")
@@ -1335,6 +1339,8 @@ def auto_restart_settings():
     stripped = [s.strip() for s in services]
     if len(stripped) != len(set(stripped)):
         return _error_response("Duplicate service names are not allowed.")
+    if "ServiceHandler" in stripped:
+        return _error_response("'ServiceHandler' is reserved and cannot be added to auto-restart.", 400)
 
     _set_env_var("SH_AUTO_RESTART_SERVICES", json.dumps(stripped))
     logger.info(f"Auto-restart services updated: {stripped}")
