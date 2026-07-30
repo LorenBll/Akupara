@@ -709,11 +709,18 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
             }).catch(function() {});
         }
 
+        function sortEndpoints(a, b) {
+            var verbCmp = a.verb.localeCompare(b.verb);
+            if (verbCmp !== 0) return verbCmp;
+            return a.path.localeCompare(b.path);
+        }
+
         function populateExpandedContent(card, healthData, endpoints) {
             var excluded = ['service', 'bind_address', 'hostname', 'port', 'pid'];
             var container = card.querySelector('.card-expanded-content');
             if (!container) return;
             container.innerHTML = '';
+            if (endpoints) endpoints.sort(sortEndpoints);
             var items = [];
             Object.keys(healthData).forEach(function(k) {
                 if (excluded.indexOf(k) >= 0) return;
@@ -1584,10 +1591,6 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                 if (btn) btn.setAttribute('data-label', 'Expand Information');
                 var p = content.querySelector('.expand-placeholder');
                 card.style.height = card.getBoundingClientRect().height + 'px';
-                var collapseSpinner = document.createElement('div');
-                collapseSpinner.className = 'collapse-spinner-overlay';
-                collapseSpinner.innerHTML = '<div class="spinner" style="width:28px;height:28px;border-width:3px"></div>';
-                content.appendChild(collapseSpinner);
                 if (p && p.parentNode) {
                     var phRect = p.getBoundingClientRect();
                     var cRect = content.getBoundingClientRect();
@@ -1610,6 +1613,9 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                             card.style.gridColumn = '';
                             if (card._healthXhr) { try { card._healthXhr.abort(); } catch(e) {} card._healthXhr = null; }
                             if (card._endpointsXhr) { try { card._endpointsXhr.abort(); } catch(e) {} card._endpointsXhr = null; }
+                            if (card._gifTimer) { clearTimeout(card._gifTimer); card._gifTimer = null; }
+                            var gifEl = card.querySelector('.expand-gif'); if (gifEl) gifEl.remove();
+                            var discoEl = document.querySelector('.disco-overlay'); if (discoEl) discoEl.remove();
                             card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons');
                             if (searchInput) searchInput.disabled = false;
                             document.getElementById('healthButton').querySelector('.health-decoration').setAttribute('data-label', "Check Services' Health");
@@ -1620,8 +1626,6 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                             filterCards();
                             content.classList.remove('expanded');
                             content.style.height = '';
-                            var cs = content.querySelector('.collapse-spinner-overlay');
-                            if (cs) cs.remove();
                             document.body.classList.remove('collapsing');
                             if (onComplete) onComplete();
                         }, 100);
@@ -1644,6 +1648,9 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                 if (ec) ec.innerHTML = '<div class="expand-loader"><div class="spinner"></div></div>';
                 if (card._healthXhr) { try { card._healthXhr.abort(); } catch(e) {} card._healthXhr = null; }
                 if (card._endpointsXhr) { try { card._endpointsXhr.abort(); } catch(e) {} card._endpointsXhr = null; }
+                if (card._gifTimer) { clearTimeout(card._gifTimer); card._gifTimer = null; }
+                var gifEl = card.querySelector('.expand-gif'); if (gifEl) gifEl.remove();
+                var discoEl = document.querySelector('.disco-overlay'); if (discoEl) discoEl.remove();
                 document.getElementById('healthButton').querySelector('.health-decoration').classList.remove('health-fetch-error');
                 card.classList.remove('expanded', 'expanding', 'expanded-active', 'expanded-buttons');
                 updateBrokenButtons();
@@ -2399,6 +2406,23 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                             if (btn) btn.setAttribute('data-label', 'Collapse');
                             updateBrokenButtons();
                             document.body.classList.remove('expanding');
+                            if (Math.random() < 0.0001) {
+                                var gifImg = document.createElement('img');
+                                gifImg.className = 'expand-gif';
+                                gifImg.src = '../resources/images/lmao.gif';
+                                card.insertBefore(gifImg, card.firstChild);
+                                var discoDiv = document.createElement('div');
+                                discoDiv.className = 'disco-overlay';
+                                document.body.appendChild(discoDiv);
+                                card._gifTimer = setTimeout(function() {
+                                    if (gifImg.parentNode) gifImg.remove();
+                                    var d = document.querySelector('.disco-overlay'); if (d) d.remove();
+                                    card._gifTimer = null;
+                                }, 4000);
+                                setTimeout(function() {
+                                    if (gifOverlay.parentNode) gifOverlay.remove();
+                                }, 4000);
+                            }
                             var cardPort = card.getAttribute('data-port');
                             var cardName = card.querySelector('.card-name').textContent;
                             if (cardPort) {

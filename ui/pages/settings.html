@@ -57,6 +57,15 @@
                 Restart ServiceHandler
             </button>
         </div>
+        <div class="settings-footer init-hidden" id="settingsFooter" data-visible="true">
+            <div class="settings-footer-hover" id="settingsFooterHover">
+                <div class="settings-footer-content" id="settingsFooterContent">
+                    Report issues <a href="https://github.com/LorenBll/ServiceHandler/issues/new" target="_blank">here</a>&nbsp;&middot; Created by <a href="https://github.com/LorenBll" target="_blank">LorenBll</a>
+                </div>
+                <span class="settings-footer-icon" id="settingsFooterIcon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></span>
+                <div class="settings-footer-tooltip" id="settingsFooterTooltip"></div>
+            </div>
+        </div>
     </div>
     <script>
         function item(label, value, cls) {
@@ -86,6 +95,8 @@
             items.push({ el: document.getElementById('shutdownStrip'), delay: 0.90 + delayShift });
             items.push({ el: document.getElementById('settingsCard'), delay: 0.60 + delayShift });
             items.push({ el: document.getElementById('settingsCard2'), delay: 0.75 + delayShift });
+            items.push({ el: document.getElementById('settingsFooter'), delay: 1.00 + delayShift });
+
             requestAnimationFrame(function() {
                 items.forEach(function(item) {
                     if (!item.el) return;
@@ -324,6 +335,60 @@
             fetch('/api/restart', { method: 'POST' }).catch(function() {});
         });
 
+        function showTooltip(text) {
+            var tooltip = document.getElementById('settingsFooterTooltip');
+            tooltip.textContent = text;
+            tooltip.style.left = 'calc(100% + 6px)';
+            tooltip.style.right = 'auto';
+            tooltip.style.display = 'block';
+        }
+
+        function hideTooltip() {
+            document.getElementById('settingsFooterTooltip').style.display = 'none';
+        }
+
+        var footerHover = document.getElementById('settingsFooterHover');
+        footerHover.addEventListener('mouseenter', function() {
+            var footer = document.getElementById('settingsFooter');
+            var visible = footer.getAttribute('data-visible') === 'true';
+            showTooltip(visible ? 'Click to Hide' : 'Click to Show');
+            document.getElementById('settingsFooterIcon').style.display = visible ? 'none' : 'inline';
+        });
+        footerHover.addEventListener('mouseleave', function() {
+            hideTooltip();
+            document.getElementById('settingsFooterIcon').style.display = 'none';
+        });
+
+        footerHover.addEventListener('click', function(e) {
+            if (e.target.tagName === 'A' || e.target.closest('a')) return;
+            hideTooltip();
+            document.getElementById('settingsFooterIcon').style.display = 'none';
+            var footer = document.getElementById('settingsFooter');
+            var visible = footer.getAttribute('data-visible') === 'true';
+            var newVisible = !visible;
+            var content = document.getElementById('settingsFooterContent');
+            if (newVisible) {
+                content.style.display = '';
+                requestAnimationFrame(function() {
+                    content.classList.add('fade-in');
+                });
+                footer.setAttribute('data-visible', 'true');
+            } else {
+                content.classList.remove('fade-in');
+                content.classList.add('fade-out');
+                setTimeout(function() {
+                    content.style.display = 'none';
+                    content.classList.remove('fade-out');
+                }, 200);
+                footer.setAttribute('data-visible', 'false');
+            }
+            fetch('/api/settings/show-promotion', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({show_promotion: newVisible})
+            }).catch(function() {});
+        });
+
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && e.target.id !== 'autoProtectInput' && e.target.id !== 'autoRestartInput') {
                 e.preventDefault();
@@ -346,6 +411,17 @@
                 }
                 fetch('/api/settings/auto-protect').then(function(r) { return r.json(); }).then(function(d) { renderAutoProtectTags(d.services); }).catch(function() {});
                 fetch('/api/settings/auto-restart').then(function(r) { return r.json(); }).then(function(d) { renderAutoRestartTags(d.services); }).catch(function() {});
+                fetch('/api/settings/show-promotion').then(function(r) { return r.json(); }).then(function(d) {
+                    if (!d.show_promotion) {
+                        var content = document.getElementById('settingsFooterContent');
+                        content.classList.add('fade-out');
+                        setTimeout(function() {
+                            content.style.display = 'none';
+                            content.classList.remove('fade-out');
+                        }, 200);
+                        document.getElementById('settingsFooter').setAttribute('data-visible', 'false');
+                    }
+                }).catch(function() {});
                 triggerLoadInAnimation();
             })
             .catch(function() {

@@ -699,6 +699,15 @@ def css_files(filename):
     return send_from_directory(css_dir, filename)
 
 
+def resource_files(filename):
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+    resources_dir = _PROJECT_ROOT / "resources"
+    return send_from_directory(resources_dir, filename)
+
+
 @app.route("/api/register/service", methods=["POST", "HEAD", "OPTIONS"])
 def register():
     if request.method == "OPTIONS":
@@ -1345,6 +1354,31 @@ def auto_restart_settings():
     _set_env_var("SH_AUTO_RESTART_SERVICES", json.dumps(stripped))
     logger.info(f"Auto-restart services updated: {stripped}")
     return _success_response({"services": stripped})
+
+
+@app.route("/api/settings/show-promotion", methods=["GET", "PUT", "HEAD", "OPTIONS"])
+def show_promotion_settings():
+    if request.method == "OPTIONS":
+        return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
+    if request.method == "HEAD":
+        return _head_response()
+
+    if not _is_localhost_request():
+        return _error_response("Only accessible from the local device.", 403)
+
+    if request.method == "GET":
+        val = os.getenv("SH_SHOW_PROMOTION", "true")
+        show = val.lower() == "true"
+        return _success_response({"show_promotion": show})
+
+    payload = request.get_json(silent=True) or {}
+    show = payload.get("show_promotion") if isinstance(payload, dict) else None
+    if not isinstance(show, bool):
+        return _error_response("show_promotion must be a boolean.")
+
+    _set_env_var("SH_SHOW_PROMOTION", "true" if show else "false")
+    logger.info(f"Show promotion updated: {show}")
+    return _success_response({"show_promotion": show})
 
 
 @app.route("/api/service/terminate", methods=["POST", "HEAD", "OPTIONS"])
@@ -1997,6 +2031,11 @@ def _register_ui_routes(app_instance: Flask) -> None:
         "/ui/sort-settings",
         methods=["GET", "PUT", "HEAD", "OPTIONS"],
         view_func=sort_order,
+    )
+    app_instance.add_url_rule(
+        "/resources/<path:filename>",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=resource_files,
     )
 
 
