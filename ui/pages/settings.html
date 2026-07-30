@@ -130,6 +130,10 @@
 
         function addAutoProtectService(name) {
             if (!name) return false;
+            if (name === "ServiceHandler") {
+                flashInputError(document.getElementById('autoProtectInput'));
+                return false;
+            }
             var container = document.getElementById('autoProtectTags');
             if (isDuplicate(container, name)) {
                 flashTagDuplicate(container, name);
@@ -197,6 +201,10 @@
 
         function addAutoRestartService(name) {
             if (!name) return false;
+            if (name === "ServiceHandler") {
+                flashInputError(document.getElementById('autoRestartInput'));
+                return false;
+            }
             var container = document.getElementById('autoRestartTags');
             if (isDuplicate(container, name)) {
                 flashTagDuplicate(container, name);
