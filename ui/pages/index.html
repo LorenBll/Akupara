@@ -139,7 +139,9 @@
                 var p = (t - 0.5) * 2;
                 progress = 1 - p * p * (3 - 2 * p);
             }
-            document.documentElement.style.setProperty('--sheen-left', (-100 + progress * 200) + '%');
+            var pct = -150 + progress * 300;
+document.documentElement.style.setProperty('--sheen-x', pct + '%');
+document.documentElement.style.setProperty('--sheen-y', pct + '%');
             _sheenRAF = requestAnimationFrame(_tickSheen);
         }
         _sheenRAF = requestAnimationFrame(_tickSheen);
