@@ -126,6 +126,23 @@
         var _checkboxVisible = false;
         var _checkboxShowTimer = null;
         var _selectionAnchor = null;
+        var _sheenStartTime = Date.now() - 2500;
+        var _sheenRAF = null;
+        function _tickSheen() {
+            var elapsed = (Date.now() - _sheenStartTime) % 5000;
+            var t = elapsed / 5000;
+            var progress;
+            if (t < 0.5) {
+                var p = t * 2;
+                progress = p * p * (3 - 2 * p);
+            } else {
+                var p = (t - 0.5) * 2;
+                progress = 1 - p * p * (3 - 2 * p);
+            }
+            document.documentElement.style.setProperty('--sheen-left', (-100 + progress * 200) + '%');
+            _sheenRAF = requestAnimationFrame(_tickSheen);
+        }
+        _sheenRAF = requestAnimationFrame(_tickSheen);
         function toggleSortHealthBtn(el, show) {
             if (!el) return;
             if (show) {
@@ -1306,8 +1323,13 @@
                     collapseExpandedCard(expandedCard, document.getElementById('content'), false);
                 }
             }
-            if (!document.querySelector('.sort-decoration.is-x')) return;
-            if (!e.target.closest('#sidebar')) closeSortMenu();
+            if (document.querySelector('.sort-decoration.is-x') && !e.target.closest('#sidebar')) {
+                closeSortMenu();
+            }
+            var hasSelection = Object.keys(_selectedCardHashes).some(function(h) { return _selectedCardHashes[h]; });
+            if (hasSelection && !e.target.closest('.service-card') && !e.target.closest('#checkboxActions')) {
+                _clearCheckboxSelection();
+            }
         });
 
         document.querySelector('#healthButton > .health-decoration:first-child').addEventListener('click', function() {
