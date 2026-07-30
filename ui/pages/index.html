@@ -189,17 +189,6 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
             return isSubsequence(query, String(text));
         }
 
-        function cardEndpointMatches(card, query) {
-            var name = card.querySelector('.card-name').textContent;
-            var eps = _endpointCache[name];
-            if (!eps || !eps.length) return false;
-            for (var i = 0; i < eps.length; i++) {
-                if (eps[i].description && matchesQuery(eps[i].description, query)) return true;
-                if (eps[i].path && matchesQuery(eps[i].path, query)) return true;
-            }
-            return false;
-        }
-
         function _buildSearchIndex() {
             _searchIndex = {};
             var cards = document.querySelectorAll('.service-card');
@@ -467,7 +456,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                     if (indexMatched && indexMatched.has(card)) {
                         matchesSearch = true;
                     } else {
-                        matchesSearch = matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query) || matchesQuery(bindAddr, query) || matchesQuery(host, query) || cardEndpointMatches(card, query);
+                        matchesSearch = matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query) || matchesQuery(bindAddr, query) || matchesQuery(host, query);
                     }
                 }
                 if (matchesFilter && matchesSearch) {
