@@ -41,7 +41,6 @@ Page transitions use a fade-out animation triggered by the `page-exit` CSS class
 | Variable | Description |
 |----------|-------------|
 | `SH_API_KEYS` | JSON object mapping service names to plain API keys. Loaded at session initialization. API keys are stored as plain text in `.env`. |
-| `SH_NO_GUI` | *(Deprecated — use `"guiEnabled"` in `resources/configuration.json`)* Set to `true` to disable all UI-related endpoints. Default: `true`. |
 | `SH_SORT_ORDER` | JSON array of column keys for the UI sort order. Persisted across restarts. |
 | `SH_GROUP_BY` | Key to group services by in the UI (e.g. `protected`, `status`). Persisted across restarts. |
 | `SH_ORIGINAL_SORT_ORDER` | JSON array for the ungrouped sort order baseline. Persisted across restarts. |
