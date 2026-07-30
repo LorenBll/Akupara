@@ -9,7 +9,7 @@ ServiceHandler is scoped to service registration and discovery on the local devi
 The web UI serves two pages:
 
 - **Dashboard** (`/`) — `ui/pages/index.html` displays a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking sort order and group-by, a health-check button, and checkbox-based batch selection for bulk actions.
-- **Settings** (`/settings`) — `ui/pages/settings.html` provides auto-protect and auto-restart configuration via tag-cloud inputs, along with shutdown and restart buttons.
+- **Settings** (`/settings`) — `ui/pages/settings.html` provides auto-protect and auto-restart configuration via tag-cloud inputs, along with shutdown and restart buttons. Includes a footer with a link to report issues on GitHub and a link to the repository author.
 
 Page transitions use a fade-out animation triggered by the `page-exit` CSS class, with `sessionStorage._navFromApp` signalling the incoming page to skip initial hidden-state animations.
 
@@ -46,6 +46,7 @@ Page transitions use a fade-out animation triggered by the `page-exit` CSS class
 | `SH_ORIGINAL_SORT_ORDER` | JSON array for the ungrouped sort order baseline. Persisted across restarts. |
 | `SH_AUTO_PROTECT_SERVICES` | JSON array of service names that are automatically protected on registration. Persisted across restarts. |
 | `SH_AUTO_RESTART_SERVICES` | JSON array of service names that are automatically restarted when they fail a health check. Persisted across restarts. |
+| `SH_SHOW_PROMOTION` | Set to `false` to hide the promotion footer on the settings page. Defaults to `true`. |
 
 ### API Key Persistence (Optional)
 
@@ -673,6 +674,41 @@ Updates the list of service names that are automatically restarted when they fai
 	- `400` -> `{ "error": "services must be a non-empty list." }`
 	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
 	- `400` -> `{ "error": "Each service name must be a non-empty string." }`
+
+### `GET /api/settings/show-promotion` (also `HEAD`, `OPTIONS`)
+Returns whether the promotion footer is shown on the settings page.
+- Auth: local-device only (no API key required)
+- Body: none
+- Returns:
+	- `200` ->
+		```json
+		{
+			"show_promotion": true
+		}
+		```
+
+### `PUT /api/settings/show-promotion` (also `HEAD`, `OPTIONS`)
+Updates whether the promotion footer is shown on the settings page.
+- Auth: local-device only (no API key required)
+- Body (JSON object):
+	- `show_promotion` (boolean, required): `true` to show the footer, `false` to hide it.
+- Returns:
+	- `200` ->
+		```json
+		{
+			"show_promotion": true
+		}
+		```
+	- `400` -> `{ "error": "show_promotion must be a boolean." }`
+
+### `GET /resources/<path:filename>` (also `HEAD`, `OPTIONS`)
+Serves static resource files from the `resources/` directory.
+- Auth: local-device only (no API key required)
+- Path parameters:
+	- `filename` (string, required): path to a file relative to `resources/`.
+- Returns:
+	- `200` -> file content
+	- `404` -> HTML error page
 
 ### `POST /api/service/protect` (also `HEAD`, `OPTIONS`)
 Flags a registered service as protected. Protected services cannot be terminated, restarted, or forgotten by anyone.
