@@ -974,7 +974,7 @@
 
         function _syncCheckboxUI() {
             var hasSelection = false;
-            var cardCount = document.querySelectorAll('.service-card:not([style*="display: none"])').length;
+            var cardCount = document.querySelectorAll('.service-card').length;
             Object.keys(_selectedCardHashes).forEach(function(h) {
                 if (_selectedCardHashes[h]) hasSelection = true;
             });
@@ -2168,7 +2168,7 @@
                 }
             }
 
-            var cardCount = document.querySelectorAll('.service-card:not([style*="display: none"])').length;
+            var cardCount = document.querySelectorAll('.service-card').length;
             var checkboxEl = e.target.closest('.card-checkbox');
             if (checkboxEl) {
                 if (cardCount <= 1) return;
