@@ -121,7 +121,6 @@
         var _sortApplied = false;
         var _expandTimeout = null;
         var _loadAnimStartTime = null;
-        var _searchIndex = {};
         var _selectedCardHashes = {};
         var _checkboxVisible = false;
         var _checkboxShowTimer = null;
@@ -173,43 +172,42 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                 el.classList.add('hidden');
             }
         }
-        function isSubsequence(query, text) {
-            var lowerText = text.toLowerCase();
-            var lowerQuery = query.toLowerCase();
-            var qi = 0;
-            for (var ti = 0; ti < lowerText.length && qi < lowerQuery.length; ti++) {
-                if (lowerText[ti] === lowerQuery[qi]) {
-                    qi++;
+        var FUZZY_THRESHOLD = 0.60;
+        function levenshtein(a, b) {
+            if (a === b) return 0;
+            var m = a.length, n = b.length;
+            if (!m) return n;
+            if (!n) return m;
+            var prev = new Array(n + 1), cur = new Array(n + 1);
+            for (var j = 0; j <= n; j++) prev[j] = j;
+            for (var i = 1; i <= m; i++) {
+                cur[0] = i;
+                for (var j = 1; j <= n; j++) {
+                    var cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                    cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
                 }
+                var tmp = prev; prev = cur; cur = tmp;
             }
-            return qi === lowerQuery.length;
+            return prev[n];
         }
-
+        function fuzzyRatio(a, b) {
+            var la = a.length, lb = b.length;
+            var maxLen = Math.max(la, lb);
+            if (maxLen === 0) return 1;
+            return 1 - levenshtein(a, b) / maxLen;
+        }
         function matchesQuery(text, query) {
-            return isSubsequence(query, String(text));
-        }
-
-        function _buildSearchIndex() {
-            _searchIndex = {};
-            var cards = document.querySelectorAll('.service-card');
-            cards.forEach(function(card) {
-                var hash = card.getAttribute('data-hash') || '';
-                var name = card.querySelector('.card-name').textContent;
-                var metaItems = card.querySelectorAll('.card-meta-value');
-                var bindAddr = metaItems[0] ? metaItems[0].textContent : '';
-                var host = metaItems[1] ? metaItems[1].textContent : '';
-                var port = metaItems[2] ? metaItems[2].textContent : '';
-                var pid = metaItems[3] ? metaItems[3].textContent : '';
-                var allText = [name, bindAddr, host, port, pid].join(' ');
-                var tokens = allText.toLowerCase().split(/[^a-z0-9]+/).filter(function(t) { return t.length >= 2; });
-                var seen = {};
-                tokens.forEach(function(t) {
-                    if (!seen[t]) {
-                        seen[t] = true;
-                        if (!_searchIndex[t]) _searchIndex[t] = [];
-                        _searchIndex[t].push(card);
-                    }
-                });
+            var lowerText = String(text).toLowerCase();
+            var tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(function(t) { return t.length >= 2; });
+            if (!tokens.length) return true;
+            var words = lowerText.split(/[^a-z0-9]+/).filter(function(w) { return w.length >= 1; });
+            return tokens.every(function(token) {
+                for (var i = 0; i < words.length; i++) {
+                    var word = words[i];
+                    if (word === token || word.indexOf(token) === 0) return true;
+                    if (fuzzyRatio(word, token) >= FUZZY_THRESHOLD) return true;
+                }
+                return false;
             });
         }
 
@@ -410,7 +408,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                 if (key === 'status' || key === 'protected') {
                     if (fv !== cv) return false;
                 } else {
-                    if (!matchesQuery(cv, fv)) return false;
+                    if (String(cv).toLowerCase().indexOf(fv.toLowerCase()) === -1) return false;
                 }
             }
             return true;
@@ -425,23 +423,6 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
             if (existingMsg) existingMsg.remove();
             content.classList.remove('no-results');
 
-            var queryTokens = query ? query.toLowerCase().split(/[^a-z0-9]+/).filter(function(t) { return t.length >= 2; }) : [];
-            var indexMatched = null;
-            if (queryTokens.length > 0) {
-                queryTokens.forEach(function(t) {
-                    var matched = _searchIndex[t];
-                    if (matched) {
-                        if (indexMatched === null) {
-                            indexMatched = new Set(matched);
-                        } else {
-                            indexMatched = new Set([...indexMatched].filter(function(c) { return matched.indexOf(c) !== -1; }));
-                        }
-                    } else {
-                        if (indexMatched === null) indexMatched = new Set();
-                    }
-                });
-            }
-
             var visible = 0;
             cards.forEach(function(card) {
                 var name = card.querySelector('.card-name').textContent;
@@ -453,11 +434,8 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                 var matchesFilter = cardMatchesFilters(card, filters);
                 var matchesSearch = !query;
                 if (!matchesSearch) {
-                    if (indexMatched && indexMatched.has(card)) {
-                        matchesSearch = true;
-                    } else {
-                        matchesSearch = matchesQuery(name, query) || matchesQuery(port, query) || matchesQuery(pid, query) || matchesQuery(bindAddr, query) || matchesQuery(host, query);
-                    }
+                    var searchable = [name, bindAddr, host, port, pid].join(' ');
+                    matchesSearch = matchesQuery(searchable, query);
                 }
                 if (matchesFilter && matchesSearch) {
                     card.style.display = '';
@@ -1211,7 +1189,6 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
             updateVisibility(content.querySelectorAll('.service-card').length, undefined, animate);
             if (document.getElementById('searchBar').classList.contains('expanded-vertical')) filterCards();
             _syncCheckboxUI();
-            _buildSearchIndex();
         }
 
         var draggedItem = null;
@@ -1905,7 +1882,6 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
             if (changed) {
                 refreshPills();
                 filterCards();
-                _buildSearchIndex();
             }
         }
 

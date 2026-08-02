@@ -15,8 +15,8 @@ Page transitions use a fade-out animation triggered by the `page-exit` CSS class
 
 **Features:**
 
-- **Search** — real-time filtering with subsequence matching.
-- **Filter panel** — expandable filter menu with text inputs per column and a status dropdown (Any / Operational / Broken). Tab navigates in column-major order (top-to-bottom, then next column). Shift+Tab from the search input returns focus to the last filter.
+- **Search** — real-time fuzzy matching in the search box using Levenshtein-based similarity (with a similarity threshold), matching across name, bind address, host, port, and PID.
+- **Filter panel** — expandable filter menu with text inputs per column and a status dropdown (Any / Operational / Broken). Filter inputs use exact (case-insensitive) substring matching. Tab navigates in column-major order (top-to-bottom, then next column). Shift+Tab from the search input returns focus to the last filter.
 - **Sort & Group-by** — drag-to-reorder sort columns; group by a selected key; sort order persisted across restarts. The group-by zone is always visible regardless of card count.
 - **Status grouping** — services are automatically tagged as Operational or Broken; can be sorted/grouped by status.
 - **Card expansion/collapse** — click a card to expand it with full metadata; collapse returns the card to its grid position.
