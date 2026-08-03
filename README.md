@@ -62,7 +62,7 @@ ServiceHandler stores API keys as plain text in the `SH_API_KEYS` environment va
 
 ### Headless Mode (Optional)
 
-Set `"guiEnabled": false` in `resources/configuration.json` to disable all UI-related endpoints (`/`, `/css/<path>`, `/ui/sort-settings`). These routes return `404` when the flag is disabled. The API endpoints under `/api/` remain fully operational.
+Set `"guiEnabled": false` in `resources/configuration.json` to disable all UI-related endpoints (`/`, `/settings`, `/css/<path>`, `/ui/sort-settings`, `/resources/<path>`). These routes are not registered and return `404` when the flag is disabled. The API endpoints under `/api/` — including `/api/settings/*` — remain fully operational.
 
 ## Run
 
