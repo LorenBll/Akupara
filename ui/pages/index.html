@@ -791,9 +791,10 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
         }
 
         function buildEndpointCard(ep) {
+            var verbClass = String(ep.verb || '').toLowerCase().replace(/[^a-z]/g, '');
             var cardHtml = '<div class="expand-endpoint-card">' +
                 '<div class="expand-endpoint-card-header">' +
-                '<span class="expand-endpoint-verb">' + escapeHtml(ep.verb) + '</span>' +
+                '<span class="expand-endpoint-verb ep-verb-' + verbClass + '">' + escapeHtml(ep.verb) + '</span>' +
                 '<span class="expand-endpoint-path">' + escapeHtml(ep.path) + '</span>' +
                 '<span class="expand-endpoint-desc">' + escapeHtml(ep.description || '') + '</span>' +
                 '</div>';
