@@ -874,6 +874,14 @@ body.has-error::before {
     flex-shrink: 0;
 }
 
+.expand-endpoint-verb.ep-verb-get     { background-color: #2563eb; }
+.expand-endpoint-verb.ep-verb-post    { background-color: #16a34a; }
+.expand-endpoint-verb.ep-verb-put     { background-color: #d97706; }
+.expand-endpoint-verb.ep-verb-delete  { background-color: #dc2626; }
+.expand-endpoint-verb.ep-verb-patch   { background-color: #7c3aed; }
+.expand-endpoint-verb.ep-verb-head    { background-color: #64748b; }
+.expand-endpoint-verb.ep-verb-options { background-color: #64748b; }
+
 .expand-endpoint-path {
     font-size: 0.85rem;
     font-family: 'Courier New', monospace;
