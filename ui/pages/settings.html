@@ -68,11 +68,15 @@
         </div>
     </div>
     <script>
+        function escapeHtml(str) {
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
         function item(label, value, cls) {
             var c = cls ? ' class="pill-item ' + cls + '"' : ' class="pill-item"';
             var html = '<div' + c + '>';
-            html += '<span class="pill-label">' + label + '</span>';
-            html += '<span class="pill-value">' + value + '</span>';
+            html += '<span class="pill-label">' + escapeHtml(label) + '</span>';
+            html += '<span class="pill-value">' + escapeHtml(value) + '</span>';
             html += '</div>';
             return html;
         }
@@ -188,7 +192,7 @@
             services.forEach(function(name) {
                 var tag = document.createElement('div');
                 tag.className = 'settings-card-tag';
-                tag.innerHTML = '<span>' + name + '</span><span class="settings-card-tag-x" data-name="' + name.replace(/"/g, '&quot;') + '"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>';
+                tag.innerHTML = '<span>' + escapeHtml(name) + '</span><span class="settings-card-tag-x" data-name="' + escapeHtml(name) + '"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>';
                 container.appendChild(tag);
             });
             container.querySelectorAll('.settings-card-tag-x').forEach(function(x) {
@@ -250,7 +254,7 @@
             services.forEach(function(name) {
                 var tag = document.createElement('div');
                 tag.className = 'settings-card-tag';
-                tag.innerHTML = '<span>' + name + '</span><span class="settings-card-tag-x" data-name="' + name.replace(/"/g, '&quot;') + '"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>';
+                tag.innerHTML = '<span>' + escapeHtml(name) + '</span><span class="settings-card-tag-x" data-name="' + escapeHtml(name) + '"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>';
                 container.appendChild(tag);
             });
             container.querySelectorAll('.settings-card-tag-x').forEach(function(x) {

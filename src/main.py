@@ -1041,13 +1041,21 @@ def register_endpoint():
     }
 
     with REGISTERED_CLIENTS_LOCK:
-        REGISTERED_CLIENTS[hash_val].setdefault("endpoints", []).append(endpoint)
+        endpoints_list = REGISTERED_CLIENTS[hash_val].setdefault("endpoints", [])
+        replaced = False
+        for idx, existing in enumerate(endpoints_list):
+            if existing.get("verb") == endpoint["verb"] and existing.get("path") == endpoint["path"]:
+                endpoints_list[idx] = endpoint
+                replaced = True
+                break
+        if not replaced:
+            endpoints_list.append(endpoint)
 
     _add_to_endpoint_index(client_data.get("name", ""), endpoint)
 
     logger.info(
-        f"Endpoint '{verb} {path}' registered for '{client_data.get('name', 'unknown')}' "
-        f"({hash_val[:8]}...)"
+        f"Endpoint '{verb} {path}' {'updated' if replaced else 'registered'} for "
+        f"'{client_data.get('name', 'unknown')}' ({hash_val[:8]}...)"
     )
 
     return _success_response({"status": "registered", "endpoint": endpoint}, 201)
@@ -1055,9 +1063,17 @@ def register_endpoint():
 
 @app.route("/api/service/endpoints", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
 @app.route("/api/service/endpoints/<name>", methods=["POST", "HEAD", "OPTIONS"])
+def get_endpoints_service(name=None):
+    return _get_endpoints_impl(name)
+
+
 @app.route("/api/endpoints/service", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
 @app.route("/api/endpoints/service/<name>", methods=["POST", "HEAD", "OPTIONS"])
 def get_endpoints(name=None):
+    return _get_endpoints_impl(name)
+
+
+def _get_endpoints_impl(name=None):
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
     if request.method == "HEAD":

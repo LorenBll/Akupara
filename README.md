@@ -8,7 +8,7 @@ ServiceHandler is scoped to service registration and discovery on the local devi
 
 The web UI serves two pages:
 
-- **Dashboard** (`/`) — `ui/pages/index.html` displays a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking sort order and group-by, a health-check button, and checkbox-based batch selection for bulk actions.
+- **Dashboard** (`/`) — `ui/pages/index.html` displays a status pill, a searchable and sortable grid of registered service cards, a sidebar for tweaking sort order and group-by, a health-check button, and checkbox-based batch selection for bulk actions. Expanded cards list each registered endpoint with its path variables; all dynamic values are HTML-escaped before being written to the page so `<>` characters in paths cannot break the DOM.
 - **Settings** (`/settings`) — `ui/pages/settings.html` provides auto-protect and auto-restart configuration via tag-cloud inputs, along with shutdown and restart buttons. Includes a footer with a link to report issues on GitHub and a link to the repository author.
 
 Page transitions use a fade-out animation triggered by the `page-exit` CSS class, with `sessionStorage._navFromApp` signalling the incoming page to skip initial hidden-state animations.
@@ -262,13 +262,13 @@ Returns the list of all registered clients. The `endpoints` field is never inclu
 	- `403` -> `{ "error": "API key is not valid." }` (only when an invalid API key is explicitly provided)
 
 ### `POST /api/register/endpoint` (also `HEAD`, `OPTIONS`)
-Registers an endpoint for a registered service. The service authenticates by providing its own hash — knowing the hash is proof of identity. No API key option is available.
+Registers an endpoint for a registered service. The service authenticates by providing its own hash — knowing the hash is proof of identity. No API key option is available. Registration is idempotent: re-registering an endpoint with the same verb and path replaces the previous entry instead of appending a duplicate.
 - Auth: hash-only — the hash must correspond to a registered service
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the service registering the endpoint.
 	- `verb` (string, required): HTTP verb for the endpoint (e.g. `GET`, `POST`).
-	- `path` (string, required): URL path of the endpoint.
-	- `path_variables` (array of strings, optional): list of variable names used in the path.
+	- `path` (string, required): URL path of the endpoint. Path parameters MUST use the `<name>` placeholder form (e.g. `/api/obsidian/fleeting/read/<title>`) — the dashboard renders paths directly into HTML and parses the `<var>` placeholders to infer variable types, so a literal `<>` value would break the page.
+	- `path_variables` (array of strings, optional): list of variable names used in the path, matching the `<name>` placeholders one-to-one (e.g. `["title"]`).
 	- `body_schema` (object, optional): JSON schema for the request body.
 	- `description` (string, required): human-readable description of what the endpoint does.
 - Returns:
@@ -278,7 +278,7 @@ Registers an endpoint for a registered service. The service authenticates by pro
 			"status": "registered",
 			"endpoint": {
 				"verb": "GET",
-				"path": "/api/data",
+				"path": "/api/data/<id>",
 				"path_variables": ["id"],
 				"body_schema": {},
 				"description": "Retrieves data by ID"
@@ -304,7 +304,7 @@ Returns the list of endpoints registered for a given service name. The service n
 			"endpoints": [
 				{
 					"verb": "GET",
-					"path": "/api/data",
+					"path": "/api/data/<id>",
 					"path_variables": ["id"],
 					"body_schema": {},
 					"description": "Retrieves data by ID"
@@ -331,7 +331,7 @@ Returns the complete list of registered services along with their registered end
 					"endpoints": [
 						{
 							"verb": "GET",
-							"path": "/api/data",
+							"path": "/api/data/<id>",
 							"path_variables": ["id"],
 							"body_schema": {},
 							"description": "Retrieves data by ID"
