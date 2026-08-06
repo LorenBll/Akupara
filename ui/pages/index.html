@@ -2567,6 +2567,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                     if (--pending <= 0) {
                         var l = content.querySelector('.content-loader');
                         if (l) l.remove();
+                        _clearCheckboxSelection();
                         fetch('/api/services').then(function(r) { return r.json(); }).then(function(d) {
                             enrichClientsWithHashes(d.clients).then(function(clients) {
                                 buildCards(clients, false);
@@ -2632,7 +2633,6 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                     if (--pending <= 0) {
                         var l = content.querySelector('.content-loader');
                         if (l) l.remove();
-                        _clearCheckboxSelection();
                         fetch('/api/services').then(function(r) { return r.json(); }).then(function(d) {
                             enrichClientsWithHashes(d.clients).then(function(clients) {
                                 buildCards(clients, false);
