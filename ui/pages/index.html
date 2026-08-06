@@ -672,7 +672,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
         }
 
         function item(label, value, cls) {
-            return '<div class="pill-item' + (cls ? ' ' + cls : '') + '"><span class="pill-label">' + label + '</span><span class="pill-value">' + value + '</span></div>';
+            return '<div class="pill-item' + (cls ? ' ' + cls : '') + '"><span class="pill-label">' + escapeHtml(label) + '</span><span class="pill-value">' + escapeHtml(value) + '</span></div>';
         }
 
         function refreshPills() {
@@ -750,12 +750,12 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                 html += '<div class="expand-info-row">';
                 html += '<div class="expand-info-item' + (row[1] === null ? ' expand-info-item-full' : '') + '">' +
                     '<span class="expand-info-label">' + row[0].label + '</span>' +
-                    '<span class="expand-info-value' + row[0].valClass + '">' + row[0].value + '</span>' +
+                    '<span class="expand-info-value' + row[0].valClass + '">' + escapeHtml(row[0].value) + '</span>' +
                     '</div>';
                 if (row[1] !== null) {
                     html += '<div class="expand-info-item">' +
                         '<span class="expand-info-label">' + row[1].label + '</span>' +
-                        '<span class="expand-info-value' + row[1].valClass + '">' + row[1].value + '</span>' +
+                        '<span class="expand-info-value' + row[1].valClass + '">' + escapeHtml(row[1].value) + '</span>' +
                         '</div>';
                 }
                 html += '</div>';
@@ -786,12 +786,16 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
             return types;
         }
 
+        function escapeHtml(str) {
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
         function buildEndpointCard(ep) {
             var cardHtml = '<div class="expand-endpoint-card">' +
                 '<div class="expand-endpoint-card-header">' +
-                '<span class="expand-endpoint-verb">' + ep.verb + '</span>' +
-                '<span class="expand-endpoint-path">' + ep.path + '</span>' +
-                '<span class="expand-endpoint-desc">' + (ep.description || '') + '</span>' +
+                '<span class="expand-endpoint-verb">' + escapeHtml(ep.verb) + '</span>' +
+                '<span class="expand-endpoint-path">' + escapeHtml(ep.path) + '</span>' +
+                '<span class="expand-endpoint-desc">' + escapeHtml(ep.description || '') + '</span>' +
                 '</div>';
             var hasVars = ep.path_variables && ep.path_variables.length;
             var hasSchema = ep.body_schema && Object.keys(ep.body_schema).length;
@@ -805,7 +809,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                     ep.path_variables.forEach(function(v) {
                         var name = typeof v === 'object' ? (v.name || JSON.stringify(v)) : String(v);
                         var type = varTypes[name] || 'string';
-                        cardHtml += '<div class="expand-endpoint-var-item">' + name + '<span class="expand-endpoint-var-type">' + type + '</span></div>';
+                        cardHtml += '<div class="expand-endpoint-var-item">' + escapeHtml(name) + '<span class="expand-endpoint-var-type">' + escapeHtml(type) + '</span></div>';
                     });
                     cardHtml += '</div></div>';
                 }
@@ -873,7 +877,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
         function showExpandError(card, serviceName) {
             var container = card.querySelector('.card-expanded-content');
             if (!container) return;
-            container.innerHTML = '<div class="expand-empty expand-error">' + serviceName + ' Health Fetch Failed</div>';
+            container.innerHTML = '<div class="expand-empty expand-error">' + escapeHtml(serviceName) + ' Health Fetch Failed</div>';
             card.classList.add('service-card-unhealthy');
             updateCardButtonLabels(card);
             var shash = card.getAttribute('data-hash');
@@ -903,7 +907,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                 : '';
             return '<div class="service-card' + bg + '">' +
                 '<div class="card-top">' +
-                '<div class="card-name">' + name + '</div>' +
+                '<div class="card-name">' + escapeHtml(name) + '</div>' +
                 '<button class="card-btn card-btn-blue" data-label="Expand Information">' +
                 '<svg class="icon-info" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' +
                 '<svg class="icon-x" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' +
@@ -1178,7 +1182,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                     ghostCard.classList.add('expanded', 'expanded-active', 'expanded-buttons');
                     var overlay = document.createElement('div');
                     overlay.className = 'expand-overlay';
-                    overlay.innerHTML = '<span class="expand-overlay-text">' + hadExpanded.name + ' is not reachable any longer</span>';
+                    overlay.innerHTML = '<span class="expand-overlay-text">' + escapeHtml(hadExpanded.name) + ' is not reachable any longer</span>';
                     ghostCard.appendChild(overlay);
                     content.style.height = content.getBoundingClientRect().height + 'px';
                     content.classList.add('expanded');
@@ -2423,7 +2427,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                                                 });
                                                 epHtml += '</div>';
                                             }
-                                            container.innerHTML = '<div class="expand-empty expand-error">' + cardName + ' Health Fetch Failed</div>' + epHtml;
+                                            container.innerHTML = '<div class="expand-empty expand-error">' + escapeHtml(cardName) + ' Health Fetch Failed</div>' + epHtml;
                                             card.classList.add('service-card-unhealthy');
                                             updateCardButtonLabels(card);
                                             var chash = card.getAttribute('data-hash');
