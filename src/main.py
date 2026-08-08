@@ -21,6 +21,28 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+# ============================================================================
+# STARTUP DEPENDENCY CHECK
+# ============================================================================
+_missing_libraries: list[str] = []
+for _module, _package in {
+    "flask": "Flask",
+    "jsonschema": "jsonschema",
+}.items():
+    try:
+        __import__(_module)
+    except ImportError:
+        _missing_libraries.append(_package)
+
+if _missing_libraries:
+    import sys
+    sys.stderr.write(
+        "ERROR: Missing required libraries: "
+        + ", ".join(_missing_libraries)
+        + ". Install them with: pip install -r requirements.txt\n"
+    )
+    sys.exit(1)
+
 import jsonschema
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -64,7 +86,6 @@ def _resolve_pid(ip: str, port: int) -> int | None:
                 )
                 for line in proc.stdout.splitlines():
                     if f":{port_str}" in line:
-                        import re
                         match = re.search(r"pid=(\d+)", line)
                         if match:
                             return int(match.group(1))
@@ -74,7 +95,6 @@ def _resolve_pid(ip: str, port: int) -> int | None:
                 )
                 for line in proc.stdout.splitlines():
                     if f":{port_str}" in line and "LISTEN" in line:
-                        import re
                         match = re.search(r"(\d+)/", line.strip().split()[-1])
                         if match:
                             return int(match.group(1))
@@ -85,9 +105,6 @@ def _resolve_pid(ip: str, port: int) -> int | None:
 
 SERVICE_HOST = None
 SERVICE_PORT = None
-
-AUTO_PROTECT_SERVICES: list[str] = []
-AUTO_RESTART_SERVICES: list[str] = []
 
 REGISTERED_CLIENTS: dict[str, dict] = {}
 REGISTERED_CLIENTS_LOCK = threading.Lock()
@@ -172,7 +189,8 @@ def _parse_env_file() -> dict[str, str]:
                 value = value.strip()
                 if key:
                     env_dict[key] = value
-    except OSError:
+    except OSError as exc:
+        logger.warning(f"Failed to read {ENV_PATH}: {exc}")
         return {}
     return env_dict
 
@@ -183,7 +201,8 @@ def _write_env_file(env_dict: dict[str, str]) -> None:
         try:
             with open(ENV_PATH, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-        except OSError:
+        except OSError as exc:
+            logger.warning(f"Failed to read {ENV_PATH}: {exc}")
             lines = []
 
     updated_keys: set[str] = set()
@@ -574,8 +593,8 @@ def _run_health_check() -> list[dict]:
                 if pid is not None:
                     try:
                         _kill_pid(pid)
-                    except subprocess.CalledProcessError:
-                        pass
+                    except subprocess.CalledProcessError as exc:
+                        logger.warning(f"Failed to kill PID {pid}: {exc}")
                 with REGISTERED_CLIENTS_LOCK:
                     REGISTERED_CLIENTS.pop(client_hash, None)
                 try:
@@ -603,6 +622,7 @@ def _health_check_worker() -> None:
 
 
 def _start_health_check_loop() -> None:
+    logger.info(f"Health-check loop started (interval: {HEALTH_CHECK_INTERVAL_SECONDS}s)")
     worker = threading.Thread(
         target=_health_check_worker,
         name="health-check",
@@ -851,12 +871,11 @@ def question(name=None):
         logger.warning("Service lookup attempted without a valid name")
         return _error_response("The name of the target client is required.")
 
+    target_name_stripped = target_name.strip()
     authorized, invalid_key = _check_authorization(payload)
     if invalid_key:
         logger.warning(f"Invalid API key for service lookup: name={target_name_stripped}")
         return _error_response("API key is not valid.", 403)
-
-    target_name_stripped = target_name.strip()
     with SERVICE_NAME_INDEX_LOCK:
         client_hash = SERVICE_NAME_INDEX.get(target_name_stripped.lower())
 
@@ -1499,6 +1518,7 @@ def restart():
     try:
         _launch_script(script_path)
     except Exception as exc:
+        logger.error(f"Failed to start script: {exc}")
         return _error_response(f"Failed to start script: {exc}", 500)
 
     logger.info(f"Restarted with script '{script_path}' (hash {client_hash[:16]}...)")
@@ -1593,6 +1613,7 @@ def broken_restart():
     try:
         _launch_script(script_path)
     except Exception as exc:
+        logger.error(f"Failed to start script: {exc}")
         return _error_response(f"Failed to start script: {exc}", 500)
 
     logger.info(f"Restarted broken service with script '{script_path}' (hash {hash_val[:16]}...)")
@@ -1679,10 +1700,10 @@ def _init_api_keys() -> None:
     global API_KEYS_DATA
     with API_KEYS_LOCK:
         API_KEYS_DATA = {"keys": {}}
-    logger.info(
-        "API key store initialized. "
-        "Keys will be loaded from SH_API_KEYS environment variable on first request."
-    )
+    if os.getenv("SH_API_KEYS"):
+        logger.info("SH_API_KEYS configured; API keys will be loaded on first request.")
+    else:
+        logger.info("SH_API_KEYS not configured; API key store is empty.")
 
 
 def _ensure_api_key_session() -> str | None:
@@ -2061,9 +2082,16 @@ if __name__ == "__main__":
     args, _ = parser.parse_known_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
+    log_dir = Path(__file__).resolve().parent.parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"{datetime.now().strftime('%d-%m-%Y_%H.%M.%S')}.log"
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_file, encoding="utf-8"),
+        ],
     )
 
     try:
@@ -2080,6 +2108,7 @@ if __name__ == "__main__":
         logger.info("  ServiceHandler - Web Service Registry")
         logger.info("=" * 50)
         logger.info(f"Binding to: http://{SERVICE_HOST}:{SERVICE_PORT}")
+        logger.info(f"Routes registered: {len(list(app.url_map.iter_rules()))}")
         logger.info(f"Clients registered in memory: {len(REGISTERED_CLIENTS)}")
         if GUI_ENABLED:
             logger.info("GUI: enabled")
