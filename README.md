@@ -87,7 +87,7 @@ Sensitive endpoints require a valid API key, with these exceptions:
 | **Valid API key** (POST + involving_api_keys) | `/api/shutdown`, `/api/restart` |
 | **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question/service`, `GET /api/services` |
 | **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
-| **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints`, `POST /api/validate/json-body` |
+| **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints`, `POST /api/validate/json-body`, `POST /api/validate-key` |
 
 The service-management endpoints that accept a `hash` parameter (`/api/unregister/service`, `/api/service/terminate`, `/api/service/restart`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck`) use `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the hash corresponds to a known registered service (self-service — knowing the hash is proof of identity). ServiceHandler's own localhost requests are also accepted. `/api/service/protect` and `/api/service/unprotect` accept a valid API key or localhost only (no self-service).
 
@@ -141,11 +141,16 @@ Registers a new client service and returns a SHA-256 hash. Before registering, S
 		{ "hash": "<sha256-hash>" }
 		```
 	- `400` -> `{ "error": "A non-empty name is required." }`
+	- `400` -> `{ "error": "The name 'ServiceHandler' is reserved." }`
 	- `400` -> `{ "error": "A port number is required." }`
 	- `400` -> `{ "error": "Port must be a number between 1 and 65535." }`
+	- `400` -> `{ "error": "Starting script must be a string." }`
 	- `400` -> `{ "error": "A bind address is required." }`
 	- `400` -> `{ "error": "A hostname is required." }`
 	- `400` -> `{ "error": "Client health endpoint is not reachable." }`
+	- `400` -> `{ "error": "Could not determine the PID of the process." }`
+	- `409` -> `{ "error": "A service with name '...', IP '...' and port '...' is already registered." }`
+	- `409` -> `{ "error": "IP '...' is already associated with hostname '...', cannot register with hostname '...'." }`
 	- `409` -> `{ "error": "A client with name '...' is already registered." }`
 
 ### `POST /api/question/service` (also `HEAD`, `OPTIONS`)
@@ -174,7 +179,9 @@ Looks up a registered client's data by name. The service name can be passed eith
 			"bind_address": "127.0.0.1",
 			"hostname": "my-host",
 			"ip": "127.0.0.1",
-			"timestamp": "2025-01-01T00:00:00"
+			"timestamp": "2025-01-01T00:00:00",
+			"endpoints": [],
+			"protected": false
 		}
 		```
 	- `400` -> `{ "error": "The name of the target client is required." }`
@@ -235,7 +242,8 @@ Returns the list of all registered clients. The `endpoints` field is never inclu
 					"timestamp": "2025-01-01T00:00:00",
 					"starting_script": "scripts/run.bat",
 					"bind_address": "127.0.0.1",
-					"hostname": "my-host"
+					"hostname": "my-host",
+					"protected": false
 				}
 			]
 		}
@@ -254,7 +262,8 @@ Returns the list of all registered clients. The `endpoints` field is never inclu
 					"timestamp": "2025-01-01T00:00:00",
 					"starting_script": "scripts/run.bat",
 					"bind_address": "127.0.0.1",
-					"hostname": "my-host"
+					"hostname": "my-host",
+					"protected": false
 				}
 			]
 		}
@@ -288,6 +297,8 @@ Registers an endpoint for a registered service. The service authenticates by pro
 	- `400` -> `{ "error": "A hash is required." }`
 	- `400` -> `{ "error": "A non-empty HTTP verb is required." }`
 	- `400` -> `{ "error": "A non-empty endpoint path is required." }`
+	- `400` -> `{ "error": "path_variables must be a list." }`
+	- `400` -> `{ "error": "body_schema must be a JSON schema object." }`
 	- `400` -> `{ "error": "A non-empty description is required." }`
 	- `404` -> `{ "error": "Service not found." }`
 
@@ -442,11 +453,12 @@ Returns the current column sort order and group-by key used by the web UI.
 	- `200` ->
 		```json
 		{
-			"sort_order": ["name", "port", "pid", "bind_address", "hostname", "status"],
+			"sort_order": ["name", "port", "pid", "bind_address", "hostname", "status", "protected"],
 			"group_by": "name",
-			"original_sort_order": ["name", "port", "pid", "bind_address", "hostname", "status"]
+			"original_sort_order": ["name", "port", "pid", "bind_address", "hostname", "status", "protected"]
 		}
 		```
+	The `group_by` and `original_sort_order` fields are only included in the response when a group-by key is set.
 
 ### `PUT /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Updates the column sort order and/or group-by key.
@@ -483,6 +495,7 @@ Terminates a registered client process and unregisters it.
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
+	- `403` -> `{ "error": "Service is protected and cannot be terminated." }`
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/service/restart` (also `HEAD`, `OPTIONS`)
@@ -490,6 +503,7 @@ Restarts a registered client process via its start script. The starting script a
 - Auth: API key, localhost, or self-service (any registered service that knows its own hash)
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client.
+	- `pid` (number, optional): process ID to terminate. If omitted, the server looks up the stored PID for the client.
 	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client (not needed for self-service or localhost).
 - Returns:
 	- `200` ->
@@ -500,10 +514,11 @@ Restarts a registered client process via its start script. The starting script a
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
-	- `400` -> `{ "error": "Client not found." }`
 	- `400` -> `{ "error": "No starting script available for this service." }`
 	- `400` -> `{ "error": "No PID available for this service." }`
+	- `403` -> `{ "error": "Service is protected and cannot be restarted." }`
 	- `403` -> `{ "error": "API key is not valid." }`
+	- `404` -> `{ "error": "Client not found." }`
 	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
@@ -522,6 +537,7 @@ Removes a client from the broken list without requiring a termination. If the cl
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
+	- `403` -> `{ "error": "Service is protected and cannot be forgotten." }`
 	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/broken/restart` (also `HEAD`, `OPTIONS`)
@@ -540,6 +556,7 @@ Forgets a client from the broken list, kills its process if still running, then 
 		```
 	- `400` -> `{ "error": "A hash is required." }`
 	- `400` -> `{ "error": "No starting script available for this service." }`
+	- `403` -> `{ "error": "Service is protected and cannot be restarted." }`
 	- `403` -> `{ "error": "API key is not valid." }`
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
@@ -564,6 +581,7 @@ Checks the health of a specific client by hash, or all registered clients if no 
 			"healthy": false
 		}
 		```
+	- `403` -> `{ "error": "API key is not valid." }`
 	- `404` -> `{ "error": "Client not found." }`
 - Returns (all clients):
 	- `200` ->
@@ -580,12 +598,13 @@ Checks the health of a specific client by hash, or all registered clients if no 
 					"timestamp": "2025-01-01T00:00:00",
 					"starting_script": "scripts/run.bat",
 					"bind_address": "127.0.0.1",
-					"hostname": "my-host"
+					"hostname": "my-host",
+					"endpoints": [],
+					"protected": false
 				}
 			]
 		}
 		```
-	- `403` -> `{ "error": "API key is not valid." }`
 
 ### `POST /api/shutdown` (also `HEAD`, `OPTIONS`)
 Shuts down the ServiceHandler service.
@@ -617,7 +636,7 @@ Restarts the ServiceHandler service by spawning a new process before shutting do
 
 ### `GET /api/settings/auto-protect` (also `HEAD`, `OPTIONS`)
 Returns the list of service names that are automatically protected on registration.
-- Auth: local-device only (no API key required)
+- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
 - Body: none
 - Returns:
 	- `200` ->
@@ -626,10 +645,11 @@ Returns the list of service names that are automatically protected on registrati
 			"services": ["service-a", "service-b"]
 		}
 		```
+	- `403` -> `{ "error": "Only accessible from the local device." }`
 
 ### `PUT /api/settings/auto-protect` (also `HEAD`, `OPTIONS`)
 Updates the list of service names that are automatically protected on registration. The provided services are stored in the order given; duplicate names (after stripping whitespace) are rejected.
-- Auth: local-device only (no API key required)
+- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
 - Body (JSON object):
 	- `services` (array of strings, required): list of service names.
 - Returns:
@@ -642,10 +662,12 @@ Updates the list of service names that are automatically protected on registrati
 	- `400` -> `{ "error": "services must be a JSON array." }`
 	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
 	- `400` -> `{ "error": "Each service name must be a string." }`
+	- `400` -> `{ "error": "'ServiceHandler' is reserved and cannot be added to auto-protect." }`
+	- `403` -> `{ "error": "Only accessible from the local device." }`
 
 ### `GET /api/settings/auto-restart` (also `HEAD`, `OPTIONS`)
 Returns the list of service names that are automatically restarted when they fail a health check.
-- Auth: local-device only (no API key required)
+- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
 - Body: none
 - Returns:
 	- `200` ->
@@ -654,10 +676,11 @@ Returns the list of service names that are automatically restarted when they fai
 			"services": ["service-a", "service-b"]
 		}
 		```
+	- `403` -> `{ "error": "Only accessible from the local device." }`
 
 ### `PUT /api/settings/auto-restart` (also `HEAD`, `OPTIONS`)
 Updates the list of service names that are automatically restarted when they fail a health check. The provided services are stored in the order given; duplicate names (after stripping whitespace) are rejected.
-- Auth: local-device only (no API key required)
+- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
 - Body (JSON object):
 	- `services` (array of strings, required): list of service names.
 - Returns:
@@ -670,10 +693,12 @@ Updates the list of service names that are automatically restarted when they fai
 	- `400` -> `{ "error": "services must be a JSON array." }`
 	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
 	- `400` -> `{ "error": "Each service name must be a string." }`
+	- `400` -> `{ "error": "'ServiceHandler' is reserved and cannot be added to auto-restart." }`
+	- `403` -> `{ "error": "Only accessible from the local device." }`
 
 ### `GET /api/settings/show-promotion` (also `HEAD`, `OPTIONS`)
 Returns whether the promotion footer is shown on the settings page.
-- Auth: local-device only (no API key required)
+- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
 - Body: none
 - Returns:
 	- `200` ->
@@ -682,10 +707,11 @@ Returns whether the promotion footer is shown on the settings page.
 			"show_promotion": true
 		}
 		```
+	- `403` -> `{ "error": "Only accessible from the local device." }`
 
 ### `PUT /api/settings/show-promotion` (also `HEAD`, `OPTIONS`)
 Updates whether the promotion footer is shown on the settings page.
-- Auth: local-device only (no API key required)
+- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
 - Body (JSON object):
 	- `show_promotion` (boolean, required): `true` to show the footer, `false` to hide it.
 - Returns:
@@ -696,6 +722,7 @@ Updates whether the promotion footer is shown on the settings page.
 		}
 		```
 	- `400` -> `{ "error": "show_promotion must be a boolean." }`
+	- `403` -> `{ "error": "Only accessible from the local device." }`
 
 ### `GET /resources/<path:filename>` (also `HEAD`, `OPTIONS`)
 Serves static resource files from the `resources/` directory.
@@ -794,7 +821,8 @@ Approves a pending API key request, generates a key, and notifies the requesting
 		```json
 		{
 			"status": "granted",
-			"api_key": "<128-hex-chars>",
+			"api_key": "<64-hex-chars>",
+			"env_var_entry": "SH_API_KEYS={\"my-service\":\"<64-hex-chars>\"}",
 			"service": "my-service",
 			"notified": true
 		}
@@ -802,7 +830,7 @@ Approves a pending API key request, generates a key, and notifies the requesting
 	- `400` -> `{ "error": "A hash is required." }`
 	- `403` -> `{ "error": "API key is not valid." }`
 	- `404` -> `{ "error": "No pending API key request for this client." }`
-	- `500` -> `{ "error": "Failed to persist API key." }`
+	- `500` -> `{ "error": "Internal error: ..." }`
 	- `503` -> `{ "error": "..." }` (API key session not available)
 
 ### `POST /api/api-key/reject` (also `HEAD`, `OPTIONS`)
