@@ -44,7 +44,7 @@ This project is intended to follow basic security hygiene:
 - **ServiceHandler binds to `127.0.0.1`** by default (port 49155). The before-request hook rejects non-local traffic before any endpoint-specific auth runs. Do not change the bind address to `0.0.0.0` without additional network-layer protections.
 - **SHA-256 hashes serve as proof of identity** for self-service authentication. If a hash is leaked, any party that knows it can act on behalf of that service. Treat hashes as credentials.
 - **Access control is layered** — localhost-only check runs first, then endpoint-specific logic. Review the access control table in the README before deploying.
-- **Sensitive endpoints** (terminate, restart, protect, shutdown) require a valid API key or localhost access.
+- **Sensitive endpoints** require a valid API key or localhost access, with one exception: `/api/shutdown` and `/api/restart` (the ServiceHandler process itself) require a valid API key — localhost access is not sufficient.
 - **Review third-party dependencies** before adding them. ServiceHandler currently depends on Flask and jsonschema — vet any new libraries for known vulnerabilities.
 - **Headless mode** (`"noGUI": true` in `resources/configuration.json`) disables UI endpoints for a reduced attack surface when the dashboard is not needed.
 - **Protected services** flagged via the protect endpoint cannot be terminated, restarted, or forgotten by anyone.

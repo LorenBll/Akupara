@@ -82,9 +82,9 @@ Sensitive endpoints require a valid API key, with these exceptions:
 | Restriction level | Endpoints |
 |---|---|
 | **API key, localhost, or self-service** (POST) — accepts if any of: valid API key, localhost, or service acting on itself (hash is proof of identity) | `/api/service/terminate`, `/api/service/restart`, `/api/unregister/service`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck` |
-| **Strict localhost or valid API key** (GET) — localhost allowed for bootstrapping | `/api/api-key/pending` |
-| **Strict localhost or valid API key** (POST + involving_api_keys) — localhost allowed for bootstrapping | `/api/api-key/grant`, `/api/api-key/reject` |
-| **Valid API key or localhost** (POST) | `/api/shutdown`, `/api/restart` |
+| **Valid API key** (GET + involving_api_keys) | `/api/api-key/pending` |
+| **Valid API key** (POST + involving_api_keys) | `/api/api-key/grant`, `/api/api-key/reject` |
+| **Valid API key** (POST + involving_api_keys) | `/api/shutdown`, `/api/restart` |
 | **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question/service`, `GET /api/services` |
 | **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
 | **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints`, `POST /api/validate/json-body` |
@@ -589,9 +589,9 @@ Checks the health of a specific client by hash, or all registered clients if no 
 
 ### `POST /api/shutdown` (also `HEAD`, `OPTIONS`)
 Shuts down the ServiceHandler service.
-- Auth: API key or localhost
+- Auth: valid API key required
 - Body (JSON object):
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+	- `api_key` (string, required): API key to authenticate the request.
 - Returns:
 	- `200` ->
 		```json
@@ -603,9 +603,9 @@ Shuts down the ServiceHandler service.
 
 ### `POST /api/restart` (also `HEAD`, `OPTIONS`)
 Restarts the ServiceHandler service by spawning a new process before shutting down the current one.
-- Auth: API key or localhost
+- Auth: valid API key required
 - Body (JSON object):
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+	- `api_key` (string, required): API key to authenticate the request.
 - Returns:
 	- `200` ->
 		```json
@@ -762,9 +762,9 @@ Submits an API key request for a registered client. The request enters a pending
 
 ### `GET /api/api-key/pending` (also `HEAD`, `OPTIONS`)
 Lists all pending API key requests with full details and an array of hashes.
-- Auth: localhost or valid API key
+- Auth: valid API key required
 - Body (JSON object):
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+	- `api_key` (string, required): API key to authenticate the request.
 - Returns:
 	- `200` ->
 		```json
@@ -785,10 +785,10 @@ Lists all pending API key requests with full details and an array of hashes.
 
 ### `POST /api/api-key/grant` (also `HEAD`, `OPTIONS`)
 Approves a pending API key request, generates a key, and notifies the requesting service.
-- Auth: localhost or valid API key
+- Auth: valid API key required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash from the pending request to grant.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+	- `api_key` (string, required): API key to authenticate the request.
 - Returns:
 	- `200` ->
 		```json
@@ -807,10 +807,10 @@ Approves a pending API key request, generates a key, and notifies the requesting
 
 ### `POST /api/api-key/reject` (also `HEAD`, `OPTIONS`)
 Rejects a pending API key request and notifies the requesting service.
-- Auth: localhost or valid API key
+- Auth: valid API key required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash from the pending request to reject.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
+	- `api_key` (string, required): API key to authenticate the request.
 - Returns:
 	- `200` ->
 		```json
