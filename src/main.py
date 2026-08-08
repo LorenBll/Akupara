@@ -367,7 +367,7 @@ def _is_authorized_strict(payload: dict) -> bool:
 
 
 def _is_authorized(payload: dict) -> bool:
-    return _is_authorized_strict(payload) or _is_localhost_request()
+    return _is_authorized_strict(payload)
 
 
 def _is_self_request(payload: dict) -> bool:
@@ -1831,6 +1831,7 @@ def api_key_request():
 
 
 @app.route("/api/api-key/pending", methods=["GET", "HEAD", "OPTIONS"])
+@involving_api_keys
 def api_key_pending():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
@@ -1990,6 +1991,7 @@ def api_key_reject():
 
 
 @app.route("/api/shutdown", methods=["POST", "HEAD", "OPTIONS"])
+@involving_api_keys
 def terminate_server():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -2017,6 +2019,7 @@ def terminate_server():
 
 
 @app.route("/api/restart", methods=["POST", "HEAD", "OPTIONS"])
+@involving_api_keys
 def restart_server():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
