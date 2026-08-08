@@ -40,7 +40,7 @@ Page transitions use a fade-out animation triggered by the `page-exit` CSS class
 
 | Variable | Description |
 |----------|-------------|
-| `SH_API_KEYS` | JSON object mapping service names to plain API keys. Loaded at session initialization. API keys are stored as plain text in `.env`. |
+| `SH_API_KEYS` | JSON object mapping service names to plain API keys. Loaded into memory on the first request to an API-key endpoint. API keys are stored as plain text in `.env`. |
 | `SH_SORT_ORDER` | JSON array of column keys for the UI sort order. Persisted across restarts. |
 | `SH_GROUP_BY` | Key to group services by in the UI (e.g. `protected`, `status`). Persisted across restarts. |
 | `SH_ORIGINAL_SORT_ORDER` | JSON array for the ungrouped sort order baseline. Persisted across restarts. |
@@ -56,7 +56,7 @@ ServiceHandler stores API keys as plain text in the `SH_API_KEYS` environment va
    ```
    SH_API_KEYS={"service_name":"<plain_text_api_key>"}
    ```
-   The value is a JSON object where each key is a service name and each value is the plain text API key. On session initialization, ServiceHandler reads this env var and loads each key into memory.
+   The value is a JSON object where each key is a service name and each value is the plain text API key. On the first request to an API-key endpoint, ServiceHandler reads this env var and loads each key into memory.
 
 2. When a new API key is granted through the web UI or API, the response includes an `env_var_entry` string that can be copied directly into your `.env` file for persistence across restarts.
 
@@ -89,7 +89,7 @@ Sensitive endpoints require a valid API key, with these exceptions:
 | **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
 | **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints`, `POST /api/validate/json-body` |
 
-All endpoints that accept a `hash` parameter use `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the hash corresponds to a known registered service (self-service — knowing the hash is proof of identity). ServiceHandler's own localhost requests are also accepted.
+The service-management endpoints that accept a `hash` parameter (`/api/unregister/service`, `/api/service/terminate`, `/api/service/restart`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck`) use `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the hash corresponds to a known registered service (self-service — knowing the hash is proof of identity). ServiceHandler's own localhost requests are also accepted. `/api/service/protect` and `/api/service/unprotect` accept a valid API key or localhost only (no self-service).
 
 When authorization fails, the response is `403` with `{ "error": "API key is not valid." }`. Non-local requests are rejected at the firewall level before any endpoint-specific auth runs, returning `403` with `{ "error": "Local device access only." }`.
 
@@ -411,7 +411,6 @@ Validates a JSON body against the JSON schema of a registered endpoint. The resp
 	- `400` -> `{ "error": "A non-empty HTTP verb is required." }`
 	- `400` -> `{ "error": "A non-empty endpoint path is required." }`
 	- `400` -> `{ "error": "A json_body is required." }`
-	- `404` -> `{ "error": "No service found with name '...'." }`
 	- `404` -> `{ "error": "No endpoint found with verb '...' and path '...' for service '...'." }`
 
 ### `POST /api/validate-key` (also `HEAD`, `OPTIONS`)
@@ -466,7 +465,6 @@ Updates the column sort order and/or group-by key.
 		}
 		```
 	- `400` -> `{ "error": "sort_order must be a non-empty list." }`
-	- `500` -> `{ "error": "Failed to read/write configuration." }`
 
 ### `POST /api/service/terminate` (also `HEAD`, `OPTIONS`)
 Terminates a registered client process and unregisters it.
@@ -485,9 +483,7 @@ Terminates a registered client process and unregisters it.
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
-	- `400` -> `{ "error": "No PID available for this service." }`
 	- `403` -> `{ "error": "API key is not valid." }`
-	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 
 ### `POST /api/service/restart` (also `HEAD`, `OPTIONS`)
 Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data.
@@ -632,7 +628,7 @@ Returns the list of service names that are automatically protected on registrati
 		```
 
 ### `PUT /api/settings/auto-protect` (also `HEAD`, `OPTIONS`)
-Updates the list of service names that are automatically protected on registration. The provided services are sorted alphabetically and duplicate names (after stripping whitespace) are rejected.
+Updates the list of service names that are automatically protected on registration. The provided services are stored in the order given; duplicate names (after stripping whitespace) are rejected.
 - Auth: local-device only (no API key required)
 - Body (JSON object):
 	- `services` (array of strings, required): list of service names.
@@ -643,9 +639,9 @@ Updates the list of service names that are automatically protected on registrati
 			"services": ["service-a", "service-b"]
 		}
 		```
-	- `400` -> `{ "error": "services must be a non-empty list." }`
+	- `400` -> `{ "error": "services must be a JSON array." }`
 	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
-	- `400` -> `{ "error": "Each service name must be a non-empty string." }`
+	- `400` -> `{ "error": "Each service name must be a string." }`
 
 ### `GET /api/settings/auto-restart` (also `HEAD`, `OPTIONS`)
 Returns the list of service names that are automatically restarted when they fail a health check.
@@ -660,7 +656,7 @@ Returns the list of service names that are automatically restarted when they fai
 		```
 
 ### `PUT /api/settings/auto-restart` (also `HEAD`, `OPTIONS`)
-Updates the list of service names that are automatically restarted when they fail a health check. The provided services are sorted alphabetically and duplicate names (after stripping whitespace) are rejected.
+Updates the list of service names that are automatically restarted when they fail a health check. The provided services are stored in the order given; duplicate names (after stripping whitespace) are rejected.
 - Auth: local-device only (no API key required)
 - Body (JSON object):
 	- `services` (array of strings, required): list of service names.
@@ -671,9 +667,9 @@ Updates the list of service names that are automatically restarted when they fai
 			"services": ["service-a", "service-b"]
 		}
 		```
-	- `400` -> `{ "error": "services must be a non-empty list." }`
+	- `400` -> `{ "error": "services must be a JSON array." }`
 	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
-	- `400` -> `{ "error": "Each service name must be a non-empty string." }`
+	- `400` -> `{ "error": "Each service name must be a string." }`
 
 ### `GET /api/settings/show-promotion` (also `HEAD`, `OPTIONS`)
 Returns whether the promotion footer is shown on the settings page.
