@@ -2061,16 +2061,10 @@ def terminate_server():
     if request.method == "HEAD":
         return _head_response()
 
-    environ = request.environ
-
     def _shutdown():
         time.sleep(0.5)
-        logger.info("Shutdown thread: executing server shutdown")
-        func = environ.get("werkzeug.server.shutdown")
-        if func:
-            func()
-        else:
-            os._exit(0)
+        logger.info("Shutdown thread: terminating server process")
+        os._exit(0)
 
     threading.Thread(target=_shutdown, daemon=True).start()
     logger.info("Server shutdown initiated")
@@ -2085,7 +2079,7 @@ def restart_server():
     if request.method == "HEAD":
         return _head_response()
 
-    script = os.path.join(os.path.dirname(__file__), "main.py")
+    script = os.path.abspath(os.path.join(os.path.dirname(__file__), "main.py"))
 
     def _restart():
         time.sleep(0.5)
@@ -2096,11 +2090,8 @@ def restart_server():
             close_fds=True,
         )
         time.sleep(1)
-        func = environ.get("werkzeug.server.shutdown")
-        if func:
-            func()
-        else:
-            os._exit(0)
+        logger.info("Restart thread: terminating old server process")
+        os._exit(0)
 
     threading.Thread(target=_restart, daemon=True).start()
     logger.info("Server restart initiated")
