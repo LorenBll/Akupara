@@ -129,7 +129,7 @@ body.has-error::before {
 
 .sort-decoration-icon {
     position: absolute;
-    transition: opacity 0.1s ease, transform 0.1s ease;
+    transition: opacity 0.05s ease, transform 0.05s ease;
 }
 
 .sort-decoration .icon-x {
@@ -333,7 +333,7 @@ body.has-error::before {
     opacity: 0;
     transform: translateY(-12px);
     pointer-events: none;
-    transition: opacity 0.1s ease, transform 0.1s ease;
+    transition: opacity 0.05s ease, transform 0.05s ease;
 }
 
 .sort-item.visible {
@@ -355,7 +355,7 @@ body.has-error::before {
     opacity: 0;
     transform: translateY(-12px);
     pointer-events: none;
-    transition: opacity 0.1s ease, transform 0.1s ease;
+    transition: opacity 0.05s ease, transform 0.05s ease;
 }
 
 .sort-items-casing.visible .sort-separator,
@@ -381,7 +381,7 @@ body.has-error::before {
     pointer-events: none;
     cursor: default;
     border-radius: 12px;
-    transition: opacity 0.1s ease, transform 0.1s ease;
+    transition: opacity 0.05s ease, transform 0.05s ease;
 }
 
 .sort-groupby-zone.filled {
@@ -425,7 +425,7 @@ body.has-error::before {
     position: relative;
     width: 42px;
     height: 42px;
-    transition: opacity 0.1s ease, transform 0.1s ease;
+    transition: opacity 0.05s ease, transform 0.05s ease;
 }
 
 .sort-groupby-placeholder.hidden {
@@ -440,7 +440,7 @@ body.has-error::before {
     position: relative;
     width: 42px;
     height: 42px;
-    transition: opacity 0.1s ease, transform 0.1s ease;
+    transition: opacity 0.05s ease, transform 0.05s ease;
 }
 
 .sort-groupby-item.visible {
