@@ -230,7 +230,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
                 animItems.forEach(function(item, i) {
                     setTimeout(function() {
                         item.classList.add('visible');
-                    }, i * 40);
+                    }, i * 15);
                 });
                 return;
             }
@@ -240,7 +240,7 @@ document.documentElement.style.setProperty('--sheen-y', pct + '%');
             animItems.forEach(function(item, i) {
                 setTimeout(function() {
                     item.classList.remove('visible', 'dragging');
-                }, (animItems.length - 1 - i) * 40);
+                }, (animItems.length - 1 - i) * 15);
             });
         }
 
