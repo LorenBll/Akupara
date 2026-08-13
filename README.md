@@ -77,21 +77,27 @@ All `/api/*` and `/ui/*` endpoints are local-device only. Requests from non-loca
 - All endpoints also support `HEAD` and `OPTIONS`.
 - API responses use `Connection: close`.
 
-Sensitive endpoints require a valid API key, with these exceptions:
+### UI Session Cookie
+
+Endpoints consumed by the web UI require a valid UI session cookie instead of an API key. The cookie is named `sh_ui_session`, is set automatically by ServiceHandler on every response (`HttpOnly`, `SameSite=Strict`, path `/`), and its value is regenerated on every ServiceHandler run — so a session from a previous run is never valid. A browser that has loaded any UI page once carries the cookie for all subsequent requests. Requests without a matching cookie are rejected with:
+- `403` -> `{ "error": "UI session is not valid." }`
 
 | Restriction level | Endpoints |
 |---|---|
-| **API key, localhost, or self-service** (POST) — accepts if any of: valid API key, localhost, or service acting on itself (hash is proof of identity) | `/api/service/terminate`, `/api/service/restart`, `/api/unregister/service`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck` |
-| **Valid API key** (GET + involving_api_keys) | `/api/api-key/pending` |
-| **Valid API key** (POST + involving_api_keys) | `/api/api-key/grant`, `/api/api-key/reject` |
-| **Valid API key** (POST + involving_api_keys) | `/api/shutdown`, `/api/restart` |
-| **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question/service`, `GET /api/services` |
-| **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint` |
-| **No auth required** | `POST /api/service/endpoints`, `POST /api/endpoints/service`, `GET /api/services/endpoints`, `POST /api/validate/json-body`, `POST /api/validate-key` |
+| **UI session cookie required** | `GET /api/health`, `GET /api/services`, `POST /api/services/healthcheck`, `GET /api/services/endpoints`, `POST /api/services/search-endpoints`, `POST /api/service/endpoints`, `POST /api/endpoints/service`, `POST /api/validate/json-body`, `GET /ui/sort-settings`, `PUT /ui/sort-settings`, `GET/PUT /api/settings/auto-protect`, `GET/PUT /api/settings/auto-restart`, `GET/PUT /api/settings/show-promotion`, `POST /api/service/terminate`, `POST /api/service/restart`, `POST /api/broken/forget`, `POST /api/broken/restart`, `POST /api/service/protect`, `POST /api/service/unprotect`, `GET /api/api-key/pending`, `POST /api/api-key/grant`, `POST /api/api-key/reject`, `POST /api/shutdown`, `POST /api/restart` |
 
-The service-management endpoints that accept a `hash` parameter (`/api/unregister/service`, `/api/service/terminate`, `/api/service/restart`, `/api/broken/forget`, `/api/broken/restart`, `/api/services/healthcheck`) use `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the hash corresponds to a known registered service (self-service — knowing the hash is proof of identity). ServiceHandler's own localhost requests are also accepted. `/api/service/protect` and `/api/service/unprotect` accept a valid API key or localhost only (no self-service).
+The service-facing endpoints (called by registered services rather than by the web UI) keep the API-key and hash-based model:
 
-When authorization fails, the response is `403` with `{ "error": "API key is not valid." }`. Non-local requests are rejected at the firewall level before any endpoint-specific auth runs, returning `403` with `{ "error": "Local device access only." }`.
+| Restriction level | Endpoints |
+|---|---|
+| **API key, localhost, or self-service** (DELETE) — accepts if any of: valid API key, localhost, or service acting on itself (hash is proof of identity) | `DELETE /api/unregister/service` |
+| **Optional API key** — returns full data if authorized, basic data otherwise | `POST /api/question/service` |
+| **Hash-only auth** — service must provide its own hash, no API key option | `POST /api/register/endpoint`, `POST /api/api-key/request` |
+| **Local-device only, no auth** | `POST /api/register/service`, `POST /api/validate-key` |
+
+`/api/unregister/service` uses `_check_authorization_all`, which grants access if: a valid API key is provided, the request comes from localhost, **or** the hash corresponds to a known registered service (self-service — knowing the hash is proof of identity). ServiceHandler's own localhost requests are also accepted.
+
+When API-key authorization fails, the response is `403` with `{ "error": "API key is not valid." }`. When the UI session cookie is missing or invalid, the response is `403` with `{ "error": "UI session is not valid." }`. Non-local requests are rejected at the firewall level before any endpoint-specific auth runs, returning `403` with `{ "error": "Local device access only." }`.
 
 These restrictions apply to the main HTTP method only; `HEAD` and `OPTIONS` are unaffected.
 
@@ -208,7 +214,7 @@ Unregisters a client by its hash.
 
 ### `GET /api/health` (also `HEAD`, `OPTIONS`)
 ServiceHandler's own health check with registration statistics.
-- Auth: local-device only (no API key required)
+- Auth: UI session cookie required
 - Body: none
 - Returns:
 	- `200` ->
@@ -225,30 +231,10 @@ ServiceHandler's own health check with registration statistics.
 		```
 
 ### `GET /api/services` (also `HEAD`, `OPTIONS`)
-Returns the list of all registered clients. The `endpoints` field is never included — use `GET /api/services/endpoints` for endpoint data.
-- Auth: optional API key — returns full data including hashes if authorized (valid API key or localhost), basic data without hashes otherwise
-- Body (JSON object):
-	- `api_key` (string, optional): API key to receive full client data including hashes.
-- Returns (unauthorized):
-	- `200` ->
-		```json
-		{
-			"clients": [
-				{
-					"name": "my-service",
-					"port": 8080,
-					"pid": 12345,
-					"ip": "127.0.0.1",
-					"timestamp": "2025-01-01T00:00:00",
-					"starting_script": "scripts/run.bat",
-					"bind_address": "127.0.0.1",
-					"hostname": "my-host",
-					"protected": false
-				}
-			]
-		}
-		```
-- Returns (localhost or valid API key):
+Returns the list of all registered clients with full data (including hashes). The `endpoints` field is never included — use `GET /api/services/endpoints` for endpoint data.
+- Auth: UI session cookie required
+- Body: none
+- Returns:
 	- `200` ->
 		```json
 		{
@@ -268,7 +254,7 @@ Returns the list of all registered clients. The `endpoints` field is never inclu
 			]
 		}
 		```
-	- `403` -> `{ "error": "API key is not valid." }` (only when an invalid API key is explicitly provided)
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `POST /api/register/endpoint` (also `HEAD`, `OPTIONS`)
 Registers an endpoint for a registered service. The service authenticates by providing its own hash — knowing the hash is proof of identity. No API key option is available. Registration is idempotent: re-registering an endpoint with the same verb and path replaces the previous entry instead of appending a duplicate.
@@ -304,7 +290,7 @@ Registers an endpoint for a registered service. The service authenticates by pro
 
 ### `POST /api/service/endpoints` / `POST /api/endpoints/service` (also `HEAD`, `OPTIONS`)
 Returns the list of endpoints registered for a given service name. The service name can be passed either as a URL path parameter (`/api/service/endpoints/<name>` or `/api/endpoints/service/<name>`) or in the JSON body.
-- Auth: none
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `name` (string, optional if provided in path): name of the registered service.
 - Returns:
@@ -328,7 +314,7 @@ Returns the list of endpoints registered for a given service name. The service n
 
 ### `GET /api/services/endpoints` (also `HEAD`, `OPTIONS`)
 Returns the complete list of registered services along with their registered endpoints. Each entry only includes `name`, `ip`, `port`, and `endpoints`.
-- Auth: none
+- Auth: UI session cookie required
 - Body: none
 - Returns:
 	- `200` ->
@@ -355,7 +341,7 @@ Returns the complete list of registered services along with their registered end
 
 ### `POST /api/services/search-endpoints` (also `HEAD`, `OPTIONS`)
 Searches endpoint descriptions across all registered services, returning matches with the service name.
-- Auth: none
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `query` (string, required): search term to match against endpoint descriptions (case-insensitive substring match).
 - Returns:
@@ -379,7 +365,7 @@ Searches endpoint descriptions across all registered services, returning matches
 
 ### `POST /api/validate/json-body` (also `HEAD`, `OPTIONS`)
 Validates a JSON body against the JSON schema of a registered endpoint. The response indicates whether a schema exists, whether the body is valid, and provides validation errors if the body is invalid.
-- Auth: none
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `service` (string, required): name of the registered service.
 	- `verb` (string, required): HTTP verb of the target endpoint (e.g. `GET`, `POST`).
@@ -447,7 +433,7 @@ Validates whether a given API key exists in the server's key store. Useful for c
 
 ### `GET /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Returns the current column sort order and group-by key used by the web UI.
-- Auth: local-device only (no API key required)
+- Auth: UI session cookie required
 - Body: none
 - Returns:
 	- `200` ->
@@ -462,7 +448,7 @@ Returns the current column sort order and group-by key used by the web UI.
 
 ### `PUT /ui/sort-settings` (also `HEAD`, `OPTIONS`)
 Updates the column sort order and/or group-by key.
-- Auth: local-device only (no API key required)
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `sort_order` (array of strings, optional): column keys in desired order.
 	- `group_by` (string or null, optional): key to group by, or `null` to ungroup.
@@ -480,11 +466,10 @@ Updates the column sort order and/or group-by key.
 
 ### `POST /api/service/terminate` (also `HEAD`, `OPTIONS`)
 Terminates a registered client process and unregisters it.
-- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client to terminate.
 	- `pid` (number, optional): process ID to kill. If omitted, the server looks up the stored PID for the client.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client (not needed for self-service or localhost).
 - Returns:
 	- `200` ->
 		```json
@@ -496,15 +481,14 @@ Terminates a registered client process and unregisters it.
 		```
 	- `400` -> `{ "error": "A hash is required." }`
 	- `403` -> `{ "error": "Service is protected and cannot be terminated." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `POST /api/service/restart` (also `HEAD`, `OPTIONS`)
 Restarts a registered client process via its start script. The starting script and PID are looked up from the server's stored client data.
-- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the client.
 	- `pid` (number, optional): process ID to terminate. If omitted, the server looks up the stored PID for the client.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client (not needed for self-service or localhost).
 - Returns:
 	- `200` ->
 		```json
@@ -517,17 +501,16 @@ Restarts a registered client process via its start script. The starting script a
 	- `400` -> `{ "error": "No starting script available for this service." }`
 	- `400` -> `{ "error": "No PID available for this service." }`
 	- `403` -> `{ "error": "Service is protected and cannot be restarted." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 	- `404` -> `{ "error": "Client not found." }`
 	- `500` -> `{ "error": "Failed to terminate process: ..." }`
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
 ### `POST /api/broken/forget` (also `HEAD`, `OPTIONS`)
 Removes a client from the broken list without requiring a termination. If the client is still registered, it is also unregistered and its process is killed if possible.
-- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the broken client.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -538,14 +521,13 @@ Removes a client from the broken list without requiring a termination. If the cl
 		```
 	- `400` -> `{ "error": "A hash is required." }`
 	- `403` -> `{ "error": "Service is protected and cannot be forgotten." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `POST /api/broken/restart` (also `HEAD`, `OPTIONS`)
 Forgets a client from the broken list, kills its process if still running, then restarts it via its start script. The starting script is looked up from the server's stored client data.
-- Auth: API key, localhost, or self-service (any registered service that knows its own hash)
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the broken client.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -557,15 +539,14 @@ Forgets a client from the broken list, kills its process if still running, then 
 	- `400` -> `{ "error": "A hash is required." }`
 	- `400` -> `{ "error": "No starting script available for this service." }`
 	- `403` -> `{ "error": "Service is protected and cannot be restarted." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 	- `500` -> `{ "error": "Failed to start script: ..." }`
 
 ### `POST /api/services/healthcheck` (also `HEAD`, `OPTIONS`)
 Checks the health of a specific client by hash, or all registered clients if no hash is given.
-- Auth: API key, localhost, or self-service (any registered service that knows its own hash — only applies when checking a specific hash)
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, optional): SHA-256 hash of a specific client to check. If omitted, all registered clients are checked.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns (single client):
 	- `200` ->
 		```json
@@ -581,7 +562,7 @@ Checks the health of a specific client by hash, or all registered clients if no 
 			"healthy": false
 		}
 		```
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 	- `404` -> `{ "error": "Client not found." }`
 - Returns (all clients):
 	- `200` ->
@@ -608,9 +589,8 @@ Checks the health of a specific client by hash, or all registered clients if no 
 
 ### `POST /api/shutdown` (also `HEAD`, `OPTIONS`)
 Shuts down the ServiceHandler service.
-- Auth: valid API key required
-- Body (JSON object):
-	- `api_key` (string, required): API key to authenticate the request.
+- Auth: UI session cookie required
+- Body: none
 - Returns:
 	- `200` ->
 		```json
@@ -618,13 +598,12 @@ Shuts down the ServiceHandler service.
 			"status": "shutdown"
 		}
 		```
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `POST /api/restart` (also `HEAD`, `OPTIONS`)
 Restarts the ServiceHandler service by spawning a new process before shutting down the current one.
-- Auth: valid API key required
-- Body (JSON object):
-	- `api_key` (string, required): API key to authenticate the request.
+- Auth: UI session cookie required
+- Body: none
 - Returns:
 	- `200` ->
 		```json
@@ -632,11 +611,11 @@ Restarts the ServiceHandler service by spawning a new process before shutting do
 			"status": "restart"
 		}
 		```
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `GET /api/settings/auto-protect` (also `HEAD`, `OPTIONS`)
 Returns the list of service names that are automatically protected on registration.
-- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
+- Auth: UI session cookie required
 - Body: none
 - Returns:
 	- `200` ->
@@ -645,11 +624,11 @@ Returns the list of service names that are automatically protected on registrati
 			"services": ["service-a", "service-b"]
 		}
 		```
-	- `403` -> `{ "error": "Only accessible from the local device." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `PUT /api/settings/auto-protect` (also `HEAD`, `OPTIONS`)
 Updates the list of service names that are automatically protected on registration. The provided services are stored in the order given; duplicate names (after stripping whitespace) are rejected.
-- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `services` (array of strings, required): list of service names.
 - Returns:
@@ -663,11 +642,11 @@ Updates the list of service names that are automatically protected on registrati
 	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
 	- `400` -> `{ "error": "Each service name must be a string." }`
 	- `400` -> `{ "error": "'ServiceHandler' is reserved and cannot be added to auto-protect." }`
-	- `403` -> `{ "error": "Only accessible from the local device." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `GET /api/settings/auto-restart` (also `HEAD`, `OPTIONS`)
 Returns the list of service names that are automatically restarted when they fail a health check.
-- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
+- Auth: UI session cookie required
 - Body: none
 - Returns:
 	- `200` ->
@@ -676,11 +655,11 @@ Returns the list of service names that are automatically restarted when they fai
 			"services": ["service-a", "service-b"]
 		}
 		```
-	- `403` -> `{ "error": "Only accessible from the local device." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `PUT /api/settings/auto-restart` (also `HEAD`, `OPTIONS`)
 Updates the list of service names that are automatically restarted when they fail a health check. The provided services are stored in the order given; duplicate names (after stripping whitespace) are rejected.
-- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `services` (array of strings, required): list of service names.
 - Returns:
@@ -694,11 +673,11 @@ Updates the list of service names that are automatically restarted when they fai
 	- `400` -> `{ "error": "Duplicate service names are not allowed." }`
 	- `400` -> `{ "error": "Each service name must be a string." }`
 	- `400` -> `{ "error": "'ServiceHandler' is reserved and cannot be added to auto-restart." }`
-	- `403` -> `{ "error": "Only accessible from the local device." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `GET /api/settings/show-promotion` (also `HEAD`, `OPTIONS`)
 Returns whether the promotion footer is shown on the settings page.
-- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
+- Auth: UI session cookie required
 - Body: none
 - Returns:
 	- `200` ->
@@ -707,11 +686,11 @@ Returns whether the promotion footer is shown on the settings page.
 			"show_promotion": true
 		}
 		```
-	- `403` -> `{ "error": "Only accessible from the local device." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `PUT /api/settings/show-promotion` (also `HEAD`, `OPTIONS`)
 Updates whether the promotion footer is shown on the settings page.
-- Auth: localhost only (no API key required) — requests must come from 127.0.0.1 or ::1
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `show_promotion` (boolean, required): `true` to show the footer, `false` to hide it.
 - Returns:
@@ -722,7 +701,7 @@ Updates whether the promotion footer is shown on the settings page.
 		}
 		```
 	- `400` -> `{ "error": "show_promotion must be a boolean." }`
-	- `403` -> `{ "error": "Only accessible from the local device." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `GET /resources/<path:filename>` (also `HEAD`, `OPTIONS`)
 Serves static resource files from the `resources/` directory.
@@ -735,10 +714,9 @@ Serves static resource files from the `resources/` directory.
 
 ### `POST /api/service/protect` (also `HEAD`, `OPTIONS`)
 Flags a registered service as protected. Protected services cannot be terminated, restarted, or forgotten by anyone.
-- Auth: valid API key or localhost
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the service to protect.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -748,15 +726,14 @@ Flags a registered service as protected. Protected services cannot be terminated
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 	- `404` -> `{ "error": "Client not found." }`
 
 ### `POST /api/service/unprotect` (also `HEAD`, `OPTIONS`)
 Removes the protected flag from a registered service, allowing it to be terminated, restarted, or forgotten again.
-- Auth: valid API key or localhost
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash of the service to unprotect.
-	- `api_key` (string, optional): API key to authenticate the request from a non-localhost client.
 - Returns:
 	- `200` ->
 		```json
@@ -766,7 +743,7 @@ Removes the protected flag from a registered service, allowing it to be terminat
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 	- `404` -> `{ "error": "Client not found." }`
 
 ### `POST /api/api-key/request` (also `HEAD`, `OPTIONS`)
@@ -789,9 +766,8 @@ Submits an API key request for a registered client. The request enters a pending
 
 ### `GET /api/api-key/pending` (also `HEAD`, `OPTIONS`)
 Lists all pending API key requests with full details and an array of hashes.
-- Auth: valid API key required
-- Body (JSON object):
-	- `api_key` (string, required): API key to authenticate the request.
+- Auth: UI session cookie required
+- Body: none
 - Returns:
 	- `200` ->
 		```json
@@ -808,14 +784,13 @@ Lists all pending API key requests with full details and an array of hashes.
 			"hashes": ["<sha256>", "<sha256>"]
 		}
 		```
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 
 ### `POST /api/api-key/grant` (also `HEAD`, `OPTIONS`)
 Approves a pending API key request, generates a key, and notifies the requesting service.
-- Auth: valid API key required
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash from the pending request to grant.
-	- `api_key` (string, required): API key to authenticate the request.
 - Returns:
 	- `200` ->
 		```json
@@ -828,17 +803,16 @@ Approves a pending API key request, generates a key, and notifies the requesting
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 	- `404` -> `{ "error": "No pending API key request for this client." }`
 	- `500` -> `{ "error": "Internal error: ..." }`
 	- `503` -> `{ "error": "..." }` (API key session not available)
 
 ### `POST /api/api-key/reject` (also `HEAD`, `OPTIONS`)
 Rejects a pending API key request and notifies the requesting service.
-- Auth: valid API key required
+- Auth: UI session cookie required
 - Body (JSON object):
 	- `hash` (string, required): SHA-256 hash from the pending request to reject.
-	- `api_key` (string, required): API key to authenticate the request.
 - Returns:
 	- `200` ->
 		```json
@@ -849,7 +823,7 @@ Rejects a pending API key request and notifies the requesting service.
 		}
 		```
 	- `400` -> `{ "error": "A hash is required." }`
-	- `403` -> `{ "error": "API key is not valid." }`
+	- `403` -> `{ "error": "UI session is not valid." }`
 	- `404` -> `{ "error": "No pending API key request for this client." }`
 
 ---

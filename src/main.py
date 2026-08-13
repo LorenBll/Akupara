@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 def _kill_pid(pid: int) -> None:
     is_win = sys.platform.startswith("win")
     cmd = ["taskkill", "/F", "/PID", str(pid)] if is_win else ["kill", "-9", str(pid)]
+    logger.debug(f"Executing kill command: {' '.join(cmd)}")
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
@@ -76,7 +77,9 @@ def _resolve_pid(ip: str, port: int) -> int | None:
                         or local_addr.startswith("[::]:")
                     ):
                         try:
-                            return int(parts[4])
+                            resolved = int(parts[4])
+                            logger.debug(f"Resolved PID {resolved} for {ip}:{port} via netstat")
+                            return resolved
                         except (ValueError, IndexError):
                             pass
         else:
@@ -88,7 +91,9 @@ def _resolve_pid(ip: str, port: int) -> int | None:
                     if f":{port_str}" in line:
                         match = re.search(r"pid=(\d+)", line)
                         if match:
-                            return int(match.group(1))
+                            resolved = int(match.group(1))
+                            logger.debug(f"Resolved PID {resolved} for {ip}:{port} via ss")
+                            return resolved
             except FileNotFoundError:
                 proc = subprocess.run(
                     ["netstat", "-tlnp"], capture_output=True, text=True, timeout=10
@@ -97,9 +102,12 @@ def _resolve_pid(ip: str, port: int) -> int | None:
                     if f":{port_str}" in line and "LISTEN" in line:
                         match = re.search(r"(\d+)/", line.strip().split()[-1])
                         if match:
-                            return int(match.group(1))
+                            resolved = int(match.group(1))
+                            logger.debug(f"Resolved PID {resolved} for {ip}:{port} via netstat")
+                            return resolved
     except (subprocess.TimeoutExpired, OSError) as exc:
         logger.warning(f"Failed to resolve PID for {ip}:{port}: {exc}")
+    logger.debug(f"No PID resolved for {ip}:{port}")
     return None
 
 
@@ -225,8 +233,13 @@ def _write_env_file(env_dict: dict[str, str]) -> None:
             output_lines.append(f"{key}={value}\n")
 
     ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(ENV_PATH, "w", encoding="utf-8") as f:
-        f.writelines(output_lines)
+    try:
+        with open(ENV_PATH, "w", encoding="utf-8") as f:
+            f.writelines(output_lines)
+    except OSError as exc:
+        logger.error(f"Failed to write {ENV_PATH}: {exc}", exc_info=True)
+        raise
+    logger.debug(f"Environment file written to {ENV_PATH}")
 
 
 def _set_env_var(key: str, value: str) -> None:
@@ -234,12 +247,14 @@ def _set_env_var(key: str, value: str) -> None:
     env_dict = _parse_env_file()
     env_dict[key] = value
     _write_env_file(env_dict)
+    logger.debug(f"Environment variable persisted: {key}")
 
 
 def _load_env_file() -> None:
     env_dict = _parse_env_file()
     for key, value in env_dict.items():
         os.environ[key] = value
+    logger.debug(f"Loaded {len(env_dict)} environment variable(s) from {ENV_PATH}")
 
 
 _load_env_file()
@@ -255,17 +270,21 @@ class _SimpleCache:
         with self._lock:
             entry = self._data.get(key)
             if entry is None:
+                logger.debug(f"Cache miss: {key}")
                 return None
             expires_at, value = entry
             if time.monotonic() > expires_at:
                 del self._data[key]
+                logger.debug(f"Cache miss (expired): {key}")
                 return None
+            logger.debug(f"Cache hit: {key}")
             return value
 
     def set(self, key: str, value: object, ttl: float | None = None) -> None:
         expires_at = time.monotonic() + (ttl if ttl is not None else self._default_ttl)
         with self._lock:
             self._data[key] = (expires_at, value)
+        logger.debug(f"Cache set: {key} (ttl={ttl if ttl is not None else self._default_ttl}s)")
 
 _CONFIG_CACHE = _SimpleCache(default_ttl=300.0)
 _HEALTH_CACHE = _SimpleCache(default_ttl=7.5)
@@ -274,8 +293,10 @@ _HEALTH_CACHE = _SimpleCache(default_ttl=7.5)
 def _load_configuration() -> dict:
     cached = _CONFIG_CACHE.get("config")
     if cached is not None:
+        logger.debug("Configuration loaded from cache")
         return cached
     config_path = _PROJECT_ROOT / "resources" / "configuration.json"
+    logger.debug(f"Loading configuration from {config_path}")
     if not config_path.exists():
         raise FileNotFoundError(
             f"Configuration file not found at {config_path}."
@@ -358,18 +379,6 @@ def _is_localhost_request() -> bool:
     return request.remote_addr == "127.0.0.1" or request.remote_addr == "::1"
 
 
-def _is_authorized_strict(payload: dict) -> bool:
-    api_key = payload.get("api_key") if isinstance(payload, dict) else None
-    if isinstance(api_key, str) and api_key.strip():
-        with API_KEYS_LOCK:
-            return api_key.strip() in API_KEY_LOOKUP
-    return False
-
-
-def _is_authorized(payload: dict) -> bool:
-    return _is_authorized_strict(payload)
-
-
 def _is_self_request(payload: dict) -> bool:
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
     if not isinstance(client_hash, str) or not client_hash.strip():
@@ -410,6 +419,28 @@ def _check_authorization_all(payload):
     return (_is_self_request(payload), False)
 
 
+UI_SESSION_COOKIE_NAME = "sh_ui_session"
+UI_SESSION_TOKEN = uuid.uuid4().hex + uuid.uuid4().hex
+
+
+def _require_ui_session() -> bool:
+    return request.cookies.get(UI_SESSION_COOKIE_NAME) == UI_SESSION_TOKEN
+
+
+def requires_ui_session(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if request.method in ("GET", "POST", "PUT", "DELETE"):
+            if not _require_ui_session():
+                logger.warning(
+                    "Unauthorized attempt to access UI endpoint without a valid session cookie"
+                )
+                return _error_response("UI session is not valid.", 403)
+            logger.debug("Valid UI session cookie accepted")
+        return func(*args, **kwargs)
+    return wrapper
+
+
 def _initialize_service_config() -> None:
     global SERVICE_HOST, SERVICE_PORT
     global GUI_ENABLED
@@ -426,6 +457,11 @@ def _initialize_service_config() -> None:
     SERVICE_PORT = configured_port
 
     GUI_ENABLED = config.get("guiEnabled", True)
+
+    logger.info(
+        f"Service config resolved: SERVICE_HOST={SERVICE_HOST}, "
+        f"SERVICE_PORT={SERVICE_PORT}, GUI_ENABLED={GUI_ENABLED}"
+    )
 
 
 def _extract_pid(client_data: dict) -> int | None:
@@ -448,6 +484,7 @@ def _launch_script(script_path: str) -> subprocess.Popen:
         cmd = ["powershell", "-File", path]
     else:
         cmd = [path]
+    logger.debug(f"Launching script: {' '.join(cmd)}")
     return subprocess.Popen(
         cmd,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
@@ -456,6 +493,7 @@ def _launch_script(script_path: str) -> subprocess.Popen:
 
 
 def _send_get_request(request: GetRequest) -> GetResponse:
+    logger.debug(f"GET request to {request.url}")
     try:
         req = urllib.request.Request(request.url, method="GET", headers=request.headers)
         with urllib.request.urlopen(req, timeout=request.timeout) as resp:
@@ -467,6 +505,7 @@ def _send_get_request(request: GetRequest) -> GetResponse:
                 json_body = json.loads(body)
             except (json.JSONDecodeError, ValueError):
                 pass
+            logger.debug(f"GET {request.url} -> {resp.status} {resp.reason}")
             return GetResponse(
                 status_code=resp.status,
                 reason=resp.reason,
@@ -484,6 +523,7 @@ def _send_get_request(request: GetRequest) -> GetResponse:
             json_body = json.loads(body)
         except (json.JSONDecodeError, ValueError):
             pass
+        logger.debug(f"GET {request.url} -> {exc.code} {exc.reason}")
         return GetResponse(
             status_code=exc.code,
             reason=str(exc.reason),
@@ -492,9 +532,13 @@ def _send_get_request(request: GetRequest) -> GetResponse:
             headers=headers,
             json_body=json_body,
         )
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        logger.error(f"GET request to {request.url} failed: {exc}", exc_info=True)
+        raise
 
 
 def _send_post_request(request: PostRequest) -> PostResponse:
+    logger.debug(f"POST request to {request.url}")
     try:
         req = urllib.request.Request(
             request.url,
@@ -511,6 +555,7 @@ def _send_post_request(request: PostRequest) -> PostResponse:
                 json_body = json.loads(body)
             except (json.JSONDecodeError, ValueError):
                 pass
+            logger.debug(f"POST {request.url} -> {resp.status} {resp.reason}")
             return PostResponse(
                 status_code=resp.status,
                 reason=resp.reason,
@@ -528,6 +573,7 @@ def _send_post_request(request: PostRequest) -> PostResponse:
             json_body = json.loads(body)
         except (json.JSONDecodeError, ValueError):
             pass
+        logger.debug(f"POST {request.url} -> {exc.code} {exc.reason}")
         return PostResponse(
             status_code=exc.code,
             reason=str(exc.reason),
@@ -536,6 +582,9 @@ def _send_post_request(request: PostRequest) -> PostResponse:
             headers=headers,
             json_body=json_body,
         )
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        logger.error(f"POST request to {request.url} failed: {exc}", exc_info=True)
+        raise
 
 
 def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
@@ -546,19 +595,24 @@ def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError:
+        logger.debug(f"Ping skipped for {ip}:{port}: invalid IP address")
         return False
     if not addr.is_loopback:
+        logger.debug(f"Ping skipped for {ip}:{port}: not a loopback address")
         return False
     if not isinstance(port, int) or port < 1 or port > 65535:
+        logger.debug(f"Ping skipped for {ip}:{port}: invalid port")
         return False
     url = f"http://{ip}:{port}/api/health"
     try:
         resp = _send_get_request(GetRequest(url=url, timeout=timeout))
         result = resp.status_code == 200
         _HEALTH_CACHE.set(cache_key, result)
+        logger.debug(f"Ping result for {ip}:{port}: healthy={result}")
         return result
     except (urllib.error.URLError, OSError, ValueError):
         _HEALTH_CACHE.set(cache_key, False)
+        logger.debug(f"Ping result for {ip}:{port}: healthy=False (request failed)")
         return False
 
 
@@ -572,9 +626,13 @@ def _run_health_check() -> list[dict]:
     for client_hash, client_data in current_clients.items():
         ip = client_data.get("ip", "127.0.0.1")
         port = client_data.get("port", 0)
+        logger.debug(
+            f"Health check for '{client_data.get('name', 'unknown')}' "
+            f"({client_hash[:8]}...) at {ip}:{port}"
+        )
         if not _ping_health(ip, port):
             unhealthy.append(client_data)
-            logger.info(
+            logger.warning(
                 f"Client '{client_data.get('name', 'unknown')}' "
                 f"({client_hash[:8]}...) unhealthy (health check failed)"
             )
@@ -612,13 +670,17 @@ def _run_health_check() -> list[dict]:
 
 
 def _health_check_worker() -> None:
-    while True:
-        try:
-            _run_health_check()
-        except Exception as exc:
-            logger.error(f"Health check error: {exc}")
+    logger.debug("Health check worker started")
+    try:
+        while True:
+            try:
+                _run_health_check()
+            except Exception as exc:
+                logger.error(f"Health check error: {exc}")
 
-        time.sleep(HEALTH_CHECK_INTERVAL_SECONDS)
+            time.sleep(HEALTH_CHECK_INTERVAL_SECONDS)
+    finally:
+        logger.info("Health check worker stopped")
 
 
 def _start_health_check_loop() -> None:
@@ -638,7 +700,11 @@ app = Flask(__name__)
 def restrict_to_local_device() -> tuple | None:
     if request.path.startswith("/api/") or (GUI_ENABLED and (request.path in ("/",) or request.path.startswith(("/ui/", "/css/")))):
         if not _is_local_request():
+            logger.warning(
+                f"Non-local request blocked: {request.remote_addr} -> {request.path}"
+            )
             return _error_response("Local device access only.", 403)
+        logger.debug(f"Local request allowed: {request.remote_addr} -> {request.path}")
 
     return None
 
@@ -686,6 +752,13 @@ def _head_response() -> tuple:
 @app.after_request
 def set_connection_header(response):
     response.headers["Connection"] = "close"
+    response.set_cookie(
+        UI_SESSION_COOKIE_NAME,
+        UI_SESSION_TOKEN,
+        httponly=True,
+        samesite="Strict",
+        path="/",
+    )
     return response
 
 
@@ -743,25 +816,32 @@ def register():
     hostname_val = payload.get("hostname") if isinstance(payload, dict) else None
 
     if not isinstance(name, str) or not name.strip():
+        logger.warning("Service registration rejected: name is empty or missing")
         return _error_response("A non-empty name is required.")
     if name.strip() == "ServiceHandler":
+        logger.warning("Service registration rejected: reserved name 'ServiceHandler'")
         return _error_response("The name 'ServiceHandler' is reserved.", 400)
 
     if port is None:
+        logger.warning("Service registration rejected: port is missing")
         return _error_response("A port number is required.")
 
     if isinstance(port, str) and port.isdigit():
         port = int(port)
 
     if not isinstance(port, int) or port < 1 or port > 65535:
+        logger.warning("Service registration rejected: port out of range")
         return _error_response("Port must be a number between 1 and 65535.")
 
     if starting_script is not None and not isinstance(starting_script, str):
+        logger.warning("Service registration rejected: starting_script is not a string")
         return _error_response("Starting script must be a string.")
 
     if not isinstance(bind_address, str) or not bind_address.strip():
+        logger.warning("Service registration rejected: bind address is missing")
         return _error_response("A bind address is required.")
     if not isinstance(hostname_val, str) or not hostname_val.strip():
+        logger.warning("Service registration rejected: hostname is missing")
         return _error_response("A hostname is required.")
 
     client_ip = request.remote_addr or "127.0.0.1"
@@ -780,12 +860,21 @@ def register():
                 and existing_ip == client_ip
                 and existing_port == port
             ):
+                logger.warning(
+                    f"Service registration rejected: duplicate service name/IP/port "
+                    f"name={name_to_check}, ip={client_ip}, port={port}"
+                )
                 return _error_response(
                     f"A service with name '{name_to_check}', IP '{client_ip}' "
                     f"and port '{port}' is already registered.", 409
                 )
 
             if existing_ip == client_ip and existing_hostname != hostname_to_check:
+                logger.warning(
+                    f"Service registration rejected: hostname/IP conflict "
+                    f"ip={client_ip}, existing_hostname={existing_hostname}, "
+                    f"requested_hostname={hostname_to_check}"
+                )
                 return _error_response(
                     f"IP '{client_ip}' is already associated with hostname "
                     f"'{existing_hostname}', cannot register with hostname "
@@ -793,10 +882,18 @@ def register():
                 )
 
     if not _ping_health(client_ip, port):
+        logger.warning(
+            f"Service registration rejected: health endpoint unreachable at "
+            f"{client_ip}:{port}"
+        )
         return _error_response("Client health endpoint is not reachable.", 400)
 
     resolved_pid = _resolve_pid(client_ip, port)
     if resolved_pid is None:
+        logger.warning(
+            f"Service registration rejected: could not resolve PID for "
+            f"{client_ip}:{port}"
+        )
         return _error_response("Could not determine the PID of the process.", 400)
 
     with REGISTERED_CLIENTS_LOCK:
@@ -810,6 +907,10 @@ def register():
         old_ip = existing_client.get("ip", "127.0.0.1")
         old_port = existing_client.get("port", 0)
         if _ping_health(old_ip, old_port):
+            logger.warning(
+                f"Service registration rejected: name '{name}' is already "
+                f"registered and healthy"
+            )
             return _error_response(
                 f"A client with name '{name}' is already registered.", 409
             )
@@ -908,8 +1009,10 @@ def unregister():
     payload = request.get_json(silent=True) or {}
     allowed, invalid_key = _check_authorization_all(payload)
     if invalid_key:
+        logger.warning("Unregister denied: invalid API key")
         return _error_response("API key is not valid.", 403)
     if not allowed:
+        logger.warning("Unregister denied: request not authorized")
         return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
@@ -934,12 +1037,14 @@ def unregister():
 
 
 @app.route("/api/health", methods=["GET", "HEAD", "OPTIONS"])
+@requires_ui_session
 def health():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
 
+    logger.debug(f"Health request received from {request.remote_addr}")
     with REGISTERED_CLIENTS_LOCK:
         client_count = len(REGISTERED_CLIENTS)
 
@@ -957,6 +1062,7 @@ def health():
 
 
 @app.route("/api/services/healthcheck", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def health_check():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -964,11 +1070,6 @@ def health_check():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    allowed, invalid_key = _check_authorization_all(payload)
-    if invalid_key:
-        return _error_response("API key is not valid.", 403)
-    if not allowed:
-        return _error_response("API key is not valid.", 403)
 
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
@@ -981,7 +1082,7 @@ def health_check():
         port = client.get("port", 0)
         healthy = _ping_health(ip, port)
         if not healthy:
-            logger.info(f"Client '{client.get('name', 'unknown')}' ({client_hash[:8]}...) unhealthy (health check failed)")
+            logger.warning(f"Client '{client.get('name', 'unknown')}' ({client_hash[:8]}...) unhealthy (health check failed)")
         return _success_response({"hash": client_hash, "healthy": healthy})
 
     unhealthy = _run_health_check()
@@ -989,27 +1090,20 @@ def health_check():
 
 
 @app.route("/api/services", methods=["GET", "HEAD", "OPTIONS"])
+@requires_ui_session
 def clients():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
 
-    payload = request.get_json(silent=True) or {}
-    authorized, invalid_key = _check_authorization(payload)
-    if invalid_key:
-        logger.warning("Unauthorized attempt to list clients")
-        return _error_response("API key is not valid.", 403)
-
     with REGISTERED_CLIENTS_LOCK:
         client_list = [
             {k: v for k, v in client.items() if k != "endpoints"}
-            if authorized
-            else {k: v for k, v in client.items() if k not in ("endpoints", "hash")}
             for client in REGISTERED_CLIENTS.values()
         ]
 
-    logger.info(f"Clients listed: count={len(client_list)}, authorized={authorized}")
+    logger.info(f"Clients listed: count={len(client_list)}")
     return _success_response({"clients": client_list})
 
 
@@ -1082,12 +1176,14 @@ def register_endpoint():
 
 @app.route("/api/service/endpoints", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
 @app.route("/api/service/endpoints/<name>", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def get_endpoints_service(name=None):
     return _get_endpoints_impl(name)
 
 
 @app.route("/api/endpoints/service", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
 @app.route("/api/endpoints/service/<name>", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def get_endpoints(name=None):
     return _get_endpoints_impl(name)
 
@@ -1126,6 +1222,7 @@ def _get_endpoints_impl(name=None):
 
 
 @app.route("/api/services/endpoints", methods=["GET", "HEAD", "OPTIONS"])
+@requires_ui_session
 def clients_details():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
@@ -1147,6 +1244,7 @@ def clients_details():
 
 
 @app.route("/api/services/search-endpoints", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def search_endpoints():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1191,6 +1289,7 @@ def search_endpoints():
 
 
 @app.route("/api/validate/json-body", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def validate_json_body():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1250,7 +1349,7 @@ def validate_json_body():
             "message": "JSON body is valid against the endpoint schema.",
         })
     except jsonschema.ValidationError as exc:
-        logger.info(f"JSON body validated: service={service_name_stripped}, {verb_stripped} {path_stripped}, valid=false")
+        logger.warning(f"JSON body validated: service={service_name_stripped}, {verb_stripped} {path_stripped}, valid=false")
         return _success_response({
             "valid": False,
             "schema_exists": True,
@@ -1272,6 +1371,7 @@ def _get_env_json_list(key: str, default: list) -> list:
     return default
 
 
+@requires_ui_session
 def sort_order():
     if request.method == "OPTIONS":
         return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
@@ -1328,14 +1428,12 @@ def sort_order():
 
 
 @app.route("/api/settings/auto-protect", methods=["GET", "PUT", "HEAD", "OPTIONS"])
+@requires_ui_session
 def auto_protect_settings():
     if request.method == "OPTIONS":
         return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-
-    if not _is_localhost_request():
-        return _error_response("Only accessible from the local device.", 403)
 
     if request.method == "GET":
         services = _get_env_json_list("SH_AUTO_PROTECT_SERVICES", [])
@@ -1360,14 +1458,12 @@ def auto_protect_settings():
 
 
 @app.route("/api/settings/auto-restart", methods=["GET", "PUT", "HEAD", "OPTIONS"])
+@requires_ui_session
 def auto_restart_settings():
     if request.method == "OPTIONS":
         return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-
-    if not _is_localhost_request():
-        return _error_response("Only accessible from the local device.", 403)
 
     if request.method == "GET":
         services = _get_env_json_list("SH_AUTO_RESTART_SERVICES", [])
@@ -1392,14 +1488,12 @@ def auto_restart_settings():
 
 
 @app.route("/api/settings/show-promotion", methods=["GET", "PUT", "HEAD", "OPTIONS"])
+@requires_ui_session
 def show_promotion_settings():
     if request.method == "OPTIONS":
         return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-
-    if not _is_localhost_request():
-        return _error_response("Only accessible from the local device.", 403)
 
     if request.method == "GET":
         val = os.getenv("SH_SHOW_PROMOTION", "true")
@@ -1417,6 +1511,7 @@ def show_promotion_settings():
 
 
 @app.route("/api/service/terminate", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def terminate():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1424,12 +1519,6 @@ def terminate():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    allowed, invalid_key = _check_authorization_all(payload)
-    if invalid_key:
-        return _error_response("API key is not valid.", 403)
-    if not allowed:
-        return _error_response("API key is not valid.", 403)
-
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
     raw_pid = payload.get("pid") if isinstance(payload, dict) else None
 
@@ -1437,6 +1526,7 @@ def terminate():
         return _error_response("A hash is required.")
 
     if _is_protected(client_hash.strip()):
+        logger.warning(f"Terminate denied: service is protected ({client_hash.strip()[:16]}...)")
         return _error_response("Service is protected and cannot be terminated.", 403)
 
     pid = None
@@ -1463,6 +1553,7 @@ def terminate():
 
 
 @app.route("/api/service/restart", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def restart():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1470,12 +1561,6 @@ def restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    allowed, invalid_key = _check_authorization_all(payload)
-    if invalid_key:
-        return _error_response("API key is not valid.", 403)
-    if not allowed:
-        return _error_response("API key is not valid.", 403)
-
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
     raw_pid = payload.get("pid") if isinstance(payload, dict) else None
 
@@ -1483,6 +1568,7 @@ def restart():
         return _error_response("A hash is required.")
 
     if _is_protected(client_hash.strip()):
+        logger.warning(f"Restart denied: service is protected ({client_hash.strip()[:16]}...)")
         return _error_response("Service is protected and cannot be restarted.", 403)
 
     with REGISTERED_CLIENTS_LOCK:
@@ -1493,6 +1579,7 @@ def restart():
 
     script_path = client_data.get("starting_script", "")
     if not isinstance(script_path, str) or not script_path.strip():
+        logger.warning(f"Restart rejected: no starting script available ({client_hash.strip()[:16]}...)")
         return _error_response("No starting script available for this service.", 400)
 
     pid = None
@@ -1502,6 +1589,7 @@ def restart():
         pid = _extract_pid(client_data)
 
     if pid is None:
+        logger.warning(f"Restart rejected: no PID available ({client_hash.strip()[:16]}...)")
         return _error_response("No PID available for this service.", 400)
 
     try:
@@ -1527,6 +1615,7 @@ def restart():
 
 
 @app.route("/api/broken/forget", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def broken_forget():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1534,12 +1623,6 @@ def broken_forget():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    allowed, invalid_key = _check_authorization_all(payload)
-    if invalid_key:
-        return _error_response("API key is not valid.", 403)
-    if not allowed:
-        return _error_response("API key is not valid.", 403)
-
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
     if not isinstance(client_hash, str) or not client_hash.strip():
@@ -1548,6 +1631,7 @@ def broken_forget():
     hash_val = client_hash.strip()
 
     if _is_protected(hash_val):
+        logger.warning(f"Forget denied: service is protected ({hash_val[:16]}...)")
         return _error_response("Service is protected and cannot be forgotten.", 403)
 
     pid = None
@@ -1569,6 +1653,7 @@ def broken_forget():
 
 
 @app.route("/api/broken/restart", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def broken_restart():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1576,12 +1661,6 @@ def broken_restart():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    allowed, invalid_key = _check_authorization_all(payload)
-    if invalid_key:
-        return _error_response("API key is not valid.", 403)
-    if not allowed:
-        return _error_response("API key is not valid.", 403)
-
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
     if not isinstance(client_hash, str) or not client_hash.strip():
@@ -1590,6 +1669,7 @@ def broken_restart():
     hash_val = client_hash.strip()
 
     if _is_protected(hash_val):
+        logger.warning(f"Broken restart denied: service is protected ({hash_val[:16]}...)")
         return _error_response("Service is protected and cannot be restarted.", 403)
 
     script_path = ""
@@ -1622,6 +1702,7 @@ def broken_restart():
 
 
 @app.route("/api/service/protect", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def protect():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1629,12 +1710,6 @@ def protect():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    allowed, invalid_key = _check_authorization(payload)
-    if invalid_key:
-        return _error_response("API key is not valid.", 403)
-    if not allowed:
-        return _error_response("API key is not valid.", 403)
-
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
     if not isinstance(client_hash, str) or not client_hash.strip():
@@ -1657,6 +1732,7 @@ def protect():
 
 
 @app.route("/api/service/unprotect", methods=["POST", "HEAD", "OPTIONS"])
+@requires_ui_session
 def unprotect():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1664,12 +1740,6 @@ def unprotect():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    allowed, invalid_key = _check_authorization(payload)
-    if invalid_key:
-        return _error_response("API key is not valid.", 403)
-    if not allowed:
-        return _error_response("API key is not valid.", 403)
-
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
     if not isinstance(client_hash, str) or not client_hash.strip():
@@ -1769,7 +1839,7 @@ def validate_key():
     api_key = payload.get("api_key") if isinstance(payload, dict) else None
 
     if not isinstance(api_key, str) or not api_key.strip():
-        logger.info("API key validation attempted with missing or empty api_key field")
+        logger.warning("API key validation attempted with missing or empty api_key field")
         return _error_response("A non-empty api_key is required.")
 
     api_key_stripped = api_key.strip()
@@ -1779,7 +1849,7 @@ def validate_key():
     if is_valid:
         logger.info(f"API key validated successfully (key suffix: ...{api_key_stripped[-8:]})")
     else:
-        logger.info(f"API key validation failed for provided key (key suffix: ...{api_key_stripped[-8:]})")
+        logger.warning(f"API key validation failed for provided key (key suffix: ...{api_key_stripped[-8:]})")
 
     return _success_response({"valid": is_valid})
 
@@ -1808,6 +1878,10 @@ def api_key_request():
 
     with PENDING_API_KEY_REQUESTS_LOCK:
         if hash_val in PENDING_API_KEY_REQUESTS:
+            logger.warning(
+                f"API key request already pending for "
+                f"'{client_data.get('name', 'unknown')}' ({hash_val[:8]}...)"
+            )
             return _success_response(
                 {"status": "already_pending", "message": "API key request is already pending."}
             )
@@ -1831,17 +1905,12 @@ def api_key_request():
 
 
 @app.route("/api/api-key/pending", methods=["GET", "HEAD", "OPTIONS"])
-@involving_api_keys
+@requires_ui_session
 def api_key_pending():
     if request.method == "OPTIONS":
         return _options_response(["GET", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        logger.warning("Unauthorized attempt to list pending API key requests")
-        return _error_response("API key is not valid.", 403)
 
     with PENDING_API_KEY_REQUESTS_LOCK:
         pending_list = list(PENDING_API_KEY_REQUESTS.values())
@@ -1852,7 +1921,7 @@ def api_key_pending():
 
 
 @app.route("/api/api-key/grant", methods=["POST", "HEAD", "OPTIONS"])
-@involving_api_keys
+@requires_ui_session
 def api_key_grant():
     try:
         if request.method == "OPTIONS":
@@ -1861,9 +1930,6 @@ def api_key_grant():
             return _head_response()
 
         payload = request.get_json(silent=True) or {}
-        if not _is_authorized(payload):
-            return _error_response("API key is not valid.", 403)
-
         client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
         if not isinstance(client_hash, str) or not client_hash.strip():
@@ -1930,7 +1996,7 @@ def api_key_grant():
 
 
 @app.route("/api/api-key/reject", methods=["POST", "HEAD", "OPTIONS"])
-@involving_api_keys
+@requires_ui_session
 def api_key_reject():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
@@ -1938,9 +2004,6 @@ def api_key_reject():
         return _head_response()
 
     payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        return _error_response("API key is not valid.", 403)
-
     client_hash = payload.get("hash") if isinstance(payload, dict) else None
 
     if not isinstance(client_hash, str) or not client_hash.strip():
@@ -1991,22 +2054,18 @@ def api_key_reject():
 
 
 @app.route("/api/shutdown", methods=["POST", "HEAD", "OPTIONS"])
-@involving_api_keys
+@requires_ui_session
 def terminate_server():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
 
-    payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        logger.warning("Unauthorized attempt to shutdown the server")
-        return _error_response("API key is not valid.", 403)
-
     environ = request.environ
 
     def _shutdown():
         time.sleep(0.5)
+        logger.info("Shutdown thread: executing server shutdown")
         func = environ.get("werkzeug.server.shutdown")
         if func:
             func()
@@ -2019,23 +2078,18 @@ def terminate_server():
 
 
 @app.route("/api/restart", methods=["POST", "HEAD", "OPTIONS"])
-@involving_api_keys
+@requires_ui_session
 def restart_server():
     if request.method == "OPTIONS":
         return _options_response(["POST", "HEAD", "OPTIONS"])
     if request.method == "HEAD":
         return _head_response()
 
-    payload = request.get_json(silent=True) or {}
-    if not _is_authorized(payload):
-        logger.warning("Unauthorized attempt to restart the server")
-        return _error_response("API key is not valid.", 403)
-
-    environ = request.environ
     script = os.path.join(os.path.dirname(__file__), "main.py")
 
     def _restart():
         time.sleep(0.5)
+        logger.info("Restart thread: launching new server instance")
         subprocess.Popen(
             [sys.executable, script],
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
@@ -2096,6 +2150,7 @@ if __name__ == "__main__":
             logging.FileHandler(log_file, encoding="utf-8"),
         ],
     )
+    logger.info(f"Log file: {log_file}")
 
     try:
         _initialize_service_config()
