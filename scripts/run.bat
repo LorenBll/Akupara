@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM Start ServiceHandler.
+REM Start Akupara.
 
 set VERBOSE=0
 if "%1"=="--verbose" (
@@ -87,15 +87,15 @@ python -m pip install --quiet --upgrade pip >nul 2>&1
 python -m pip install --quiet -r requirements.txt >nul 2>&1
 if %VERBOSE% equ 1 echo Dependencies installed.
 
-REM Start ServiceHandler.
+REM Start Akupara.
 if %VERBOSE% equ 1 (
   echo.
-  echo ServiceHandler starting...
+  echo Akupara starting...
   echo.
   "%PYTHON_EXE%" src/main.py --verbose
 ) else (
-  start "" /B "%PYTHON_EXE%" src/main.py >nul 2>&1
-  echo ServiceHandler started in background. Run 'run.bat --verbose' to see output.
+  start "" /B "%PYTHON_EXE%" src/main.py --verbose >nul 2>&1
+  echo Akupara started in background. Run 'run.bat --verbose' to see output.
 )
 
 popd

@@ -1,24 +1,20 @@
-"""ServiceHandler - Web Service Registry."""
+"""Akupara local web service template."""
 
 from __future__ import annotations
 
 import argparse
 import functools
-import hashlib
 import ipaddress
 import json
 import logging
 import os
-import re
+import secrets
+import signal
 import socket
 import subprocess
 import sys
 import threading
-import time
-import urllib.error
-import urllib.request
-import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 # ============================================================================
@@ -27,7 +23,7 @@ from pathlib import Path
 _missing_libraries: list[str] = []
 for _module, _package in {
     "flask": "Flask",
-    "jsonschema": "jsonschema",
+    "dotenv": "python-dotenv",
 }.items():
     try:
         __import__(_module)
@@ -43,280 +39,97 @@ if _missing_libraries:
     )
     sys.exit(1)
 
-import jsonschema
-from flask import Flask, jsonify, request, send_from_directory
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request, send_from_directory, render_template_string
+from werkzeug.exceptions import NotFound
 
-from models import GetRequest, GetResponse, PostRequest, PostResponse
+import audio
 
 logger = logging.getLogger(__name__)
 
-
-def _kill_pid(pid: int) -> None:
-    is_win = sys.platform.startswith("win")
-    cmd = ["taskkill", "/F", "/PID", str(pid)] if is_win else ["kill", "-9", str(pid)]
-    logger.debug(f"Executing kill command: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
-
-
-def _resolve_pid(ip: str, port: int) -> int | None:
-    is_win = sys.platform.startswith("win")
-    port_str = str(port)
-    try:
-        if is_win:
-            proc = subprocess.run(
-                ["netstat", "-ano"], capture_output=True, text=True, timeout=10
-            )
-            for line in proc.stdout.splitlines():
-                parts = line.strip().split()
-                if len(parts) >= 5 and parts[3] == "LISTENING":
-                    local_addr = parts[1]
-                    if local_addr.endswith(f":{port_str}") and (
-                        local_addr.startswith("127.")
-                        or local_addr.startswith("[::1]")
-                        or local_addr.startswith("0.0.0.0:")
-                        or local_addr.startswith("[::]:")
-                    ):
-                        try:
-                            resolved = int(parts[4])
-                            logger.debug(f"Resolved PID {resolved} for {ip}:{port} via netstat")
-                            return resolved
-                        except (ValueError, IndexError):
-                            pass
-        else:
-            try:
-                proc = subprocess.run(
-                    ["ss", "-tlnp"], capture_output=True, text=True, timeout=10
-                )
-                for line in proc.stdout.splitlines():
-                    if f":{port_str}" in line:
-                        match = re.search(r"pid=(\d+)", line)
-                        if match:
-                            resolved = int(match.group(1))
-                            logger.debug(f"Resolved PID {resolved} for {ip}:{port} via ss")
-                            return resolved
-            except FileNotFoundError:
-                proc = subprocess.run(
-                    ["netstat", "-tlnp"], capture_output=True, text=True, timeout=10
-                )
-                for line in proc.stdout.splitlines():
-                    if f":{port_str}" in line and "LISTEN" in line:
-                        match = re.search(r"(\d+)/", line.strip().split()[-1])
-                        if match:
-                            resolved = int(match.group(1))
-                            logger.debug(f"Resolved PID {resolved} for {ip}:{port} via netstat")
-                            return resolved
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        logger.warning(f"Failed to resolve PID for {ip}:{port}: {exc}")
-    logger.debug(f"No PID resolved for {ip}:{port}")
-    return None
-
-
-SERVICE_HOST = None
+SERVICE_HOST = "127.0.0.1"
 SERVICE_PORT = None
-
-REGISTERED_CLIENTS: dict[str, dict] = {}
-REGISTERED_CLIENTS_LOCK = threading.Lock()
-
-PENDING_API_KEY_REQUESTS: dict[str, dict] = {}
-PENDING_API_KEY_REQUESTS_LOCK = threading.Lock()
-
-API_KEYS_DATA: dict = {"keys": {}}
-API_KEYS_LOCK = threading.Lock()
-API_KEY_LOOKUP: list[str] = []
-
-ENDPOINT_BY_ID: dict[str, dict] = {}
-ENDPOINT_INDEX_LOCK = threading.Lock()
-
-SERVICE_NAME_INDEX: dict[str, str] = {}
-SERVICE_NAME_INDEX_LOCK = threading.Lock()
-
-
-def _subsequence_match(query: str, text: str) -> bool:
-    """Return True if query is a subsequence of text (case-insensitive)."""
-    it = iter(text.lower())
-    return all(ch in it for ch in query.lower())
-
-
-def _add_to_endpoint_index(service_name: str, ep: dict) -> None:
-    ep_id = f"{service_name}:{ep.get('verb', '')}:{ep.get('path', '')}"
-    result_entry = {
-        "service": service_name,
-        "verb": ep.get("verb", ""),
-        "path": ep.get("path", ""),
-        "description": ep.get("description", ""),
-        "path_variables": ep.get("path_variables", []),
-        "body_schema": ep.get("body_schema", {}),
-    }
-    with ENDPOINT_INDEX_LOCK:
-        ENDPOINT_BY_ID[ep_id] = result_entry
-
-
-def _add_to_service_name_index(name: str, client_hash: str) -> None:
-    with SERVICE_NAME_INDEX_LOCK:
-        SERVICE_NAME_INDEX[name.lower()] = client_hash
-
-
-def _remove_from_service_name_index(name: str) -> None:
-    with SERVICE_NAME_INDEX_LOCK:
-        SERVICE_NAME_INDEX.pop(name.lower(), None)
-
-
-def _rebuild_api_key_lookup() -> None:
-    API_KEY_LOOKUP.clear()
-    for data in API_KEYS_DATA.get("keys", {}).values():
-        if isinstance(data, dict) and "api_key" in data:
-            API_KEY_LOOKUP.append(data["api_key"])
-
-API_KEY_SESSION_READY: bool = False
-
-HEALTH_CHECK_INTERVAL_SECONDS = 15
 
 GUI_ENABLED: bool = True
 
-_PROJECT_ROOT = Path(__file__).parent.parent
-ENV_PATH = _PROJECT_ROOT / ".env"
+ALLOW_DISCOVERY: bool = False
 
+API_KEYS_ENABLED: bool = False
 
-# ============================================================================
-# ENVIRONMENT FILE HELPERS
-# ============================================================================
+DISPLAY_PROMOTION: bool = True
 
+PLAY_AUDIOS: bool = True
 
-def _parse_env_file() -> dict[str, str]:
-    if not ENV_PATH.exists():
-        return {}
-    env_dict: dict[str, str] = {}
-    try:
-        with open(ENV_PATH, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip()
-                if key:
-                    env_dict[key] = value
-    except OSError as exc:
-        logger.warning(f"Failed to read {ENV_PATH}: {exc}")
-        return {}
-    return env_dict
+SHARED_MEMORY_ENABLED: bool = True
 
+_CONFIG_CACHE: dict | None = None
 
-def _write_env_file(env_dict: dict[str, str]) -> None:
-    lines: list[str] = []
-    if ENV_PATH.exists():
-        try:
-            with open(ENV_PATH, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-        except OSError as exc:
-            logger.warning(f"Failed to read {ENV_PATH}: {exc}")
-            lines = []
-
-    updated_keys: set[str] = set()
-    output_lines: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            output_lines.append(line)
-            continue
-        key, _, _ = stripped.partition("=")
-        key = key.strip()
-        if key in env_dict:
-            output_lines.append(f"{key}={env_dict[key]}\n")
-            updated_keys.add(key)
-        else:
-            output_lines.append(line)
-
-    for key, value in env_dict.items():
-        if key not in updated_keys:
-            output_lines.append(f"{key}={value}\n")
-
-    ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with open(ENV_PATH, "w", encoding="utf-8") as f:
-            f.writelines(output_lines)
-    except OSError as exc:
-        logger.error(f"Failed to write {ENV_PATH}: {exc}", exc_info=True)
-        raise
-    logger.debug(f"Environment file written to {ENV_PATH}")
-
-
-def _set_env_var(key: str, value: str) -> None:
-    os.environ[key] = value
-    env_dict = _parse_env_file()
-    env_dict[key] = value
-    _write_env_file(env_dict)
-    logger.debug(f"Environment variable persisted: {key}")
-
-
-def _load_env_file() -> None:
-    env_dict = _parse_env_file()
-    for key, value in env_dict.items():
-        os.environ[key] = value
-    logger.debug(f"Loaded {len(env_dict)} environment variable(s) from {ENV_PATH}")
-
-
-_load_env_file()
-
-
-class _SimpleCache:
-    def __init__(self, default_ttl: float = 30.0):
-        self._data: dict[str, tuple[float, object]] = {}
-        self._lock = threading.Lock()
-        self._default_ttl = default_ttl
-
-    def get(self, key: str) -> object | None:
-        with self._lock:
-            entry = self._data.get(key)
-            if entry is None:
-                logger.debug(f"Cache miss: {key}")
-                return None
-            expires_at, value = entry
-            if time.monotonic() > expires_at:
-                del self._data[key]
-                logger.debug(f"Cache miss (expired): {key}")
-                return None
-            logger.debug(f"Cache hit: {key}")
-            return value
-
-    def set(self, key: str, value: object, ttl: float | None = None) -> None:
-        expires_at = time.monotonic() + (ttl if ttl is not None else self._default_ttl)
-        with self._lock:
-            self._data[key] = (expires_at, value)
-        logger.debug(f"Cache set: {key} (ttl={ttl if ttl is not None else self._default_ttl}s)")
-
-_CONFIG_CACHE = _SimpleCache(default_ttl=300.0)
-_HEALTH_CACHE = _SimpleCache(default_ttl=7.5)
+SESSION_COOKIE_NAME = "akupara-session"
+_SESSION_TOKEN: str | None = None
+_SESSION_ISSUED: bool = False
+_SESSION_LOCK = threading.Lock()
 
 
 def _load_configuration() -> dict:
-    cached = _CONFIG_CACHE.get("config")
-    if cached is not None:
+    global _CONFIG_CACHE
+    if _CONFIG_CACHE is not None:
         logger.debug("Configuration loaded from cache")
-        return cached
-    config_path = _PROJECT_ROOT / "resources" / "configuration.json"
-    logger.debug(f"Loading configuration from {config_path}")
+        return _CONFIG_CACHE
+
+    config_path = Path(__file__).resolve().parent.parent / "resources" / "configuration.json"
     if not config_path.exists():
-        raise FileNotFoundError(
-            f"Configuration file not found at {config_path}."
-        )
+        logger.warning(f"Configuration file not found at {config_path}")
+        raise FileNotFoundError("Configuration file not found.")
 
     try:
         with open(config_path, "r", encoding="utf-8-sig") as f:
             config = json.load(f)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Configuration file at {config_path} contains invalid JSON: {exc}"
-        ) from exc
-    except Exception as exc:
-        raise RuntimeError(
-            f"Failed to read configuration file at {config_path}: {exc}"
-        ) from exc
+        logger.warning(f"Configuration file contains invalid JSON: {exc}")
+        raise ValueError("Configuration file contains invalid JSON") from exc
 
-    _CONFIG_CACHE.set("config", config)
+    _CONFIG_CACHE = config
+    logger.debug(f"Configuration loaded from {config_path}")
     return config
 
+
+def _parse_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _initialize_service_config() -> None:
+    global SERVICE_PORT, GUI_ENABLED, ALLOW_DISCOVERY, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, SHARED_MEMORY_ENABLED, _SESSION_TOKEN, _SESSION_ISSUED
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    config = _load_configuration()
+
+    configured_port = config.get("port", 49150)
+    if isinstance(configured_port, str) and configured_port.isdigit():
+        configured_port = int(configured_port)
+    if not isinstance(configured_port, int):
+        logger.warning(f"Invalid port value in configuration ({configured_port!r}); defaulting to 49150")
+        configured_port = 49150
+    SERVICE_PORT = configured_port
+
+    GUI_ENABLED = config.get("guiEnabled", True)
+
+    ALLOW_DISCOVERY = _parse_bool(os.getenv("ALLOW_DISCOVERY"), False)
+
+    API_KEYS_ENABLED = _parse_bool(os.getenv("API_KEYS_ENABLED"), False)
+
+    DISPLAY_PROMOTION = _parse_bool(os.getenv("DISPLAY_PROMOTION"), True)
+
+    PLAY_AUDIOS = _parse_bool(os.getenv("PLAY_AUDIOS"), True)
+    audio.set_audio_worker_enabled(PLAY_AUDIOS)
+
+    SHARED_MEMORY_ENABLED = _parse_bool(os.getenv("SHARED_MEMORY_ENABLED"), True)
+
+    _SESSION_TOKEN = _get_or_create_session_token()
+    _SESSION_ISSUED = False
+
+    logger.debug(f"Resolved config values: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}")
+    logger.info("Service configuration initialized")
 
 
 def _get_local_device_addresses() -> set[str]:
@@ -326,19 +139,17 @@ def _get_local_device_addresses() -> set[str]:
     for candidate_name in candidate_names:
         if not candidate_name:
             continue
-
         try:
             local_addresses.update(
                 address_info[4][0]
                 for address_info in socket.getaddrinfo(candidate_name, None)
             )
         except OSError:
-            pass
-
+            logger.debug(f"getaddrinfo failed for {candidate_name}")
         try:
             local_addresses.update(socket.gethostbyname_ex(candidate_name)[2])
         except OSError:
-            pass
+            logger.debug(f"gethostbyname_ex failed for {candidate_name}")
 
     for probe_address in ("8.8.8.8", "1.1.1.1"):
         try:
@@ -346,16 +157,18 @@ def _get_local_device_addresses() -> set[str]:
                 socket_handle.connect((probe_address, 80))
                 local_addresses.add(socket_handle.getsockname()[0])
         except OSError:
-            pass
+            logger.debug(f"UDP probe to {probe_address} failed")
 
     normalized_addresses: set[str] = set()
     for address_value in local_addresses:
         try:
             normalized_addresses.add(ipaddress.ip_address(address_value).compressed)
         except ValueError:
+            logger.debug(f"Invalid local address value ignored: {address_value}")
             continue
 
     normalized_addresses.update({"127.0.0.1", "::1"})
+    logger.debug(f"Local device address cache populated: {len(normalized_addresses)} address(es)")
     return normalized_addresses
 
 
@@ -363,377 +176,127 @@ def _is_local_request() -> bool:
     remote_address = request.remote_addr
     if not isinstance(remote_address, str) or not remote_address.strip():
         return False
-
     try:
         client_ip = ipaddress.ip_address(remote_address.strip())
     except ValueError:
+        logger.debug(f"Non-IP remote address rejected: {remote_address!r}")
         return False
-
     if client_ip.is_loopback:
         return True
-
     return client_ip.compressed in _get_local_device_addresses()
 
 
-def _is_localhost_request() -> bool:
-    return request.remote_addr == "127.0.0.1" or request.remote_addr == "::1"
+def _generate_session_token() -> str:
+    return secrets.token_urlsafe(32)
 
 
-def _is_self_request(payload: dict) -> bool:
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return False
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(client_hash.strip())
-    return client_data is not None
+def _get_or_create_session_token() -> str:
+    token_file = Path(__file__).resolve().parent.parent / "resources" / "session.token"
+    try:
+        if token_file.exists():
+            stored = token_file.read_text(encoding="utf-8").strip()
+            if stored:
+                return stored
+    except OSError:
+        pass
+    token = _generate_session_token()
+    try:
+        token_file.write_text(token, encoding="utf-8")
+    except OSError:
+        pass
+    return token
 
 
-def _check_authorization(payload):
-    """Returns (is_authorized, has_invalid_key) tuple.
-    is_authorized: True if valid key provided or request is from localhost.
-    has_invalid_key: True if an api_key was provided but didn't match.
-    """
-    api_key = payload.get("api_key") if isinstance(payload, dict) else None
-    if isinstance(api_key, str) and api_key.strip():
-        with API_KEYS_LOCK:
-            if api_key.strip() in API_KEY_LOOKUP:
-                return (True, False)
-        return (False, True)
-    return (_is_localhost_request(), False)
-
-
-def _is_protected(client_hash: str) -> bool:
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(client_hash)
-    return client_data is not None and client_data.get("protected", False) is True
-
-
-def _check_authorization_all(payload):
-    """Returns (is_allowed, has_invalid_key) tuple.
-    is_allowed: True if valid API key, localhost, or self-service (hash exists).
-    has_invalid_key: True if an api_key was provided but didn't match.
-    """
-    allowed, invalid_key = _check_authorization(payload)
-    if allowed or invalid_key:
-        return allowed, invalid_key
-    return (_is_self_request(payload), False)
-
-
-UI_SESSION_COOKIE_NAME = "sh_ui_session"
-UI_SESSION_TOKEN = uuid.uuid4().hex + uuid.uuid4().hex
-
-
-def _require_ui_session() -> bool:
-    return request.cookies.get(UI_SESSION_COOKIE_NAME) == UI_SESSION_TOKEN
-
-
-def requires_ui_session(func):
+def localhost_only(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        if request.method in ("GET", "POST", "PUT", "DELETE"):
-            if not _require_ui_session():
-                logger.warning(
-                    "Unauthorized attempt to access UI endpoint without a valid session cookie"
-                )
-                return _error_response("UI session is not valid.", 403)
-            logger.debug("Valid UI session cookie accepted")
+        if not _is_local_request():
+            logger.warning(f"Blocked non-local request from {request.remote_addr} for {request.path}")
+            return NotFound().get_response()
         return func(*args, **kwargs)
     return wrapper
 
 
-def _initialize_service_config() -> None:
-    global SERVICE_HOST, SERVICE_PORT
-    global GUI_ENABLED
-    config = _load_configuration()
-
-    SERVICE_HOST = "127.0.0.1"
-
-    configured_port = config.get("port", 49155)
-    if isinstance(configured_port, str) and configured_port.isdigit():
-        configured_port = int(configured_port)
-    if not isinstance(configured_port, int):
-        configured_port = 49155
-
-    SERVICE_PORT = configured_port
-
-    GUI_ENABLED = config.get("guiEnabled", True)
-
-    logger.info(
-        f"Service config resolved: SERVICE_HOST={SERVICE_HOST}, "
-        f"SERVICE_PORT={SERVICE_PORT}, GUI_ENABLED={GUI_ENABLED}"
-    )
+def _is_valid_session_cookie() -> bool:
+    provided_token = request.cookies.get(SESSION_COOKIE_NAME)
+    return _SESSION_TOKEN is not None and provided_token == _SESSION_TOKEN
 
 
-def _extract_pid(client_data: dict) -> int | None:
-    stored = client_data.get("pid")
-    if isinstance(stored, int):
-        return stored
-    if isinstance(stored, str) and stored.strip().isdigit():
-        return int(stored)
-    return None
+def _unauthorized_response():
+    global _SESSION_ISSUED
+    first = False
+    with _SESSION_LOCK:
+        if not _SESSION_ISSUED:
+            _SESSION_ISSUED = True
+            first = True
+    if first:
+        response = NotFound().get_response()
+        response.set_cookie(SESSION_COOKIE_NAME, _SESSION_TOKEN, httponly=True, samesite="Lax", max_age=31536000)
+        logger.info("Issued akupara-session cookie to establish a new runtime session")
+        return response
+    logger.warning(f"Rejected request from {request.remote_addr}: missing or invalid akupara-session cookie")
+    return NotFound().get_response()
 
 
-def _launch_script(script_path: str) -> subprocess.Popen:
-    path = script_path.strip()
-    ext = os.path.splitext(path)[1].lower()
-    if ext == ".py":
-        cmd = [sys.executable, path]
-    elif ext in (".bat", ".cmd"):
-        cmd = ["cmd", "/c", path]
-    elif ext == ".ps1":
-        cmd = ["powershell", "-File", path]
-    else:
-        cmd = [path]
-    logger.debug(f"Launching script: {' '.join(cmd)}")
-    return subprocess.Popen(
-        cmd,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-        close_fds=True,
-    )
+def cookie_authenticated(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if _is_valid_session_cookie():
+            return func(*args, **kwargs)
+        return _unauthorized_response()
+    return wrapper
 
 
-def _send_get_request(request: GetRequest) -> GetResponse:
-    logger.debug(f"GET request to {request.url}")
-    try:
-        req = urllib.request.Request(request.url, method="GET", headers=request.headers)
-        with urllib.request.urlopen(req, timeout=request.timeout) as resp:
-            body = resp.read().decode("utf-8")
-            body_size = len(body)
-            headers = dict(resp.headers)
-            json_body = None
-            try:
-                json_body = json.loads(body)
-            except (json.JSONDecodeError, ValueError):
-                pass
-            logger.debug(f"GET {request.url} -> {resp.status} {resp.reason}")
-            return GetResponse(
-                status_code=resp.status,
-                reason=resp.reason,
-                body=body,
-                body_size=body_size,
-                headers=headers,
-                json_body=json_body,
-            )
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8")
-        body_size = len(body)
-        headers = dict(exc.headers)
-        json_body = None
-        try:
-            json_body = json.loads(body)
-        except (json.JSONDecodeError, ValueError):
-            pass
-        logger.debug(f"GET {request.url} -> {exc.code} {exc.reason}")
-        return GetResponse(
-            status_code=exc.code,
-            reason=str(exc.reason),
-            body=body,
-            body_size=body_size,
-            headers=headers,
-            json_body=json_body,
-        )
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        logger.error(f"GET request to {request.url} failed: {exc}", exc_info=True)
-        raise
-
-
-def _send_post_request(request: PostRequest) -> PostResponse:
-    logger.debug(f"POST request to {request.url}")
-    try:
-        req = urllib.request.Request(
-            request.url,
-            data=request.body,
-            headers=request.headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=request.timeout) as resp:
-            body = resp.read().decode("utf-8")
-            body_size = len(body)
-            headers = dict(resp.headers)
-            json_body = None
-            try:
-                json_body = json.loads(body)
-            except (json.JSONDecodeError, ValueError):
-                pass
-            logger.debug(f"POST {request.url} -> {resp.status} {resp.reason}")
-            return PostResponse(
-                status_code=resp.status,
-                reason=resp.reason,
-                body=body,
-                body_size=body_size,
-                headers=headers,
-                json_body=json_body,
-            )
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8")
-        body_size = len(body)
-        headers = dict(exc.headers)
-        json_body = None
-        try:
-            json_body = json.loads(body)
-        except (json.JSONDecodeError, ValueError):
-            pass
-        logger.debug(f"POST {request.url} -> {exc.code} {exc.reason}")
-        return PostResponse(
-            status_code=exc.code,
-            reason=str(exc.reason),
-            body=body,
-            body_size=body_size,
-            headers=headers,
-            json_body=json_body,
-        )
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        logger.error(f"POST request to {request.url} failed: {exc}", exc_info=True)
-        raise
-
-
-def _ping_health(ip: str, port: int, timeout: float = 5.0) -> bool:
-    cache_key = f"health:{ip}:{port}"
-    cached = _HEALTH_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        logger.debug(f"Ping skipped for {ip}:{port}: invalid IP address")
+def _is_valid_api_key() -> bool:
+    provided_key = request.headers.get("X-Api-Key")
+    if not provided_key:
         return False
-    if not addr.is_loopback:
-        logger.debug(f"Ping skipped for {ip}:{port}: not a loopback address")
-        return False
-    if not isinstance(port, int) or port < 1 or port > 65535:
-        logger.debug(f"Ping skipped for {ip}:{port}: invalid port")
-        return False
-    url = f"http://{ip}:{port}/api/health"
-    try:
-        resp = _send_get_request(GetRequest(url=url, timeout=timeout))
-        result = resp.status_code == 200
-        _HEALTH_CACHE.set(cache_key, result)
-        logger.debug(f"Ping result for {ip}:{port}: healthy={result}")
-        return result
-    except (urllib.error.URLError, OSError, ValueError):
-        _HEALTH_CACHE.set(cache_key, False)
-        logger.debug(f"Ping result for {ip}:{port}: healthy=False (request failed)")
-        return False
+    keys = [entry["key"] for entry in _load_api_keys()]
+    keys.extend(_load_configuration().get("apiKeys", []))
+    return provided_key in keys
 
 
-def _run_health_check() -> list[dict]:
-    with REGISTERED_CLIENTS_LOCK:
-        current_clients = dict(REGISTERED_CLIENTS)
-
-    auto_restart = _get_env_json_list("SH_AUTO_RESTART_SERVICES", [])
-
-    unhealthy = []
-    for client_hash, client_data in current_clients.items():
-        ip = client_data.get("ip", "127.0.0.1")
-        port = client_data.get("port", 0)
-        logger.debug(
-            f"Health check for '{client_data.get('name', 'unknown')}' "
-            f"({client_hash[:8]}...) at {ip}:{port}"
-        )
-        if not _ping_health(ip, port):
-            unhealthy.append(client_data)
-            logger.warning(
-                f"Client '{client_data.get('name', 'unknown')}' "
-                f"({client_hash[:8]}...) unhealthy (health check failed)"
-            )
-
-            name = client_data.get("name", "")
-            script_path = client_data.get("starting_script", "")
-            if (
-                name in auto_restart
-                and isinstance(script_path, str)
-                and script_path.strip()
-            ):
-                logger.info(
-                    f"Auto-restarting '{name}' ({client_hash[:8]}...)"
-                )
-                pid = _extract_pid(client_data)
-                if pid is not None:
-                    try:
-                        _kill_pid(pid)
-                    except subprocess.CalledProcessError as exc:
-                        logger.warning(f"Failed to kill PID {pid}: {exc}")
-                with REGISTERED_CLIENTS_LOCK:
-                    REGISTERED_CLIENTS.pop(client_hash, None)
-                try:
-                    _launch_script(script_path)
-                    logger.info(
-                        f"Auto-restarted '{name}' with script "
-                        f"'{script_path}'"
-                    )
-                except Exception as exc:
-                    logger.error(
-                        f"Failed to auto-restart '{name}': {exc}"
-                    )
-
-    return unhealthy
+def api_key_authenticated(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if _is_valid_api_key():
+            return func(*args, **kwargs)
+        logger.warning(f"Rejected request from {request.remote_addr}: invalid or missing API key")
+        return jsonify({"error": "API key required."}), 401
+    return wrapper
 
 
-def _health_check_worker() -> None:
-    logger.debug("Health check worker started")
-    try:
-        while True:
-            try:
-                _run_health_check()
-            except Exception as exc:
-                logger.error(f"Health check error: {exc}")
-
-            time.sleep(HEALTH_CHECK_INTERVAL_SECONDS)
-    finally:
-        logger.info("Health check worker stopped")
+def api_key_or_cookie_authenticated(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if _is_valid_api_key():
+            return func(*args, **kwargs)
+        if _is_valid_session_cookie():
+            return func(*args, **kwargs)
+        return _unauthorized_response()
+    return wrapper
 
 
-def _start_health_check_loop() -> None:
-    logger.info(f"Health-check loop started (interval: {HEALTH_CHECK_INTERVAL_SECONDS}s)")
-    worker = threading.Thread(
-        target=_health_check_worker,
-        name="health-check",
-        daemon=True,
-    )
-    worker.start()
+class FeatureDisabledError(RuntimeError):
+    """Raised when a feature is disabled and its functionality is unavailable."""
+
+
+def _require_api_keys_enabled() -> None:
+    if not API_KEYS_ENABLED:
+        raise FeatureDisabledError("The API keys functionality is disabled.")
+
+
+def _effective_shared_memory_enabled() -> bool:
+    return ALLOW_DISCOVERY and SHARED_MEMORY_ENABLED
+
+
+def _require_shared_memory_enabled() -> None:
+    if not _effective_shared_memory_enabled():
+        raise FeatureDisabledError("The shared memory functionality is disabled.")
 
 
 app = Flask(__name__)
-
-
-@app.before_request
-def restrict_to_local_device() -> tuple | None:
-    if request.path.startswith("/api/") or (GUI_ENABLED and (request.path in ("/",) or request.path.startswith(("/ui/", "/css/")))):
-        if not _is_local_request():
-            logger.warning(
-                f"Non-local request blocked: {request.remote_addr} -> {request.path}"
-            )
-            return _error_response("Local device access only.", 403)
-        logger.debug(f"Local request allowed: {request.remote_addr} -> {request.path}")
-
-    return None
-
-
-def _error_response(message: str, status_code: int = 400) -> tuple:
-    data = {"error": message}
-    body = json.dumps(data)
-    resp = PostResponse(
-        status_code=status_code,
-        reason="error",
-        body=body,
-        body_size=len(body),
-        headers={"Content-Type": "application/json"},
-        json_body=data,
-    )
-    return jsonify(resp.json_body), resp.status_code
-
-
-def _success_response(data: dict, status_code: int = 200) -> tuple:
-    body = json.dumps(data)
-    resp = PostResponse(
-        status_code=status_code,
-        reason="OK",
-        body=body,
-        body_size=len(body),
-        headers={"Content-Type": "application/json"},
-        json_body=data,
-    )
-    return jsonify(resp.json_body), resp.status_code
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 
 def _options_response(allowed_methods: list[str]) -> tuple:
@@ -751,1351 +314,581 @@ def _head_response() -> tuple:
 
 @app.after_request
 def set_connection_header(response):
-    response.headers["Connection"] = "close"
-    response.set_cookie(
-        UI_SESSION_COOKIE_NAME,
-        UI_SESSION_TOKEN,
-        httponly=True,
-        samesite="Strict",
-        path="/",
-    )
+    content_type = response.headers.get("Content-Type", "")
+    if content_type.startswith("text/html"):
+        response.headers["Connection"] = "keep-alive"
+        logger.debug(f"Connection set to keep-alive for {request.path}")
+    else:
+        response.headers["Connection"] = "close"
+        logger.debug(f"Connection set to close for {request.path}")
     return response
 
 
-def index():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-    web_dir = _PROJECT_ROOT / "ui" / "pages"
-    logger.info("Serving index page")
-    return send_from_directory(web_dir, "index.html")
-
-
-def settings():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-    web_dir = _PROJECT_ROOT / "ui" / "pages"
-    logger.info("Serving settings page")
-    return send_from_directory(web_dir, "settings.html")
-
-
-def css_files(filename):
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-    css_dir = _PROJECT_ROOT / "ui" / "css"
-    logger.info(f"Serving CSS file: {filename}")
-    return send_from_directory(css_dir, filename)
-
-
-def resource_files(filename):
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-    resources_dir = _PROJECT_ROOT / "resources"
-    return send_from_directory(resources_dir, filename)
-
-
-@app.route("/api/register/service", methods=["POST", "HEAD", "OPTIONS"])
-def register():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    name = payload.get("name") if isinstance(payload, dict) else None
-    port = payload.get("port") if isinstance(payload, dict) else None
-    starting_script = payload.get("starting_script") if isinstance(payload, dict) else None
-    bind_address = payload.get("bind_address") if isinstance(payload, dict) else None
-    hostname_val = payload.get("hostname") if isinstance(payload, dict) else None
-
-    if not isinstance(name, str) or not name.strip():
-        logger.warning("Service registration rejected: name is empty or missing")
-        return _error_response("A non-empty name is required.")
-    if name.strip() == "ServiceHandler":
-        logger.warning("Service registration rejected: reserved name 'ServiceHandler'")
-        return _error_response("The name 'ServiceHandler' is reserved.", 400)
-
-    if port is None:
-        logger.warning("Service registration rejected: port is missing")
-        return _error_response("A port number is required.")
-
-    if isinstance(port, str) and port.isdigit():
-        port = int(port)
-
-    if not isinstance(port, int) or port < 1 or port > 65535:
-        logger.warning("Service registration rejected: port out of range")
-        return _error_response("Port must be a number between 1 and 65535.")
-
-    if starting_script is not None and not isinstance(starting_script, str):
-        logger.warning("Service registration rejected: starting_script is not a string")
-        return _error_response("Starting script must be a string.")
-
-    if not isinstance(bind_address, str) or not bind_address.strip():
-        logger.warning("Service registration rejected: bind address is missing")
-        return _error_response("A bind address is required.")
-    if not isinstance(hostname_val, str) or not hostname_val.strip():
-        logger.warning("Service registration rejected: hostname is missing")
-        return _error_response("A hostname is required.")
-
-    client_ip = request.remote_addr or "127.0.0.1"
-    name_to_check = name.strip()
-    hostname_to_check = hostname_val.strip()
-
-    with REGISTERED_CLIENTS_LOCK:
-        for existing in REGISTERED_CLIENTS.values():
-            existing_name = existing.get("name")
-            existing_ip = existing.get("ip")
-            existing_port = existing.get("port")
-            existing_hostname = existing.get("hostname")
-
-            if (
-                existing_name == name_to_check
-                and existing_ip == client_ip
-                and existing_port == port
-            ):
-                logger.warning(
-                    f"Service registration rejected: duplicate service name/IP/port "
-                    f"name={name_to_check}, ip={client_ip}, port={port}"
-                )
-                return _error_response(
-                    f"A service with name '{name_to_check}', IP '{client_ip}' "
-                    f"and port '{port}' is already registered.", 409
-                )
-
-            if existing_ip == client_ip and existing_hostname != hostname_to_check:
-                logger.warning(
-                    f"Service registration rejected: hostname/IP conflict "
-                    f"ip={client_ip}, existing_hostname={existing_hostname}, "
-                    f"requested_hostname={hostname_to_check}"
-                )
-                return _error_response(
-                    f"IP '{client_ip}' is already associated with hostname "
-                    f"'{existing_hostname}', cannot register with hostname "
-                    f"'{hostname_to_check}'.", 409
-                )
-
-    if not _ping_health(client_ip, port):
-        logger.warning(
-            f"Service registration rejected: health endpoint unreachable at "
-            f"{client_ip}:{port}"
-        )
-        return _error_response("Client health endpoint is not reachable.", 400)
-
-    resolved_pid = _resolve_pid(client_ip, port)
-    if resolved_pid is None:
-        logger.warning(
-            f"Service registration rejected: could not resolve PID for "
-            f"{client_ip}:{port}"
-        )
-        return _error_response("Could not determine the PID of the process.", 400)
-
-    with REGISTERED_CLIENTS_LOCK:
-        existing_client = None
-        for existing in list(REGISTERED_CLIENTS.values()):
-            if existing.get("name") == name_to_check:
-                existing_client = existing
-                break
-
-    if existing_client is not None:
-        old_ip = existing_client.get("ip", "127.0.0.1")
-        old_port = existing_client.get("port", 0)
-        if _ping_health(old_ip, old_port):
-            logger.warning(
-                f"Service registration rejected: name '{name}' is already "
-                f"registered and healthy"
-            )
-            return _error_response(
-                f"A client with name '{name}' is already registered.", 409
-            )
-        _remove_from_service_name_index(name_to_check)
-        with REGISTERED_CLIENTS_LOCK:
-            REGISTERED_CLIENTS.pop(existing_client["hash"], None)
-        logger.info(
-            f"Removed stale registration for '{name_to_check}' "
-            f"({existing_client['hash'][:8]}...)"
-        )
-
-    timestamp = datetime.now(timezone.utc).isoformat()
-
-    raw = f"{name.strip()}:{port}:{timestamp}"
-    client_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-    client_data = {
-        "hash": client_hash,
-        "name": name.strip(),
-        "port": port,
-        "starting_script": starting_script.strip() if isinstance(starting_script, str) else "",
-        "pid": resolved_pid,
-        "bind_address": bind_address.strip() if isinstance(bind_address, str) else "",
-        "hostname": hostname_val.strip() if isinstance(hostname_val, str) else "",
-        "ip": client_ip,
-        "timestamp": timestamp,
-        "endpoints": [],
-        "protected": False,
-    }
-
-    with REGISTERED_CLIENTS_LOCK:
-        REGISTERED_CLIENTS[client_hash] = client_data
-
-    auto_protect = _get_env_json_list("SH_AUTO_PROTECT_SERVICES", [])
-    if name.strip() in auto_protect:
-        with REGISTERED_CLIENTS_LOCK:
-            REGISTERED_CLIENTS[client_hash]["protected"] = True
-        logger.info(f"Auto-protected service '{name.strip()}'")
-
-    _add_to_service_name_index(name.strip(), client_hash)
-
-    logger.info(f"Client '{name}' registered on port {port} ({client_hash[:16]}...)")
-
-    return _success_response({"hash": client_hash}, 201)
-
-
-@app.route("/api/question/service", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
-@app.route("/api/question/service/<name>", methods=["POST", "HEAD", "OPTIONS"])
-def question(name=None):
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    target_name = name if isinstance(name, str) and name.strip() else (payload.get("name") if isinstance(payload, dict) else None)
-
-    if not isinstance(target_name, str) or not target_name.strip():
-        logger.warning("Service lookup attempted without a valid name")
-        return _error_response("The name of the target client is required.")
-
-    target_name_stripped = target_name.strip()
-    authorized, invalid_key = _check_authorization(payload)
-    if invalid_key:
-        logger.warning(f"Invalid API key for service lookup: name={target_name_stripped}")
-        return _error_response("API key is not valid.", 403)
-    with SERVICE_NAME_INDEX_LOCK:
-        client_hash = SERVICE_NAME_INDEX.get(target_name_stripped.lower())
-
-    if client_hash is None:
-        logger.warning(f"Service not found for lookup: name={target_name_stripped}")
-        return _error_response(f"No client found with name '{target_name_stripped}'.", 404)
-
-    with REGISTERED_CLIENTS_LOCK:
-        target = REGISTERED_CLIENTS.get(client_hash)
-
-    if target is None:
-        logger.warning(f"Service not found by hash for lookup: name={target_name}")
-        return _error_response(f"No client found with name '{target_name}'.", 404)
-
-    if authorized:
-        logger.info(f"Service lookup: name={target_name_stripped}, authorized=true")
-        return _success_response(target)
-
-    logger.info(f"Service lookup: name={target_name_stripped}, authorized=false")
-    return _success_response({"name": target["name"], "port": target["port"]})
-
-
-@app.route("/api/unregister/service", methods=["DELETE", "HEAD", "OPTIONS"])
-def unregister():
-    if request.method == "OPTIONS":
-        return _options_response(["DELETE", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    allowed, invalid_key = _check_authorization_all(payload)
-    if invalid_key:
-        logger.warning("Unregister denied: invalid API key")
-        return _error_response("API key is not valid.", 403)
-    if not allowed:
-        logger.warning("Unregister denied: request not authorized")
-        return _error_response("API key is not valid.", 403)
-
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required to unregister.")
-
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.pop(client_hash.strip(), None)
-
-    if client_data is not None:
-        _remove_from_service_name_index(client_data.get("name", ""))
-
-    if client_data is None:
-        return _error_response("Hash not found.", 404)
-
-    logger.info(
-        f"Client '{client_data.get('name')}' unregistered ({client_hash[:16]}...)"
-    )
-
-    return _success_response({"status": "unregistered", "hash": client_hash.strip()})
+def standard_endpoint(*methods: str):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if request.method == "OPTIONS":
+                logger.debug(f"OPTIONS request handled for {request.path}")
+                return _options_response(list(methods))
+            if request.method == "HEAD":
+                logger.debug(f"HEAD request handled for {request.path}")
+                return _head_response()
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 @app.route("/api/health", methods=["GET", "HEAD", "OPTIONS"])
-@requires_ui_session
-def health():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
+@localhost_only
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def health() -> tuple:
+    logger.info(f"Health check from {request.remote_addr}")
 
-    logger.debug(f"Health request received from {request.remote_addr}")
-    with REGISTERED_CLIENTS_LOCK:
-        client_count = len(REGISTERED_CLIENTS)
-
-    return _success_response(
-        {
-            "status": "ok",
-            "service": "ServiceHandler",
-            "bind_address": SERVICE_HOST,
-            "port": SERVICE_PORT,
-            "pid": os.getpid(),
-            "hostname": socket.gethostname(),
-            "registered_clients": client_count,
-        }
-    )
+    return jsonify({
+        "status": "ok",
+        "service": "Akupara",
+        "bind_address": SERVICE_HOST,
+        "port": SERVICE_PORT,
+        "hostname": socket.gethostname(),
+        "pid": os.getpid(),
+    }), 200
 
 
-@app.route("/api/services/healthcheck", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def health_check():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-    if client_hash:
-        with REGISTERED_CLIENTS_LOCK:
-            client = REGISTERED_CLIENTS.get(client_hash)
-        if not client:
-            return _error_response("Client not found.", 404)
-        ip = client.get("ip", "127.0.0.1")
-        port = client.get("port", 0)
-        healthy = _ping_health(ip, port)
-        if not healthy:
-            logger.warning(f"Client '{client.get('name', 'unknown')}' ({client_hash[:8]}...) unhealthy (health check failed)")
-        return _success_response({"hash": client_hash, "healthy": healthy})
-
-    unhealthy = _run_health_check()
-    return _success_response({"checked": True, "unhealthy": unhealthy})
+def _terminate() -> None:
+    logger.info("Akupara terminating")
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
-@app.route("/api/services", methods=["GET", "HEAD", "OPTIONS"])
-@requires_ui_session
-def clients():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    with REGISTERED_CLIENTS_LOCK:
-        client_list = [
-            {k: v for k, v in client.items() if k != "endpoints"}
-            for client in REGISTERED_CLIENTS.values()
-        ]
-
-    logger.info(f"Clients listed: count={len(client_list)}")
-    return _success_response({"clients": client_list})
+def _restart() -> None:
+    logger.info("Akupara restarting")
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve())] + sys.argv[1:])
+    os._exit(0)
 
 
-@app.route("/api/register/endpoint", methods=["POST", "HEAD", "OPTIONS"])
-def register_endpoint():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
-
-    hash_val = client_hash.strip()
-
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(hash_val)
-
-    if client_data is None:
-        return _error_response("Service not found.", 404)
-
-    verb = payload.get("verb") if isinstance(payload, dict) else None
-    path = payload.get("path") if isinstance(payload, dict) else None
-    path_variables = payload.get("path_variables") if isinstance(payload, dict) else None
-    body_schema = payload.get("body_schema") if isinstance(payload, dict) else None
-    description = payload.get("description") if isinstance(payload, dict) else None
-
-    if not isinstance(verb, str) or not verb.strip():
-        return _error_response("A non-empty HTTP verb is required.")
-    if not isinstance(path, str) or not path.strip():
-        return _error_response("A non-empty endpoint path is required.")
-    if path_variables is not None and not isinstance(path_variables, list):
-        return _error_response("path_variables must be a list.")
-    if body_schema is not None and not isinstance(body_schema, dict):
-        return _error_response("body_schema must be a JSON schema object.")
-    if not isinstance(description, str) or not description.strip():
-        return _error_response("A non-empty description is required.")
-
-    endpoint = {
-        "verb": verb.strip().upper(),
-        "path": path.strip(),
-        "path_variables": path_variables if isinstance(path_variables, list) else [],
-        "body_schema": body_schema if isinstance(body_schema, dict) else {},
-        "description": description.strip(),
-    }
-
-    with REGISTERED_CLIENTS_LOCK:
-        endpoints_list = REGISTERED_CLIENTS[hash_val].setdefault("endpoints", [])
-        replaced = False
-        for idx, existing in enumerate(endpoints_list):
-            if existing.get("verb") == endpoint["verb"] and existing.get("path") == endpoint["path"]:
-                endpoints_list[idx] = endpoint
-                replaced = True
-                break
-        if not replaced:
-            endpoints_list.append(endpoint)
-
-    _add_to_endpoint_index(client_data.get("name", ""), endpoint)
-
-    logger.info(
-        f"Endpoint '{verb} {path}' {'updated' if replaced else 'registered'} for "
-        f"'{client_data.get('name', 'unknown')}' ({hash_val[:8]}...)"
-    )
-
-    return _success_response({"status": "registered", "endpoint": endpoint}, 201)
+@app.route("/api/terminate", methods=["POST", "OPTIONS"])
+@localhost_only
+@api_key_or_cookie_authenticated
+@standard_endpoint("POST", "OPTIONS")
+def terminate() -> tuple:
+    logger.info(f"Terminate requested by {request.remote_addr}")
+    threading.Timer(0.5, _terminate).start()
+    return jsonify({"status": "ok", "message": "Akupara is terminating."}), 200
 
 
-@app.route("/api/service/endpoints", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
-@app.route("/api/service/endpoints/<name>", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def get_endpoints_service(name=None):
-    return _get_endpoints_impl(name)
+@app.route("/api/restart", methods=["POST", "OPTIONS"])
+@localhost_only
+@api_key_or_cookie_authenticated
+@standard_endpoint("POST", "OPTIONS")
+def restart() -> tuple:
+    logger.info(f"Restart requested by {request.remote_addr}")
+    threading.Timer(0.5, _restart).start()
+    return jsonify({"status": "ok", "message": "Akupara is restarting."}), 200
 
 
-@app.route("/api/endpoints/service", defaults={"name": None}, methods=["POST", "HEAD", "OPTIONS"])
-@app.route("/api/endpoints/service/<name>", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def get_endpoints(name=None):
-    return _get_endpoints_impl(name)
+def _write_env_var(key: str, value: str) -> None:
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        env_path.touch()
+    lines = env_path.read_text(encoding="utf-8").splitlines()
+    updated = False
+    for index, line in enumerate(lines):
+        if line.strip().startswith(key + "="):
+            lines[index] = f"{key}={value}"
+            updated = True
+            break
+    if not updated:
+        lines.append(f"{key}={value}")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _get_endpoints_impl(name=None):
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    target_name = name if isinstance(name, str) and name.strip() else (payload.get("name") if isinstance(payload, dict) else None)
-
-    if not isinstance(target_name, str) or not target_name.strip():
-        logger.warning("Endpoints lookup attempted without a valid service name")
-        return _error_response("The name of the service is required.")
-
-    target_name_stripped = target_name.strip()
-    with SERVICE_NAME_INDEX_LOCK:
-        client_hash = SERVICE_NAME_INDEX.get(target_name_stripped.lower())
-
-    if client_hash is None:
-        logger.warning(f"Service not found for endpoint lookup: name={target_name}")
-        return _error_response(f"No service found with name '{target_name}'.", 404)
-
-    with REGISTERED_CLIENTS_LOCK:
-        target = REGISTERED_CLIENTS.get(client_hash)
-
-    if target is None:
-        logger.warning(f"Service not found by hash for endpoint lookup: name={target_name}")
-        return _error_response(f"No service found with name '{target_name}'.", 404)
-
-    endpoints = target.get("endpoints", [])
-    logger.info(f"Endpoints listed for service: name={target_name_stripped}, count={len(endpoints)}")
-    return _success_response({"name": target_name_stripped, "endpoints": endpoints})
+def _write_env_bool(key: str, value: bool) -> None:
+    _write_env_var(key, str(value).lower())
 
 
-@app.route("/api/services/endpoints", methods=["GET", "HEAD", "OPTIONS"])
-@requires_ui_session
-def clients_details():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    with REGISTERED_CLIENTS_LOCK:
-        client_list = []
-        for client in REGISTERED_CLIENTS.values():
-            client_list.append({
-                "name": client.get("name", ""),
-                "ip": client.get("ip", ""),
-                "port": client.get("port", 0),
-                "endpoints": client.get("endpoints", []),
-            })
-
-    logger.info(f"All endpoints listed: service_count={len(client_list)}")
-    return _success_response({"clients": client_list})
-
-
-@app.route("/api/services/search-endpoints", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def search_endpoints():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    query = payload.get("query") if isinstance(payload, dict) else None
-
-    if not isinstance(query, str) or not query.strip():
-        logger.warning("Search endpoints attempted without a valid query")
-        return _error_response("A non-empty query is required.")
-
-    query_lower = query.strip().lower()
-    query_tokens = [t for t in re.split(r"[^a-z0-9]+", query_lower) if len(t) >= 2]
-
-    results = []
-    with ENDPOINT_INDEX_LOCK:
-        for ep_id, entry in ENDPOINT_BY_ID.items():
-            search_text = (entry.get("description", "") + " " + entry.get("path", "")).lower()
-            if not search_text.strip():
-                continue
-            if query_lower in search_text:
-                results.append(entry)
-                continue
-            if not query_tokens:
-                continue
-            all_match = True
-            for qt in query_tokens:
-                if qt in search_text:
-                    continue
-                words = [w for w in re.split(r"[^a-z0-9]+", search_text) if len(w) >= 2]
-                found = any(_subsequence_match(qt, word) for word in words)
-                if not found:
-                    all_match = False
-                    break
-            if all_match:
-                results.append(entry)
-
-    logger.info(f"Endpoints searched: query={query.strip()}, results={len(results)}")
-    return _success_response({"query": query.strip(), "results": results})
-
-
-@app.route("/api/validate/json-body", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def validate_json_body():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    service_name = payload.get("service") if isinstance(payload, dict) else None
-    verb = payload.get("verb") if isinstance(payload, dict) else None
-    path = payload.get("path") if isinstance(payload, dict) else None
-    json_body = payload.get("json_body") if isinstance(payload, dict) else None
-
-    if not isinstance(service_name, str) or not service_name.strip():
-        logger.warning("JSON body validation attempted without a valid service name")
-        return _error_response("A non-empty service name is required.")
-    if not isinstance(verb, str) or not verb.strip():
-        logger.warning("JSON body validation attempted without a valid HTTP verb")
-        return _error_response("A non-empty HTTP verb is required.")
-    if not isinstance(path, str) or not path.strip():
-        logger.warning("JSON body validation attempted without a valid endpoint path")
-        return _error_response("A non-empty endpoint path is required.")
-    if json_body is None:
-        logger.warning("JSON body validation attempted without a json_body")
-        return _error_response("A json_body is required.")
-
-    verb_stripped = verb.strip().upper()
-    path_stripped = path.strip()
-    service_name_stripped = service_name.strip()
-    ep_id = f"{service_name_stripped}:{verb_stripped}:{path_stripped}"
-
-    with ENDPOINT_INDEX_LOCK:
-        target_endpoint = ENDPOINT_BY_ID.get(ep_id)
-
-    if target_endpoint is None:
-        logger.warning(f"JSON body validation failed: endpoint not found for service={service_name_stripped}, {verb_stripped} {path_stripped}")
-        return _error_response(
-            f"No endpoint found with verb '{verb_stripped}' and path "
-            f"'{path_stripped}' for service '{service_name_stripped}'.",
-            404,
-        )
-
-    schema = target_endpoint.get("body_schema", {})
-    if not schema:
-        logger.info(f"JSON body validated: service={service_name_stripped}, {verb_stripped} {path_stripped}, schema_exists=false")
-        return _success_response({
-            "valid": True,
-            "schema_exists": False,
-            "message": "No JSON schema defined for this endpoint.",
-        })
-
+def _read_env_var(key: str, default: str = "") -> str:
+    env_path = Path(__file__).resolve().parent.parent / ".env"
     try:
-        jsonschema.validate(instance=json_body, schema=schema)
-        logger.info(f"JSON body validated: service={service_name_stripped}, {verb_stripped} {path_stripped}, valid=true")
-        return _success_response({
-            "valid": True,
-            "schema_exists": True,
-            "message": "JSON body is valid against the endpoint schema.",
-        })
-    except jsonschema.ValidationError as exc:
-        logger.warning(f"JSON body validated: service={service_name_stripped}, {verb_stripped} {path_stripped}, valid=false")
-        return _success_response({
-            "valid": False,
-            "schema_exists": True,
-            "message": "JSON body is not valid against the endpoint schema.",
-            "errors": [{"path": list(exc.absolute_path), "message": exc.message}],
-        })
-
-
-def _get_env_json_list(key: str, default: list) -> list:
-    val = os.getenv(key)
-    if not val:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
         return default
-    try:
-        parsed = json.loads(val)
-        if isinstance(parsed, list):
-            return parsed
-    except (json.JSONDecodeError, TypeError):
-        pass
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if name.strip() == key:
+            return value.strip()
     return default
 
 
-@requires_ui_session
-def sort_order():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    if request.method == "GET":
-        sort_order_val = _get_env_json_list("SH_SORT_ORDER", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
-        group_by_val = os.getenv("SH_GROUP_BY") or None
-        original_sort_order_val = _get_env_json_list("SH_ORIGINAL_SORT_ORDER", sort_order_val)
-
-        resp = {"sort_order": sort_order_val}
-        if group_by_val:
-            resp["group_by"] = group_by_val
-        if group_by_val and original_sort_order_val:
-            resp["original_sort_order"] = original_sort_order_val
-        logger.info(f"Sort settings retrieved")
-        return _success_response(resp)
-
-    payload = request.get_json(silent=True) or {}
-
-    if isinstance(payload, dict):
-        if "sort_order" in payload:
-            new_order = payload["sort_order"]
-            if not isinstance(new_order, list) or not new_order:
-                return _error_response("sort_order must be a non-empty list.")
-            _set_env_var("SH_SORT_ORDER", json.dumps(new_order))
-
-        if "group_by" in payload:
-            group_by = payload["group_by"]
-            if group_by is not None:
-                _set_env_var("SH_GROUP_BY", str(group_by))
-            else:
-                _set_env_var("SH_GROUP_BY", "")
-
-        if "original_sort_order" in payload:
-            original = payload["original_sort_order"]
-            if original is not None:
-                _set_env_var("SH_ORIGINAL_SORT_ORDER", json.dumps(original))
-            else:
-                _set_env_var("SH_ORIGINAL_SORT_ORDER", "")
-
-    sort_order_val = _get_env_json_list("SH_SORT_ORDER", ["name", "port", "pid", "bind_address", "hostname", "status", "protected"])
-    group_by_val = os.getenv("SH_GROUP_BY") or None
-    original_sort_order_val = _get_env_json_list("SH_ORIGINAL_SORT_ORDER", sort_order_val)
-
-    resp = {"sort_order": sort_order_val}
-    if group_by_val:
-        resp["group_by"] = group_by_val
-    if group_by_val and original_sort_order_val:
-        resp["original_sort_order"] = original_sort_order_val
-    logger.info(f"Sort settings updated: sort_order={sort_order_val}, group_by={group_by_val}")
-    return _success_response(resp)
-
-
-@app.route("/api/settings/auto-protect", methods=["GET", "PUT", "HEAD", "OPTIONS"])
-@requires_ui_session
-def auto_protect_settings():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    if request.method == "GET":
-        services = _get_env_json_list("SH_AUTO_PROTECT_SERVICES", [])
-        return _success_response({"services": services})
-
-    payload = request.get_json(silent=True) or {}
-    services = payload.get("services") if isinstance(payload, dict) else None
-    if not isinstance(services, list):
-        return _error_response("services must be a JSON array.")
-    if not all(isinstance(s, str) for s in services):
-        return _error_response("Each service name must be a string.")
-
-    stripped = [s.strip() for s in services]
-    if len(stripped) != len(set(stripped)):
-        return _error_response("Duplicate service names are not allowed.")
-    if "ServiceHandler" in stripped:
-        return _error_response("'ServiceHandler' is reserved and cannot be added to auto-protect.", 400)
-
-    _set_env_var("SH_AUTO_PROTECT_SERVICES", json.dumps(stripped))
-    logger.info(f"Auto-protect services updated: {stripped}")
-    return _success_response({"services": stripped})
-
-
-@app.route("/api/settings/auto-restart", methods=["GET", "PUT", "HEAD", "OPTIONS"])
-@requires_ui_session
-def auto_restart_settings():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    if request.method == "GET":
-        services = _get_env_json_list("SH_AUTO_RESTART_SERVICES", [])
-        return _success_response({"services": services})
-
-    payload = request.get_json(silent=True) or {}
-    services = payload.get("services") if isinstance(payload, dict) else None
-    if not isinstance(services, list):
-        return _error_response("services must be a JSON array.")
-    if not all(isinstance(s, str) for s in services):
-        return _error_response("Each service name must be a string.")
-
-    stripped = [s.strip() for s in services]
-    if len(stripped) != len(set(stripped)):
-        return _error_response("Duplicate service names are not allowed.")
-    if "ServiceHandler" in stripped:
-        return _error_response("'ServiceHandler' is reserved and cannot be added to auto-restart.", 400)
-
-    _set_env_var("SH_AUTO_RESTART_SERVICES", json.dumps(stripped))
-    logger.info(f"Auto-restart services updated: {stripped}")
-    return _success_response({"services": stripped})
-
-
-@app.route("/api/settings/show-promotion", methods=["GET", "PUT", "HEAD", "OPTIONS"])
-@requires_ui_session
-def show_promotion_settings():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "PUT", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    if request.method == "GET":
-        val = os.getenv("SH_SHOW_PROMOTION", "true")
-        show = val.lower() == "true"
-        return _success_response({"show_promotion": show})
-
-    payload = request.get_json(silent=True) or {}
-    show = payload.get("show_promotion") if isinstance(payload, dict) else None
-    if not isinstance(show, bool):
-        return _error_response("show_promotion must be a boolean.")
-
-    _set_env_var("SH_SHOW_PROMOTION", "true" if show else "false")
-    logger.info(f"Show promotion updated: {show}")
-    return _success_response({"show_promotion": show})
-
-
-@app.route("/api/service/terminate", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def terminate():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-    raw_pid = payload.get("pid") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
-
-    if _is_protected(client_hash.strip()):
-        logger.warning(f"Terminate denied: service is protected ({client_hash.strip()[:16]}...)")
-        return _error_response("Service is protected and cannot be terminated.", 403)
-
-    pid = None
-    if raw_pid is not None and str(raw_pid).strip().isdigit():
-        pid = int(raw_pid)
-    else:
-        with REGISTERED_CLIENTS_LOCK:
-            client_data = REGISTERED_CLIENTS.get(client_hash.strip())
-        if client_data is not None:
-            pid = _extract_pid(client_data)
-
-    if pid is not None:
-        try:
-            _kill_pid(pid)
-        except subprocess.CalledProcessError as exc:
-            logger.error(f"Failed to kill PID {pid}: {exc.stderr}")
-
-    with REGISTERED_CLIENTS_LOCK:
-        REGISTERED_CLIENTS.pop(client_hash.strip(), None)
-
-    logger.info(f"Terminated client {client_hash[:16]}...")
-
-    return _success_response({"status": "terminated", "hash": client_hash.strip(), "pid": pid})
-
-
-@app.route("/api/service/restart", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def restart():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-    raw_pid = payload.get("pid") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
-
-    if _is_protected(client_hash.strip()):
-        logger.warning(f"Restart denied: service is protected ({client_hash.strip()[:16]}...)")
-        return _error_response("Service is protected and cannot be restarted.", 403)
-
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(client_hash.strip())
-
-    if client_data is None:
-        return _error_response("Client not found.", 404)
-
-    script_path = client_data.get("starting_script", "")
-    if not isinstance(script_path, str) or not script_path.strip():
-        logger.warning(f"Restart rejected: no starting script available ({client_hash.strip()[:16]}...)")
-        return _error_response("No starting script available for this service.", 400)
-
-    pid = None
-    if raw_pid is not None and str(raw_pid).strip().isdigit():
-        pid = int(raw_pid)
-    else:
-        pid = _extract_pid(client_data)
-
-    if pid is None:
-        logger.warning(f"Restart rejected: no PID available ({client_hash.strip()[:16]}...)")
-        return _error_response("No PID available for this service.", 400)
-
+def _read_env_bool(key: str, default: bool = False) -> bool:
+    env_path = Path(__file__).resolve().parent.parent / ".env"
     try:
-        _kill_pid(pid)
-    except subprocess.CalledProcessError as exc:
-        logger.error(f"Failed to kill PID {pid}: {exc.stderr}")
-        return _error_response(f"Failed to terminate process: {exc.stderr}", 500)
-
-    with REGISTERED_CLIENTS_LOCK:
-        REGISTERED_CLIENTS.pop(client_hash.strip(), None)
-
-    logger.info(f"Terminated PID {pid} (hash {client_hash[:16]}...)")
-
-    try:
-        _launch_script(script_path)
-    except Exception as exc:
-        logger.error(f"Failed to start script: {exc}")
-        return _error_response(f"Failed to start script: {exc}", 500)
-
-    logger.info(f"Restarted with script '{script_path}' (hash {client_hash[:16]}...)")
-
-    return _success_response({"status": "restarted", "hash": client_hash.strip()})
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return default
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if name.strip() == key:
+            return _parse_bool(value, default)
+    return default
 
 
-@app.route("/api/broken/forget", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def broken_forget():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
-
-    hash_val = client_hash.strip()
-
-    if _is_protected(hash_val):
-        logger.warning(f"Forget denied: service is protected ({hash_val[:16]}...)")
-        return _error_response("Service is protected and cannot be forgotten.", 403)
-
-    pid = None
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(hash_val)
-        if client_data is not None:
-            pid = _extract_pid(client_data)
-            REGISTERED_CLIENTS.pop(hash_val, None)
-
-    if pid is not None:
-        try:
-            _kill_pid(pid)
-        except subprocess.CalledProcessError:
-            logger.warning(f"Could not kill PID {pid} during forget (hash {hash_val[:16]}...)")
-
-    logger.info(f"Forgotten broken service hash {hash_val[:16]}...")
-
-    return _success_response({"status": "forgotten", "hash": hash_val})
+@audio.play_audio("acknowledge")
+def _set_allow_discovery(value: bool) -> None:
+    global ALLOW_DISCOVERY
+    ALLOW_DISCOVERY = value
+    _write_env_bool("ALLOW_DISCOVERY", value)
 
 
-@app.route("/api/broken/restart", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def broken_restart():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
-
-    hash_val = client_hash.strip()
-
-    if _is_protected(hash_val):
-        logger.warning(f"Broken restart denied: service is protected ({hash_val[:16]}...)")
-        return _error_response("Service is protected and cannot be restarted.", 403)
-
-    script_path = ""
-    pid = None
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(hash_val)
-        if client_data is not None:
-            script_path = client_data.get("starting_script", "")
-            pid = _extract_pid(client_data)
-            REGISTERED_CLIENTS.pop(hash_val, None)
-
-    if not isinstance(script_path, str) or not script_path.strip():
-        return _error_response("No starting script available for this service.", 400)
-
-    if pid is not None:
-        try:
-            _kill_pid(pid)
-        except subprocess.CalledProcessError:
-            logger.warning(f"Could not kill PID {pid} during broken restart (hash {hash_val[:16]}...)")
-
-    try:
-        _launch_script(script_path)
-    except Exception as exc:
-        logger.error(f"Failed to start script: {exc}")
-        return _error_response(f"Failed to start script: {exc}", 500)
-
-    logger.info(f"Restarted broken service with script '{script_path}' (hash {hash_val[:16]}...)")
-
-    return _success_response({"status": "restarted", "hash": hash_val})
+@audio.play_audio("acknowledge")
+def _set_api_keys_enabled(value: bool) -> None:
+    global API_KEYS_ENABLED
+    API_KEYS_ENABLED = value
+    _write_env_bool("API_KEYS_ENABLED", value)
 
 
-@app.route("/api/service/protect", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def protect():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
-
-    hash_val = client_hash.strip()
-
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(hash_val)
-
-    if client_data is None:
-        return _error_response("Client not found.", 404)
-
-    with REGISTERED_CLIENTS_LOCK:
-        REGISTERED_CLIENTS[hash_val]["protected"] = True
-
-    logger.info(f"Protected service hash {hash_val[:16]}...")
-
-    return _success_response({"status": "protected", "hash": hash_val})
+def _set_display_promotion(value: bool) -> None:
+    global DISPLAY_PROMOTION
+    DISPLAY_PROMOTION = value
+    _write_env_bool("DISPLAY_PROMOTION", value)
 
 
-@app.route("/api/service/unprotect", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def unprotect():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
-
-    hash_val = client_hash.strip()
-
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(hash_val)
-
-    if client_data is None:
-        return _error_response("Client not found.", 404)
-
-    with REGISTERED_CLIENTS_LOCK:
-        REGISTERED_CLIENTS[hash_val]["protected"] = False
-
-    logger.info(f"Unprotected service hash {hash_val[:16]}...")
-
-    return _success_response({"status": "unprotected", "hash": hash_val})
+def _set_play_audios(value: bool) -> None:
+    global PLAY_AUDIOS
+    PLAY_AUDIOS = value
+    _write_env_bool("PLAY_AUDIOS", value)
+    audio.set_audio_worker_enabled(value)
 
 
-# ============================================================================
-# API KEY MANAGEMENT
-# ============================================================================
+@audio.play_audio("acknowledge")
+def _set_shared_memory_enabled(value: bool) -> None:
+    global SHARED_MEMORY_ENABLED
+    SHARED_MEMORY_ENABLED = value
+    _write_env_bool("SHARED_MEMORY_ENABLED", value)
 
 
-def _init_api_keys() -> None:
-    global API_KEYS_DATA
-    with API_KEYS_LOCK:
-        API_KEYS_DATA = {"keys": {}}
-    if os.getenv("SH_API_KEYS"):
-        logger.info("SH_API_KEYS configured; API keys will be loaded on first request.")
-    else:
-        logger.info("SH_API_KEYS not configured; API key store is empty.")
+@app.route("/api/settings", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def settings() -> tuple:
+    if request.method == "GET":
+        logger.info(f"Settings read by {request.remote_addr}")
+        return jsonify({
+            "allowDiscovery": _read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
+            "apiKeysEnabled": _read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
+            "displayPromotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
+        }), 200
+    data = request.get_json(silent=True) or {}
+    keys = [key for key in ("allowDiscovery", "apiKeysEnabled", "displayPromotion") if key in data]
+    if not keys:
+        return jsonify({"error": "No known setting provided."}), 400
+    for key in keys:
+        value = data[key]
+        if not isinstance(value, bool):
+            return jsonify({"error": f"{key} must be a boolean."}), 400
+        if key == "allowDiscovery":
+            _set_allow_discovery(value)
+        elif key == "apiKeysEnabled":
+            _set_api_keys_enabled(value)
+        else:
+            _set_display_promotion(value)
+    logger.info(f"Settings updated by {request.remote_addr}: allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, displayPromotion={DISPLAY_PROMOTION}")
+    return jsonify({
+        "allowDiscovery": ALLOW_DISCOVERY,
+        "apiKeysEnabled": API_KEYS_ENABLED,
+        "displayPromotion": DISPLAY_PROMOTION,
+    }), 200
 
 
-def _ensure_api_key_session() -> str | None:
-    global API_KEY_SESSION_READY, API_KEYS_DATA
+@app.route("/api/audio", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def audio_playback() -> tuple:
+    if request.method == "GET":
+        logger.info(f"Audio playback setting read by {request.remote_addr}")
+        return jsonify({"playAudios": _read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS)}), 200
 
-    if API_KEY_SESSION_READY:
+    data = request.get_json(silent=True) or {}
+    if "playAudios" not in data or not isinstance(data["playAudios"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["playAudios"]
+    _set_play_audios(value)
+    logger.info(f"Audio playback set by {request.remote_addr}: playAudios={PLAY_AUDIOS}")
+    return jsonify({"playAudios": PLAY_AUDIOS}), 200
+
+
+@app.route("/api/shared-memory-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def shared_memory_enabled() -> tuple:
+    if request.method == "GET":
+        logger.info(f"Shared memory enabled setting read by {request.remote_addr}")
+        return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
+
+    data = request.get_json(silent=True) or {}
+    if "sharedMemoryEnabled" not in data or not isinstance(data["sharedMemoryEnabled"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["sharedMemoryEnabled"]
+    _set_shared_memory_enabled(value)
+    logger.info(f"Shared memory enabled set by {request.remote_addr}: sharedMemoryEnabled={SHARED_MEMORY_ENABLED}")
+    return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
+
+
+_FORBIDDEN_KEY_NAME_CHARS = set(" ,;:\\/")
+
+
+def _is_valid_key_name(name: str) -> bool:
+    return bool(name) and not any(ch in name for ch in _FORBIDDEN_KEY_NAME_CHARS)
+
+
+def _load_api_keys() -> list[dict]:
+    value = _read_env_var("API_KEYS")
+    keys: list[dict] = []
+    for part in value.split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        name, _, key = part.partition(":")
+        keys.append({"name": name.strip(), "key": key.strip()})
+    return keys
+
+
+def _save_api_keys(keys: list[dict]) -> None:
+    value = ",".join(f"{entry['name']}:{entry['key']}" for entry in keys)
+    _write_env_var("API_KEYS", value)
+
+
+def _generate_api_key() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _list_api_keys() -> list[dict]:
+    _require_api_keys_enabled()
+    return _load_api_keys()
+
+
+@audio.play_audio("acknowledge")
+def _create_api_key(name: str) -> dict:
+    _require_api_keys_enabled()
+    if not isinstance(name, str) or not _is_valid_key_name(name):
+        raise ValueError("Invalid API key name.")
+    key = _generate_api_key()
+    keys = _load_api_keys()
+    entry = {"name": name, "key": key}
+    keys.append(entry)
+    _save_api_keys(keys)
+    return entry
+
+
+@audio.play_audio("acknowledge")
+def _delete_api_key(key: str) -> bool:
+    _require_api_keys_enabled()
+    keys = _load_api_keys()
+    remaining = [entry for entry in keys if entry["key"] != key]
+    if len(remaining) == len(keys):
+        return False
+    _save_api_keys(remaining)
+    return True
+
+
+@audio.play_audio("acknowledge")
+def _rename_api_key(key: str, name: str) -> dict | None:
+    _require_api_keys_enabled()
+    if not isinstance(name, str) or not _is_valid_key_name(name):
+        raise ValueError("Invalid API key name.")
+    keys = _load_api_keys()
+    target = next((entry for entry in keys if entry["key"] == key), None)
+    if not target:
         return None
+    target["name"] = name
+    _save_api_keys(keys)
+    return target
 
-    env_data = os.getenv("SH_API_KEYS")
-    loaded: dict = {}
-    if env_data:
+
+@app.route("/api/api-keys", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def api_keys() -> tuple:
+    if request.method == "GET":
         try:
-            parsed = json.loads(env_data)
-            if isinstance(parsed, dict):
-                for service_name, api_key in parsed.items():
-                    if isinstance(api_key, str) and api_key.strip():
-                        loaded[service_name] = {
-                            "api_key": api_key.strip(),
-                            "source": "env_var",
-                        }
-        except json.JSONDecodeError:
-            logger.warning("SH_API_KEYS env var contains invalid JSON.")
+            keys = _list_api_keys()
+        except FeatureDisabledError:
+            return jsonify({"error": "Forbidden"}), 403
+        logger.info(f"API keys read by {request.remote_addr}")
+        return jsonify({"apiKeys": keys}), 200
 
-    with API_KEYS_LOCK:
-        API_KEYS_DATA["keys"] = loaded
-        _rebuild_api_key_lookup()
-
-    API_KEY_SESSION_READY = True
-    logger.info(
-        f"API key session ready. Loaded {len(loaded)} key(s) from SH_API_KEYS."
-    )
-    return None
-
-
-def _generate_api_key_value() -> str:
-    return uuid.uuid4().hex + uuid.uuid4().hex
-
-
-def involving_api_keys(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        error = _ensure_api_key_session()
-        if error:
-            return _error_response(error, 503)
-        return func(*args, **kwargs)
-    return wrapper
-
-
-# ============================================================================
-# API KEY ENDPOINTS
-# ============================================================================
-
-
-@app.route("/api/validate-key", methods=["POST", "HEAD", "OPTIONS"])
-@involving_api_keys
-def validate_key():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    api_key = payload.get("api_key") if isinstance(payload, dict) else None
-
-    if not isinstance(api_key, str) or not api_key.strip():
-        logger.warning("API key validation attempted with missing or empty api_key field")
-        return _error_response("A non-empty api_key is required.")
-
-    api_key_stripped = api_key.strip()
-    with API_KEYS_LOCK:
-        is_valid = api_key_stripped in API_KEY_LOOKUP
-
-    if is_valid:
-        logger.info(f"API key validated successfully (key suffix: ...{api_key_stripped[-8:]})")
-    else:
-        logger.warning(f"API key validation failed for provided key (key suffix: ...{api_key_stripped[-8:]})")
-
-    return _success_response({"valid": is_valid})
-
-
-@app.route("/api/api-key/request", methods=["POST", "HEAD", "OPTIONS"])
-@involving_api_keys
-def api_key_request():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
-
-    hash_val = client_hash.strip()
-
-    with REGISTERED_CLIENTS_LOCK:
-        client_data = REGISTERED_CLIENTS.get(hash_val)
-
-    if client_data is None:
-        return _error_response("Client not found.", 404)
-
-    with PENDING_API_KEY_REQUESTS_LOCK:
-        if hash_val in PENDING_API_KEY_REQUESTS:
-            logger.warning(
-                f"API key request already pending for "
-                f"'{client_data.get('name', 'unknown')}' ({hash_val[:8]}...)"
-            )
-            return _success_response(
-                {"status": "already_pending", "message": "API key request is already pending."}
-            )
-        PENDING_API_KEY_REQUESTS[hash_val] = {
-            "hash": hash_val,
-            "name": client_data.get("name", ""),
-            "port": client_data.get("port", 0),
-            "ip": client_data.get("ip", "127.0.0.1"),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-    logger.info(
-        f"API key request received from '{client_data.get('name', 'unknown')}' "
-        f"({hash_val[:8]}...)"
-    )
-
-    return _success_response(
-        {"status": "pending", "message": "API key request registered. Awaiting approval."},
-        201,
-    )
-
-
-@app.route("/api/api-key/pending", methods=["GET", "HEAD", "OPTIONS"])
-@requires_ui_session
-def api_key_pending():
-    if request.method == "OPTIONS":
-        return _options_response(["GET", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    with PENDING_API_KEY_REQUESTS_LOCK:
-        pending_list = list(PENDING_API_KEY_REQUESTS.values())
-        hashes = list(PENDING_API_KEY_REQUESTS.keys())
-
-    logger.info(f"Pending API key requests listed: count={len(pending_list)}")
-    return _success_response({"pending": pending_list, "hashes": hashes})
-
-
-@app.route("/api/api-key/grant", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def api_key_grant():
+    data = request.get_json(silent=True) or {}
+    name = data.get("name")
     try:
-        if request.method == "OPTIONS":
-            return _options_response(["POST", "HEAD", "OPTIONS"])
-        if request.method == "HEAD":
-            return _head_response()
-
-        payload = request.get_json(silent=True) or {}
-        client_hash = payload.get("hash") if isinstance(payload, dict) else None
-
-        if not isinstance(client_hash, str) or not client_hash.strip():
-            return _error_response("A hash is required.")
-
-        hash_val = client_hash.strip()
-
-        with PENDING_API_KEY_REQUESTS_LOCK:
-            request_info = PENDING_API_KEY_REQUESTS.pop(hash_val, None)
-
-        if request_info is None:
-            return _error_response("No pending API key request for this client.", 404)
-
-        api_key = _generate_api_key_value()
-
-        with API_KEYS_LOCK:
-            service_name = request_info.get("name", "unknown")
-            API_KEYS_DATA.setdefault("keys", {})[service_name] = {
-                "api_key": api_key,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "service_hash": hash_val,
-            }
-            API_KEY_LOOKUP.append(api_key)
-
-        service_ip = request_info.get("ip", "127.0.0.1")
-        service_port = request_info.get("port", 0)
-        notified = False
-        if service_port:
-            try:
-                notify_payload = json.dumps(
-                    {"api_key": api_key, "status": "granted"}
-                ).encode("utf-8")
-                req = PostRequest(
-                    url=f"http://{service_ip}:{service_port}/api/key/granted",
-                    body=notify_payload,
-                    headers={"Content-Type": "application/json"},
-                    timeout=10,
-                )
-                resp = _send_post_request(req)
-                notified = resp.status_code == 200
-            except Exception as exc:
-                logger.warning(
-                    f"Failed to notify service '{request_info.get('name', 'unknown')}' "
-                    f"about granted API key: {exc}"
-                )
-
-        logger.info(
-            f"API key granted to '{request_info.get('name', 'unknown')}' "
-            f"({hash_val[:8]}...) notified={notified}"
-        )
-
-        return _success_response(
-            {
-                "status": "granted",
-                "api_key": api_key,
-                "env_var_entry": f'SH_API_KEYS={json.dumps({service_name: api_key})}',
-                "service": request_info.get("name", ""),
-                "notified": notified,
-            }
-        )
-    except Exception as exc:
-        logger.error(f"Error in api_key_grant: {exc}", exc_info=True)
-        return _error_response(f"Internal error: {exc}", 500)
+        entry = _create_api_key(name)
+    except FeatureDisabledError:
+        return jsonify({"error": "Forbidden"}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    logger.info(f"API key generated by {request.remote_addr}: name={name!r}")
+    return jsonify(entry), 201
 
 
-@app.route("/api/api-key/reject", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def api_key_reject():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
+@app.route("/api/api-keys/<path:key>", methods=["PATCH", "DELETE", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("PATCH", "DELETE", "OPTIONS")
+def api_key_item(key: str) -> tuple:
+    if request.method == "DELETE":
+        try:
+            deleted = _delete_api_key(key)
+        except FeatureDisabledError:
+            return jsonify({"error": "Forbidden"}), 403
+        if not deleted:
+            return jsonify({"error": "Not found."}), 404
+        logger.info(f"API key deleted by {request.remote_addr}")
+        return jsonify({"status": "ok"}), 200
 
-    payload = request.get_json(silent=True) or {}
-    client_hash = payload.get("hash") if isinstance(payload, dict) else None
+    data = request.get_json(silent=True) or {}
+    name = data.get("name")
+    try:
+        target = _rename_api_key(key, name)
+    except FeatureDisabledError:
+        return jsonify({"error": "Forbidden"}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    if target is None:
+        return jsonify({"error": "Not found."}), 404
+    logger.info(f"API key renamed by {request.remote_addr}: name={name!r}")
+    return jsonify(target), 200
 
-    if not isinstance(client_hash, str) or not client_hash.strip():
-        return _error_response("A hash is required.")
 
-    hash_val = client_hash.strip()
+_SHARED_VALUE_TYPES = ("string", "list", "dictionary", "integer", "float", "boolean")
 
-    with PENDING_API_KEY_REQUESTS_LOCK:
-        request_info = PENDING_API_KEY_REQUESTS.pop(hash_val, None)
 
-    if request_info is None:
-        return _error_response("No pending API key request for this client.", 404)
+def _normalize_shared_value(value, value_type: str):
+    if value_type == "string":
+        if not isinstance(value, str):
+            raise ValueError("A string value must be provided as a string.")
+        return value
+    if value_type == "list":
+        if not isinstance(value, list):
+            raise ValueError("A list value must be provided as a list.")
+        return value
+    if value_type == "dictionary":
+        if not isinstance(value, dict):
+            raise ValueError("A dictionary value must be provided as a dictionary.")
+        return value
+    if value_type == "integer":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("An integer value must be provided as an integer.")
+        return value
+    if value_type == "float":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("A float value must be provided as a number.")
+        return float(value)
+    if value_type == "boolean":
+        if not isinstance(value, bool):
+            raise ValueError("A boolean value must be provided as true or false.")
+        return value
+    raise ValueError("Unknown shared variable type.")
 
-    service_ip = request_info.get("ip", "127.0.0.1")
-    service_port = request_info.get("port", 0)
-    notified = False
-    if service_port:
-            try:
-                notify_payload = json.dumps(
-                    {"status": "rejected", "reason": "API key registration refused by the device owner."}
-                ).encode("utf-8")
-                req = PostRequest(
-                    url=f"http://{service_ip}:{service_port}/api/key/rejected",
-                    body=notify_payload,
-                    headers={"Content-Type": "application/json"},
-                    timeout=10,
-                )
-                resp = _send_post_request(req)
-                notified = resp.status_code == 200
-            except Exception:
-                logger.warning(
-                    f"Failed to notify service '{request_info.get('name', 'unknown')}' "
-                    f"about rejected API key"
-                )
 
-    logger.info(
-        f"API key request rejected for '{request_info.get('name', 'unknown')}' "
-        f"({hash_val[:8]}...) notified={notified}"
+def _load_shared_memory() -> list[dict]:
+    raw = _read_env_var("SHARED_MEMORY")
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    variables: list[dict] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        if "name" not in entry or "type" not in entry or "value" not in entry:
+            continue
+        if entry["type"] not in _SHARED_VALUE_TYPES:
+            continue
+        variables.append({"name": entry["name"], "type": entry["type"], "value": entry["value"]})
+    return variables
+
+
+def _save_shared_memory(variables: list[dict]) -> None:
+    _write_env_var("SHARED_MEMORY", json.dumps(variables))
+
+
+def _list_shared_memory() -> list[dict]:
+    _require_shared_memory_enabled()
+    return _load_shared_memory()
+
+
+@audio.play_audio("acknowledge")
+def _create_shared_variable(name: str, value, value_type: str) -> dict:
+    _require_shared_memory_enabled()
+    if not isinstance(name, str) or not _is_valid_key_name(name):
+        raise ValueError("Invalid shared variable name.")
+    value = _normalize_shared_value(value, value_type)
+    variables = _load_shared_memory()
+    if any(entry["name"].lower() == name.lower() for entry in variables):
+        raise ValueError("A shared variable with this name already exists.")
+    entry = {"name": name, "type": value_type, "value": value}
+    variables.append(entry)
+    _save_shared_memory(variables)
+    return entry
+
+
+@audio.play_audio("acknowledge")
+def _update_shared_variable(name: str, value, value_type=None) -> dict | None:
+    _require_shared_memory_enabled()
+    variables = _load_shared_memory()
+    target = next((entry for entry in variables if entry["name"] == name), None)
+    if not target:
+        return None
+    new_type = value_type if value_type is not None else target["type"]
+    target["value"] = _normalize_shared_value(value, new_type)
+    target["type"] = new_type
+    _save_shared_memory(variables)
+    return target
+
+
+@audio.play_audio("acknowledge")
+def _delete_shared_variable(name: str) -> bool:
+    _require_shared_memory_enabled()
+    variables = _load_shared_memory()
+    remaining = [entry for entry in variables if entry["name"] != name]
+    if len(remaining) == len(variables):
+        return False
+    _save_shared_memory(remaining)
+    return True
+
+
+@app.route("/api/shared-memory", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def shared_memory() -> tuple:
+    if request.method == "GET":
+        try:
+            variables = _list_shared_memory()
+        except FeatureDisabledError:
+            return jsonify({"error": "Forbidden"}), 403
+        logger.info(f"Shared memory read by {request.remote_addr}")
+        return jsonify({"sharedMemory": variables}), 200
+
+    data = request.get_json(silent=True) or {}
+    name = data.get("name")
+    value = data.get("value")
+    value_type = data.get("type")
+    try:
+        entry = _create_shared_variable(name, value, value_type)
+    except FeatureDisabledError:
+        return jsonify({"error": "Forbidden"}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    logger.info(f"Shared variable created by {request.remote_addr}: name={name!r} type={value_type!r}")
+    return jsonify(entry), 201
+
+
+@app.route("/api/shared-memory/<path:name>", methods=["DELETE", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("DELETE", "OPTIONS")
+def shared_memory_delete(name: str) -> tuple:
+    try:
+        deleted = _delete_shared_variable(name)
+    except FeatureDisabledError:
+        return jsonify({"error": "Forbidden"}), 403
+    if not deleted:
+        return jsonify({"error": "Not found."}), 404
+    logger.info(f"Shared variable deleted by {request.remote_addr}: name={name!r}")
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/shared-memory/<path:name>", methods=["PATCH", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@api_key_authenticated
+@standard_endpoint("PATCH", "OPTIONS")
+def shared_memory_edit(name: str) -> tuple:
+    data = request.get_json(silent=True) or {}
+    value = data.get("value")
+    value_type = data.get("type")
+    try:
+        target = _update_shared_variable(name, value, value_type)
+    except FeatureDisabledError:
+        return jsonify({"error": "Forbidden"}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    if target is None:
+        return jsonify({"error": "Not found."}), 404
+    logger.info(f"Shared variable updated by {request.remote_addr}: name={name!r}")
+    return jsonify(target), 200
+
+
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def index():
+    logger.info(f"Serving UI to {request.remote_addr}")
+    web_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
+    template = (web_dir / "index.html").read_text(encoding="utf-8")
+    return render_template_string(
+        template,
+        display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
     )
 
-    return _success_response(
-        {
-            "status": "rejected",
-            "service": request_info.get("name", ""),
-            "notified": notified,
-        }
+
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_css(filename: str):
+    css_dir = Path(__file__).resolve().parent.parent / "ui" / "css"
+    return send_from_directory(css_dir, filename)
+
+
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_icon(filename: str):
+    icons_dir = Path(__file__).resolve().parent.parent / "resources" / "icons"
+    return send_from_directory(icons_dir, filename)
+
+
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_page(filename: str):
+    pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
+    return send_from_directory(pages_dir, filename)
+
+
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_settings_page():
+    pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
+    template = (pages_dir / "settings.html").read_text(encoding="utf-8")
+    api_keys = sorted(_load_api_keys(), key=lambda k: (k.get("name") or "").lower())
+    shared_memory = _load_shared_memory()
+    return render_template_string(
+        template,
+        allow_discovery=_read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
+        api_keys_enabled=_read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
+        display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
+        play_audios=_read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
+        shared_memory_enabled=_read_env_bool("SHARED_MEMORY_ENABLED", SHARED_MEMORY_ENABLED),
+        has_api_keys=bool(api_keys),
+        api_keys_json=json.dumps(api_keys),
+        has_shared_memory=bool(shared_memory),
+        shared_memory_json=json.dumps(shared_memory),
     )
-
-
-@app.route("/api/shutdown", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def terminate_server():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    def _shutdown():
-        time.sleep(0.5)
-        logger.info("Shutdown thread: terminating server process")
-        os._exit(0)
-
-    threading.Thread(target=_shutdown, daemon=True).start()
-    logger.info("Server shutdown initiated")
-    return _success_response({"status": "shutdown"})
-
-
-@app.route("/api/restart", methods=["POST", "HEAD", "OPTIONS"])
-@requires_ui_session
-def restart_server():
-    if request.method == "OPTIONS":
-        return _options_response(["POST", "HEAD", "OPTIONS"])
-    if request.method == "HEAD":
-        return _head_response()
-
-    script = os.path.abspath(os.path.join(os.path.dirname(__file__), "main.py"))
-
-    def _restart():
-        time.sleep(0.5)
-        logger.info("Restart thread: launching new server instance")
-        subprocess.Popen(
-            [sys.executable, script],
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
-        )
-        time.sleep(1)
-        logger.info("Restart thread: terminating old server process")
-        os._exit(0)
-
-    threading.Thread(target=_restart, daemon=True).start()
-    logger.info("Server restart initiated")
-    return _success_response({"status": "restart"})
 
 
 def _register_ui_routes(app_instance: Flask) -> None:
@@ -2103,29 +896,29 @@ def _register_ui_routes(app_instance: Flask) -> None:
         return
     app_instance.add_url_rule("/", methods=["GET", "HEAD", "OPTIONS"], view_func=index)
     app_instance.add_url_rule(
-        "/settings",
+        "/ui/pages/settings.html",
         methods=["GET", "HEAD", "OPTIONS"],
-        view_func=settings,
+        view_func=ui_settings_page,
     )
     app_instance.add_url_rule(
-        "/css/<path:filename>",
+        "/ui/css/<path:filename>",
         methods=["GET", "HEAD", "OPTIONS"],
-        view_func=css_files,
+        view_func=ui_css,
     )
     app_instance.add_url_rule(
-        "/ui/sort-settings",
-        methods=["GET", "PUT", "HEAD", "OPTIONS"],
-        view_func=sort_order,
+        "/ui/icons/<path:filename>",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=ui_icon,
     )
     app_instance.add_url_rule(
-        "/resources/<path:filename>",
+        "/ui/pages/<path:filename>",
         methods=["GET", "HEAD", "OPTIONS"],
-        view_func=resource_files,
+        view_func=ui_page,
     )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="ServiceHandler")
+    parser = argparse.ArgumentParser(description="Akupara")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose/debug logging")
     args, _ = parser.parse_known_args()
 
@@ -2146,45 +939,37 @@ if __name__ == "__main__":
     try:
         _initialize_service_config()
         _register_ui_routes(app)
-        _start_health_check_loop()
-        _init_api_keys()
     except Exception as exc:
-        logger.error(f"Failed to initialize: {exc}")
+        logger.error(f"Failed to load configuration: {exc}", exc_info=True)
         exit(1)
 
     try:
         logger.info("=" * 50)
-        logger.info("  ServiceHandler - Web Service Registry")
+        logger.info("  Akupara")
         logger.info("=" * 50)
         logger.info(f"Binding to: http://{SERVICE_HOST}:{SERVICE_PORT}")
-        logger.info(f"Routes registered: {len(list(app.url_map.iter_rules()))}")
-        logger.info(f"Clients registered in memory: {len(REGISTERED_CLIENTS)}")
+        logger.info(f"Mode: private (local only)")
         if GUI_ENABLED:
             logger.info("GUI: enabled")
         else:
             logger.info("GUI: disabled")
+        logger.info(f"Config: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}")
         logger.info("Server starting...")
 
         app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)
+
+    except OSError as exc:
+        if "Address already in use" in str(exc):
+            logger.error(f"Port {SERVICE_PORT} is already in use. Change the port in resources/configuration.json")
+        elif "Permission denied" in str(exc):
+            logger.error(f"Permission denied to bind to port {SERVICE_PORT}. Use a port >= 1024 or run with elevated privileges.")
+        else:
+            logger.error(f"Network binding failed: {exc}")
 
     except KeyboardInterrupt:
         logger.info("=" * 50)
         logger.info("  Server Stopped")
         logger.info("=" * 50)
-
-    except OSError as exc:
-        if "Address already in use" in str(exc):
-            logger.error(
-                f"Port {SERVICE_PORT} is already in use. "
-                f"Change the port in resources/configuration.json"
-            )
-        elif "Permission denied" in str(exc):
-            logger.error(
-                f"Permission denied to bind to port {SERVICE_PORT}. "
-                f"Use a port >= 1024 or run with elevated privileges."
-            )
-        else:
-            logger.error(f"Network binding failed: {exc}")
 
     except Exception as exc:
         logger.error(f"Server startup failed: {exc}")

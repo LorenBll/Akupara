@@ -1,30 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- launchd plist for the service. Update paths before installation. -->
+<!-- launchd plist for Akupara. Update paths before installation. -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.servicehandler</string>
-    
+    <string>com.tservice</string>
+
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/ServiceHandler/.venv/bin/python</string>
-        <string>/path/to/ServiceHandler/src/main.py</string>
+        <string>/path/to/Akupara/.venv/bin/python</string>
+        <string>/path/to/Akupara/src/main.py</string>
     </array>
-    
+
     <key>WorkingDirectory</key>
-    <string>/path/to/ServiceHandler</string>
-    
+    <string>/path/to/Akupara</string>
+
     <key>RunAtLoad</key>
     <true/>
-    
+
     <key>KeepAlive</key>
     <true/>
-    
+
     <key>StandardOutPath</key>
-    <string>/tmp/servicehandler.log</string>
-    
+    <string>/tmp/tservice.log</string>
+
     <key>StandardErrorPath</key>
-    <string>/tmp/servicehandler.error.log</string>
+    <string>/tmp/tservice.error.log</string>
 </dict>
 </plist>
