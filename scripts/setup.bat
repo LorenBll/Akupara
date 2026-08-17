@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM Set up ServiceHandler on Windows.
+REM Set up Akupara on Windows.
 
 echo.
-echo ServiceHandler - Windows Setup
+echo Akupara - Windows Setup
 echo.
 
 cd /d "%~dp0.."
@@ -104,14 +104,14 @@ echo Dependencies installed.
 echo.
 echo Checking configuration...
 if not exist "resources\configuration.json" (
-  echo WARNING: Create resources\configuration.json before running ServiceHandler.
+  echo WARNING: Create resources\configuration.json before running Akupara.
 ) else (
   echo Configuration file found.
 )
 
 echo.
 echo ===============================================
-echo   ServiceHandler Setup Complete
+echo   Akupara Setup Complete
 echo ===============================================
 echo.
 echo Next: scripts\run.bat

@@ -10,15 +10,12 @@ Only the latest released version receives security updates.
 
 ## Reporting a Vulnerability
 
-If you believe you have found a security issue in ServiceHandler, please report it privately to the maintainers rather than opening a public issue.
+If you believe you have found a security issue in Akupara, please report it privately to the maintainers rather than opening a public issue.
 
-ServiceHandler is a local web service registry that involves:
-- **HTTP API endpoints** under `/api/*` for registering and unregistering services, managing endpoints, performing health checks, and granting API keys
-- **A web UI dashboard** with sort, filter, and batch operation controls
-- **API key authentication** using keys stored as plain text in the `.env` file
-- **UI session cookie authentication** — a per-run session cookie (`sh_ui_session`) protects all UI-facing endpoints
-- **SHA-256 hash-based identity** for self-service authentication
-- **A background health-check thread** that pings registered clients every 15 seconds
+Akupara is a local web service template that involves:
+- **HTTP API endpoints** under `/api/*` for health checks
+- **A web UI** for displaying service information
+- **ServiceHandler integration** — optional registration for service discovery and endpoint registration
 
 Include as much detail as possible, such as:
 - A clear description of the issue and the affected endpoint or component
@@ -41,15 +38,11 @@ After a report is received:
 
 This project is intended to follow basic security hygiene:
 
-- **API keys are stored as plain text** in the `SH_API_KEYS` environment variable inside `.env`. There is no encryption layer. Treat `.env` as a sensitive file and exclude it from version control.
-- **ServiceHandler binds to `127.0.0.1`** by default (port 49155). The before-request hook rejects non-local traffic before any endpoint-specific auth runs. Do not change the bind address to `0.0.0.0` without additional network-layer protections.
-- **SHA-256 hashes serve as proof of identity** for self-service authentication. If a hash is leaked, any party that knows it can act on behalf of that service. Treat hashes as credentials.
-- **Access control is layered** — localhost-only check runs first, then endpoint-specific logic. Review the access control table in the README before deploying.
-- **UI-facing endpoints** require a valid UI session cookie (`sh_ui_session`). The cookie is set on every response (`HttpOnly`, `SameSite=Strict`, path `/`) and its value is regenerated on every ServiceHandler run, so a session from a previous run is never valid. The service-facing endpoints (registration, lookup, unregister, API-key request) keep the API-key/hash model.
-- **Review third-party dependencies** before adding them. ServiceHandler currently depends on Flask and jsonschema — vet any new libraries for known vulnerabilities.
-- **Headless mode** (`"guiEnabled": false` in `resources/configuration.json`) disables UI endpoints for a reduced attack surface when the dashboard is not needed.
-- **Protected services** flagged via the protect endpoint cannot be terminated, restarted, or forgotten by anyone.
-- **Treat all externally supplied input as untrusted** and validate it before use. The API validates port ranges, JSON schemas, and input types across all endpoints.
+- **Localhost binding** — The service binds to `127.0.0.1` by default. The before-request hook rejects non-local traffic before any endpoint-specific logic runs. Do not change the bind address to `0.0.0.0` without additional network-layer protections.
+- **Review third-party dependencies** before adding them. Akupara currently depends on Flask and python-dotenv — vet any new libraries for known vulnerabilities.
+- **Headless mode** (`guiEnabled: false`) disables UI endpoints for a reduced attack surface when the dashboard is not needed.
+- **ServiceHandler integration is optional.** When enabled, the service registers its API endpoints and performs periodic keepalive pings. The ServiceHandler itself is a separate local service bound to `127.0.0.1`.
+- **Treat all externally supplied input as untrusted** and validate it before use.
 
 ## Disclosure Notes
 

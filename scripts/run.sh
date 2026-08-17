@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Start ServiceHandler.
+# Start Akupara.
 
 set -euo pipefail
 
@@ -47,6 +47,6 @@ python -m pip install --quiet --upgrade pip
 python -m pip install --quiet -r requirements.txt
 [ $VERBOSE -eq 1 ] && echo "Dependencies installed."
 
-# Start ServiceHandler.
-[ $VERBOSE -eq 1 ] && echo "" && echo "ServiceHandler starting..." && echo ""
-python src/main.py ${VERBOSE:+--verbose}
+# Start Akupara.
+[ $VERBOSE -eq 1 ] && echo "" && echo "Akupara starting..." && echo ""
+python src/main.py --verbose

@@ -1,4 +1,4 @@
-' Start ServiceHandler service.
+' Start Akupara service.
 ' Place in: shell:startup (Win+R, type "shell:startup")
 ' Or create a scheduled task to run at system startup.
 
