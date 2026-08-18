@@ -37,11 +37,13 @@
 
     <main class="view" id="view"></main>
 
-    <footer class="page-footer" id="pageFooter"{{ '' if display_promotion else ' hidden' }}>
+    <footer class="page-footer" id="pageFooter">
         Report issues <a href="https://www.github.com/LorenBll/Akupara/issues" target="_blank" rel="noopener">here</a> · Created by <a href="https://www.github.com/LorenBll" target="_blank" rel="noopener">LorenBll</a>
     </footer>
 
     <div class="floating-tooltip" id="sliderTooltip" hidden></div>
+
+    <div class="floating-tooltip" id="sectionTooltip" hidden></div>
 
     <div class="floating-tooltip" id="tableTooltip" hidden></div>
 
@@ -115,6 +117,8 @@
 
         function loadPage(page) {
             hideSliderTooltip();
+            hideSectionTooltip();
+            animateCardIndicatorsOut();
             var keysReq = page === 'settings'
                 ? fetchWithHandshake('/api/api-keys')
                     .then(function (r) { return r.ok ? r.json() : null; })
@@ -126,13 +130,16 @@
                     return Promise.all([r.text(), keysReq]);
                 })
                 .then(function (results) {
-                    var html = results[0];
-                    var keysData = results[1];
-                    viewEl.innerHTML = html;
-                    var content = viewEl.firstElementChild;
-                    if (content) {
+                    setTimeout(function () {
+                        var html = results[0];
+                        var keysData = results[1];
+                        viewEl.innerHTML = html;
+                        var content = viewEl.firstElementChild;
+                        var loadInDelay = 0;
+                        if (content) {
                         if (isFirstLoad) {
                             content.style.animationDelay = '0.6s';
+                            loadInDelay = 600;
                         }
                         content.classList.add('load-in');
                         content.addEventListener('animationend', function () {
@@ -145,9 +152,11 @@
                     if (page === 'settings') {
                         fetchSettings();
                         wireToggleTooltips();
+                        wireAdvancedSettingsSection();
                         wireApiKeyGenerator();
                         wireApiKeysTable();
-                        wireSoundDropdowns();
+wireSoundDropdowns();
+                        wireAudioSoundDropdowns();
                         wireSharedVariableGenerator();
                         wireSharedMemoryTable();
                         var sharedTbody = document.getElementById('sharedMemoryTableBody');
@@ -174,7 +183,20 @@
                             } catch (e) {}
                         }
                         if (!rendered) loadApiKeys();
+                        var netTbody = document.getElementById('networkAccessTableBody');
+                        if (netTbody && netTbody.dataset.networkAccessIps) {
+                            try {
+                                networkAccessIpsList = JSON.parse(netTbody.dataset.networkAccessIps);
+                                renderNetworkAccessTable(networkAccessIpsList);
+                            } catch (e) {}
+                        }
+                        wireNetworkAccessTable();
+                        wireNetworkAccessInsert();
+                        loadNetworkAccessIps();
                     }
+                    buildCardIndicators();
+                        animateCardIndicatorsIn(loadInDelay);
+                    }, 200);
                 })
                 .catch(function () {
                     viewEl.innerHTML = '<p>Failed to load page: ' + page + '</p>';
@@ -195,6 +217,7 @@
 
         var apiKeysList = [];
         var sharedVariablesList = [];
+        var networkAccessIpsList = [];
 
         function isApiKeyNameTaken(name, excludeKey) {
             var n = String(name || '').trim().toLowerCase();
@@ -1302,6 +1325,383 @@
             });
         }
 
+        function renderNetworkAccessTable(entries) {
+            var table = document.getElementById('networkAccessTable');
+            var tbody = document.getElementById('networkAccessTableBody');
+            var empty = document.getElementById('networkAccessEmpty');
+            if (!table || !tbody) return;
+            table.classList.remove('api-keys-table-deleting');
+            hideTableTooltip();
+            tbody.innerHTML = '';
+            var has = Array.isArray(entries) && entries.length > 0;
+            var prevTableVisible = !table.hidden;
+            table.hidden = !has;
+            if (empty) empty.hidden = has;
+            if (!has) {
+                if (empty) {
+                    if (prevTableVisible) {
+                        empty.classList.remove('api-key-empty-fade-in');
+                        void empty.offsetWidth;
+                        empty.classList.add('api-key-empty-fade-in');
+                    } else {
+                        empty.classList.remove('api-key-empty-fade-in');
+                    }
+                }
+                return;
+            }
+            entries.slice().sort(function (a, b) {
+                return String(Object.keys(a)[0]).localeCompare(String(Object.keys(b)[0]));
+            }).forEach(function (entry) {
+                tbody.appendChild(buildNetworkAccessRow(entry));
+            });
+        }
+
+        function buildNetworkAccessRow(entry) {
+            var ip = Object.keys(entry)[0];
+            var action = entry[ip];
+            var tr = document.createElement('tr');
+            tr.dataset.ip = ip;
+
+            var ipTd = document.createElement('td');
+            ipTd.className = 'network-access-ip-cell';
+            ipTd.textContent = ip;
+            tr.appendChild(ipTd);
+
+            var policyTd = document.createElement('td');
+            policyTd.className = 'network-access-policy-cell';
+            var seg = document.createElement('div');
+            seg.className = 'network-access-segmented';
+            [['allow', 'Allow'], ['unknown', 'Policy'], ['block', 'Block']].forEach(function (part) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'network-access-segment' + (part[0] === action ? ' selected' : '');
+                btn.dataset.action = 'policy';
+                btn.dataset.ip = ip;
+                btn.dataset.value = part[0];
+                btn.textContent = part[1];
+                seg.appendChild(btn);
+            });
+            policyTd.appendChild(seg);
+            tr.appendChild(policyTd);
+
+            var actionsTd = document.createElement('td');
+            actionsTd.className = 'api-key-actions-cell';
+            var actionsDiv = document.createElement('div');
+            actionsDiv.className = 'actions-cell';
+            var deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'icon-btn';
+            deleteBtn.dataset.action = 'delete';
+            deleteBtn.dataset.ip = ip;
+            deleteBtn.dataset.tableTooltip = 'Delete IP';
+            deleteBtn.innerHTML = ICONS.trash;
+            actionsDiv.appendChild(deleteBtn);
+            actionsTd.appendChild(actionsDiv);
+            tr.appendChild(actionsTd);
+
+            return tr;
+        }
+
+        function selectNetworkAccessPolicy(row, value) {
+            var seg = row.querySelector('.network-access-segmented');
+            if (!seg) return;
+            Array.prototype.forEach.call(seg.querySelectorAll('.network-access-segment'), function (btn) {
+                btn.classList.toggle('selected', btn.dataset.value === value);
+            });
+        }
+
+        function setNetworkAccessIpPolicy(ip, value, btn) {
+            fetchWithHandshake('/api/network-access-ips/' + encodeURIComponent(ip), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: value })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data || typeof data !== 'object') return;
+                    if (Object.keys(data).length === 1 && ip in data) {
+                        var row = btn.closest('tr');
+                        if (row) selectNetworkAccessPolicy(row, value);
+                        networkAccessIpsList = networkAccessIpsList.map(function (entry) {
+                            if (Object.keys(entry)[0] === ip) {
+                                var updated = {};
+                                updated[ip] = value;
+                                return updated;
+                            }
+                            return entry;
+                        });
+                    }
+                })
+                .catch(function () {});
+        }
+
+        function deleteNetworkAccessIp(ip, btn) {
+            var row = btn.closest('tr');
+            var table = row.closest('table');
+            var wrap = row.closest('.api-keys-table-wrap');
+            var below = getRowsBelow(row);
+            var isLast = below.length === 0;
+            var firstTops = below.map(function (e) { return e.getBoundingClientRect().top; });
+            var h1 = wrap ? wrap.offsetHeight : 0;
+            hideTableTooltip();
+            var rect = row.getBoundingClientRect();
+            var overlay = document.createElement('div');
+            overlay.className = 'api-key-row-overlay';
+            overlay.style.left = Math.round(rect.left) + 'px';
+            overlay.style.top = Math.round(rect.top) + 'px';
+            overlay.style.width = Math.round(rect.width) + 'px';
+            overlay.style.height = Math.round(rect.height) + 'px';
+            document.body.appendChild(overlay);
+            void overlay.offsetWidth;
+            overlay.classList.add('api-key-row-overlay-active');
+            row.classList.add('api-key-row-deleting');
+            if (isLast && table) table.classList.add('api-keys-table-deleting');
+            setTimeout(function () {
+                fetchWithHandshake('/api/network-access-ips/' + encodeURIComponent(ip), { method: 'DELETE' })
+                    .then(function (r) { return r.json(); })
+                    .catch(function () {});
+                overlay.remove();
+                networkAccessIpsList = networkAccessIpsList.filter(function (entry) { return Object.keys(entry)[0] !== ip; });
+                if (isLast) {
+                    row.remove();
+                    var tbody = document.getElementById('networkAccessTableBody');
+                    if (tbody && tbody.children.length === 0) renderNetworkAccessTable([]);
+                } else {
+                    row.remove();
+                    if (wrap && below.length) {
+                        var h2 = wrap.offsetHeight;
+                        wrap.style.height = h1 + 'px';
+                        wrap.style.transition = 'height 0.4s ease';
+                        void wrap.offsetHeight;
+                        wrap.style.height = h2 + 'px';
+                        flipRows(below, firstTops);
+                        setTimeout(function () {
+                            wrap.style.height = '';
+                            wrap.style.transition = '';
+                        }, 400);
+                    }
+                }
+            }, 1050);
+        }
+
+        function wireNetworkAccessTable() {
+            var table = document.getElementById('networkAccessTable');
+            if (!table) return;
+            table.addEventListener('click', function (event) {
+                var btn = event.target.closest('[data-action]');
+                if (!btn) return;
+                var ip = btn.dataset.ip;
+                var action = btn.getAttribute('data-action');
+                if (action === 'policy') {
+                    setNetworkAccessIpPolicy(ip, btn.dataset.value, btn);
+                } else if (action === 'delete') {
+                    deleteNetworkAccessIp(ip, btn);
+                }
+            });
+            table.addEventListener('mouseover', function (event) {
+                var el = event.target.closest('[data-table-tooltip]');
+                if (!el) return;
+                if (el.disabled) return;
+                showTableTooltip(el.dataset.tableTooltip, el, el.dataset.tableTooltipSide || 'near');
+            });
+            table.addEventListener('mouseout', function (event) {
+                var el = event.target.closest('[data-table-tooltip]');
+                if (!el) return;
+                var to = event.relatedTarget;
+                if (to && el.contains(to)) return;
+                hideTableTooltip();
+            });
+        }
+
+        function loadNetworkAccessIps() {
+            fetchWithHandshake('/api/network-access-ips')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (!data || !Array.isArray(data.networkAccessIps)) return;
+                    networkAccessIpsList = data.networkAccessIps.slice();
+                    renderNetworkAccessTable(data.networkAccessIps);
+                })
+                .catch(function () {});
+        }
+
+        function isNetworkAccessIpDuplicate(value) {
+            value = String(value || '').toLowerCase();
+            if (!value) return false;
+            return networkAccessIpsList.some(function (entry) {
+                return Object.keys(entry)[0].toLowerCase() === value;
+            });
+        }
+
+        function refreshNetworkAccessIpInputInvalid(input) {
+            if (input._flashTimer) return;
+            input.classList.toggle('api-key-input-invalid', isNetworkAccessIpDuplicate(input.value));
+        }
+
+        function flashNetworkAccessIpInputRed(input) {
+            if (input._flashTimer) clearTimeout(input._flashTimer);
+            input.classList.remove('api-key-input-invalid');
+            void input.offsetWidth;
+            input.classList.add('api-key-input-invalid');
+            input._flashTimer = setTimeout(function () {
+                input._flashTimer = null;
+                refreshNetworkAccessIpInputInvalid(input);
+            }, 600);
+        }
+
+        function isValidIpv4(s) {
+            if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(s)) return false;
+            return s.split('.').every(function (octet) {
+                return parseInt(octet, 10) <= 255;
+            });
+        }
+
+        function isValidIpv6(s) {
+            if (!s || s.length < 2 || !/^[0-9a-fA-F:.]+$/.test(s)) return false;
+            var hasV4 = s.indexOf('.') !== -1;
+            if (hasV4) {
+                var v4match = s.match(/^([0-9a-fA-F:]*):(\d{1,3}(?:\.\d{1,3}){3})$/);
+                if (!v4match || !isValidIpv4(v4match[2])) return false;
+                s = v4match[1] + ':x';
+            }
+            if (s === '::') return true;
+            var doubleColons = (s.match(/::/g) || []).length;
+            if (doubleColons > 1) return false;
+            var maxGroups = hasV4 ? 7 : 8;
+            if (doubleColons === 1) {
+                var parts = s.split('::');
+                if (parts.length > 2) return false;
+                var total = 0;
+                for (var p = 0; p < 2; p++) {
+                    var part = parts[p];
+                    if (!part) continue;
+                    if (part.charAt(0) === ':' || part.charAt(part.length - 1) === ':') return false;
+                    var gs = part.split(':');
+                    for (var g = 0; g < gs.length; g++) {
+                        if (!/^[0-9a-fA-F]{1,4}$/.test(gs[g])) return false;
+                        total++;
+                    }
+                }
+                return total >= 1 && total < maxGroups;
+            }
+            var groups = s.split(':');
+            if (groups.length !== maxGroups) return false;
+            for (var i = 0; i < groups.length; i++) {
+                if (!/^[0-9a-fA-F]{1,4}$/.test(groups[i])) return false;
+            }
+            return true;
+        }
+
+        function isValidIp(s) {
+            s = String(s || '').trim();
+            if (!s) return false;
+            return s.indexOf('.') !== -1 ? isValidIpv4(s) : isValidIpv6(s);
+        }
+
+        function maximizeIpv6(ip) {
+            ip = String(ip || '').trim().toLowerCase();
+            var halves = ip.split('::');
+            function groupsOf(part) {
+                if (!part) return [];
+                var out = [];
+                var segs = part.split(':');
+                for (var i = 0; i < segs.length; i++) {
+                    if (segs[i].indexOf('.') !== -1) {
+                        var hex = '';
+                        var octs = segs[i].split('.');
+                        for (var j = 0; j < octs.length; j++) {
+                            hex += ('0' + parseInt(octs[j], 10).toString(16)).slice(-2);
+                        }
+                        out.push(hex.slice(0, 4), hex.slice(4));
+                    } else {
+                        out.push(('0000' + segs[i]).slice(-4));
+                    }
+                }
+                return out;
+            }
+            var left = groupsOf(halves[0]);
+            var right = halves.length > 1 ? groupsOf(halves[1]) : [];
+            var zeros = 8 - left.length - right.length;
+            var full = left.slice();
+            for (var z = 0; z < zeros; z++) full.push('0000');
+            return full.concat(right).join(':');
+        }
+
+        function insertNetworkAccessEntry() {
+            var input = document.getElementById('networkAccessIpInput');
+            if (!input) return;
+            var ip = input.value.trim();
+            if (!ip || !isValidIp(ip)) {
+                flashNetworkAccessIpInputRed(input);
+                return;
+            }
+            if (ip.indexOf(':') !== -1) {
+                ip = maximizeIpv6(ip);
+                input.value = ip;
+            }
+            if (isNetworkAccessIpDuplicate(ip)) {
+                flashNetworkAccessIpInputRed(input);
+                return;
+            }
+            var seg = document.getElementById('networkAccessInsertSegmented');
+            var selected = seg ? seg.querySelector('.network-access-segment.selected') : null;
+            var action = selected ? selected.dataset.value : 'unknown';
+            fetchWithHandshake('/api/network-access-ips', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, action: action })
+            })
+                .then(function (r) {
+                    return r.json().then(function (data) { return { status: r.status, data: data }; });
+                })
+                .then(function (res) {
+                    var data = res.data;
+                    if (!data || typeof data !== 'object') return;
+                    if (Object.keys(data).length !== 1) return;
+                    if (res.status === 201) {
+                        input.value = '';
+                        refreshNetworkAccessIpInputInvalid(input);
+                        loadNetworkAccessIps();
+                    } else {
+                        flashNetworkAccessIpInputRed(input);
+                    }
+                })
+                .catch(function () {});
+        }
+
+        function wireNetworkAccessInsert() {
+            var input = document.getElementById('networkAccessIpInput');
+            if (input) {
+                input.addEventListener('keydown', function (event) {
+                    if (event.key.length === 1 && !/[0-9a-fA-F:.]/.test(event.key) && !event.ctrlKey && !event.metaKey) {
+                        event.preventDefault();
+                        flashNetworkAccessIpInputRed(this);
+                    }
+                });
+                input.addEventListener('input', function () {
+                    var before = this.value;
+                    this.value = this.value.replace(/[^0-9a-fA-F:.]/g, '');
+                    if (this.value !== before) {
+                        flashNetworkAccessIpInputRed(this);
+                    }
+                    refreshNetworkAccessIpInputInvalid(this);
+                });
+            }
+            var seg = document.getElementById('networkAccessInsertSegmented');
+            if (seg) {
+                seg.addEventListener('click', function (event) {
+                    var btn = event.target.closest('.network-access-segment');
+                    if (!btn) return;
+                    Array.prototype.forEach.call(seg.querySelectorAll('.network-access-segment'), function (b) {
+                        b.classList.toggle('selected', b === btn);
+                    });
+                });
+            }
+            var insertBtn = document.getElementById('insertNetworkAccessEntryBtn');
+            if (insertBtn) {
+                insertBtn.addEventListener('click', insertNetworkAccessEntry);
+            }
+        }
+
         function updateAllowDiscovery(value, animate) {
             var toggle = document.getElementById('allowDiscoveryToggle');
             if (toggle) {
@@ -1315,6 +1715,26 @@
                 if (shouldAnimate) {
                     revealCard(card);
                     fetchSharedMemoryEnabled();
+                } else {
+                    card.hidden = false;
+                }
+            } else {
+                hideCard(card);
+            }
+        }
+
+        function updateNetworkInteractions(value, animate) {
+            var toggle = document.getElementById('networkInteractionsToggle');
+            if (toggle) {
+                toggle.classList.toggle('on', value);
+                toggle.setAttribute('aria-checked', value ? 'true' : 'false');
+            }
+            var card = document.getElementById('networkInteractionsCard');
+            if (!card) return;
+            if (value) {
+                var shouldAnimate = animate && (card.hidden || cardHideTimers['networkInteractionsCard'] != null);
+                if (shouldAnimate) {
+                    revealCard(card);
                 } else {
                     card.hidden = false;
                 }
@@ -1341,6 +1761,13 @@
                 row.classList.toggle('sound-row-disabled', !value);
                 var select = row.querySelector('.sound-select');
                 if (select) select.disabled = !value;
+                var playBtn = row.querySelector('.sound-play-btn');
+                if (playBtn) {
+                    playBtn.disabled = !value;
+                    var dropdown = playBtn.closest('.sound-dropdown[data-event]');
+                    var current = dropdown ? dropdown.querySelector('.sound-select-value').getAttribute('data-value') || '' : '';
+                    playBtn.classList.toggle('visible', value && !!current);
+                }
             });
         }
 
@@ -1370,6 +1797,13 @@
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
                     }
+                    if (data && typeof data.networkInteractions === 'boolean') {
+                        updateNetworkInteractions(data.networkInteractions, false);
+                    }
+                    if (data && typeof data.networkAccessAllowNew === 'boolean') {
+                        updateNetworkAccessAllowNew(data.networkAccessAllowNew);
+                    }
+                    cardIndicatorSync();
                 })
                 .catch(function () {});
 
@@ -1378,14 +1812,86 @@
         }
 
         function fetchPlayAudios() {
-            fetchWithHandshake('/api/audio')
+            return fetchWithHandshake('/api/audio')
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (data) {
                     if (data && typeof data.playAudios === 'boolean') {
                         updatePlayAudios(data.playAudios);
                     }
+                    if (data && typeof data.sounds === 'object') {
+                        updateAudioSounds(data.sounds);
+                    }
                 })
                 .catch(function () {});
+        }
+
+        function updateAudioSounds(sounds) {
+            if (!sounds) return;
+            var dropdowns = document.querySelectorAll('.sound-dropdown[data-event]');
+            Array.prototype.forEach.call(dropdowns, function (dropdown) {
+                var event = dropdown.getAttribute('data-event');
+                var current = sounds[event] || '';
+                var value = dropdown.querySelector('.sound-select-value');
+                if (value) {
+                    value.textContent = current || 'Select audio...';
+                    value.setAttribute('data-value', current);
+                }
+                Array.prototype.forEach.call(dropdown.querySelectorAll('.sound-select-option'), function (option) {
+                    var isSelected = (option.getAttribute('data-value') || '') === current;
+                    option.classList.toggle('selected', isSelected);
+                    option.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+                });
+                var playBtn = dropdown.querySelector('.sound-play-btn');
+                if (playBtn) {
+                    playBtn.classList.toggle('visible', !!current && !playBtn.disabled);
+                }
+            });
+        }
+
+        function playSoundFile(eventName) {
+            fetchWithHandshake('/api/audio/play', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event: eventName })
+            }).catch(function () {});
+        }
+
+        function setSoundFile(event, sound) {
+            fetchWithHandshake('/api/audio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event: event, sound: sound })
+            })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (data && typeof data.sounds === 'object') {
+                        updateAudioSounds(data.sounds);
+                        if (sound) {
+                            playSoundFile(event);
+                        }
+                    } else {
+                        fetchPlayAudios();
+                    }
+                })
+                .catch(function () { fetchPlayAudios(); });
+        }
+
+        function wireAudioSoundDropdowns() {
+            var dropdowns = document.querySelectorAll('.sound-dropdown[data-event]');
+            Array.prototype.forEach.call(dropdowns, function (dropdown) {
+                var event = dropdown.getAttribute('data-event');
+                dropdown._onSelect = function (value) {
+                    setSoundFile(event, value);
+                };
+                var playBtn = dropdown.querySelector('.sound-play-btn');
+                if (playBtn) {
+                    playBtn.addEventListener('click', function (eventObj) {
+                        eventObj.stopPropagation();
+                        if (playBtn.disabled) return;
+                        playSoundFile(event);
+                    });
+                }
+            });
         }
 
         function fetchSharedMemoryEnabled() {
@@ -1418,6 +1924,12 @@
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
                     }
+                    if (data && typeof data.networkInteractions === 'boolean') {
+                        updateNetworkInteractions(data.networkInteractions, true);
+                    }
+                    if (data && typeof data.networkAccessAllowNew === 'boolean') {
+                        updateNetworkAccessAllowNew(data.networkAccessAllowNew);
+                    }
                 })
                 .catch(function () {
                     if (revert) revert();
@@ -1439,6 +1951,64 @@
             updateAllowDiscovery(next, true);
             sendSetting({ allowDiscovery: next }, function () {
                 updateAllowDiscovery(previous, false);
+            });
+        }
+
+        function toggleNetworkInteractions() {
+            var toggle = document.getElementById('networkInteractionsToggle');
+            if (!toggle || settingsPending) return;
+            settingsPending = true;
+            var next = !toggle.classList.contains('on');
+            var previous = !next;
+            updateNetworkInteractions(next, true);
+            sendSetting({ networkInteractions: next }, function () {
+                updateNetworkInteractions(previous, false);
+            });
+        }
+
+        function morphAllowNewIcons(value) {
+            var toggle = document.getElementById('networkAccessAllowNewToggle');
+            if (!toggle) return;
+            toggle.classList.toggle('on', value);
+            toggle.setAttribute('aria-checked', value ? 'true' : 'false');
+            var lock = toggle.querySelector('.toggle-lock');
+            var open = toggle.querySelector('.toggle-lock-open');
+            if (!lock || !open) return;
+            var lockFrom, lockTo, openFrom, openTo;
+            if (value) {
+                lockFrom = { opacity: '1', transform: 'scale(1) rotate(0deg)' };
+                lockTo = { opacity: '0', transform: 'scale(0.3) rotate(45deg)' };
+                openFrom = { opacity: '0', transform: 'scale(0.3) rotate(-45deg)' };
+                openTo = { opacity: '1', transform: 'scale(1) rotate(0deg)' };
+            } else {
+                lockFrom = { opacity: '0', transform: 'scale(0.3) rotate(45deg)' };
+                lockTo = { opacity: '1', transform: 'scale(1) rotate(0deg)' };
+                openFrom = { opacity: '1', transform: 'scale(1) rotate(0deg)' };
+                openTo = { opacity: '0', transform: 'scale(0.3) rotate(-45deg)' };
+            }
+            var opts = { duration: 300, easing: 'ease', fill: 'forwards' };
+            if (lock.getAnimations) lock.getAnimations().forEach(function (a) { a.cancel(); });
+            if (open.getAnimations) open.getAnimations().forEach(function (a) { a.cancel(); });
+            lock.animate([lockFrom, lockTo], opts);
+            open.animate([openFrom, openTo], opts);
+        }
+
+        function updateNetworkAccessAllowNew(value) {
+            var toggle = document.getElementById('networkAccessAllowNewToggle');
+            if (!toggle) return;
+            if (toggle.classList.contains('on') === value) return;
+            morphAllowNewIcons(value);
+        }
+
+        function toggleNetworkAccessAllowNew() {
+            var toggle = document.getElementById('networkAccessAllowNewToggle');
+            if (!toggle || settingsPending) return;
+            settingsPending = true;
+            var next = !toggle.classList.contains('on');
+            var previous = !next;
+            updateNetworkAccessAllowNew(next);
+            sendSetting({ networkAccessAllowNew: next }, function () {
+                updateNetworkAccessAllowNew(previous);
             });
         }
 
@@ -1506,10 +2076,12 @@
             void card.offsetWidth;
             card.classList.add('api-keys-reveal');
             flipBelow(below, first);
+            cardIndicatorAppear(card);
         }
 
         function hideCard(card) {
             if (!card || card.hidden) return;
+            cardIndicatorVanish(card);
             var id = card.id;
             card.classList.remove('api-keys-reveal', 'api-keys-vanish');
             void card.offsetWidth;
@@ -1523,6 +2095,201 @@
                 card.hidden = true;
                 flipBelow(below, first);
             }, 400);
+        }
+
+        var cardIndicatorList = null;
+
+        function getCardIndicatorList() {
+            if (!cardIndicatorList) {
+                cardIndicatorList = document.createElement('div');
+                cardIndicatorList.className = 'card-indicator-list';
+                cardIndicatorList.setAttribute('aria-label', 'Cards');
+                document.body.appendChild(cardIndicatorList);
+                window.addEventListener('resize', positionCardIndicators);
+            }
+            return cardIndicatorList;
+        }
+
+        function positionCardIndicators() {
+            if (!cardIndicatorList || !viewEl) return;
+            if (!cardIndicatorList.firstChild) {
+                cardIndicatorList.style.right = '';
+                cardIndicatorList.style.left = '';
+                cardIndicatorList.style.top = '';
+                cardIndicatorList.style.height = '';
+                return;
+            }
+            var rect = viewEl.getBoundingClientRect();
+            var viewportW = window.innerWidth || document.documentElement.clientWidth;
+            cardIndicatorList.style.left = 'auto';
+            cardIndicatorList.style.right = (viewportW - rect.left + 24) + 'px';
+            cardIndicatorList.style.top = rect.top + 'px';
+            cardIndicatorList.style.height = rect.height + 'px';
+        }
+
+        function createCardIndicator(card) {
+            var el = document.createElement('span');
+            el.className = 'card-indicator';
+            var titleEl = card.querySelector('h3');
+            var svg = titleEl ? titleEl.querySelector('svg') : null;
+            if (svg) {
+                el.appendChild(svg.cloneNode(true));
+            } else {
+                var dot = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                dot.setAttribute('viewBox', '0 0 24 24');
+                dot.setAttribute('width', '14');
+                dot.setAttribute('height', '14');
+                dot.setAttribute('fill', 'currentColor');
+                var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', '12');
+                circle.setAttribute('cy', '12');
+                circle.setAttribute('r', '4');
+                dot.appendChild(circle);
+                el.appendChild(dot);
+            }
+            var label = document.createElement('span');
+            label.className = 'card-indicator-title';
+            label.textContent = titleEl ? titleEl.textContent.replace(/\s+/g, ' ').trim() : (card.id || 'Card');
+            el.appendChild(label);
+            el.addEventListener('click', function () { scrollToCard(el._card); });
+            card._indicator = el;
+            el._card = card;
+            return el;
+        }
+
+        function indicatorForCard(card) {
+            return card._indicator || null;
+        }
+
+        function buildCardIndicators() {
+            var list = getCardIndicatorList();
+            list.innerHTML = '';
+            var cards = viewEl.querySelectorAll('.page-card');
+            for (var i = 0; i < cards.length; i++) {
+                if (cards[i].hidden) { cards[i]._indicator = null; continue; }
+                list.appendChild(createCardIndicator(cards[i]));
+            }
+            positionCardIndicators();
+        }
+
+        function cardIndicatorSync() {
+            var list = getCardIndicatorList();
+            var cards = viewEl.querySelectorAll('.page-card');
+            var cur = [];
+            for (var i = 0; i < cards.length; i++) {
+                if (!cards[i].hidden) cur.push(cards[i]);
+            }
+            var items = list.children;
+            var same = items.length === cur.length;
+            if (same) {
+                for (var j = 0; j < items.length; j++) {
+                    if (items[j]._card !== cur[j]) { same = false; break; }
+                }
+            }
+            if (!same) buildCardIndicators();
+        }
+
+        function cardIndicatorAppear(card) {
+            var list = getCardIndicatorList();
+            if (indicatorForCard(card)) return;
+            var el = createCardIndicator(card);
+            var ref = null;
+            var cards = viewEl.querySelectorAll('.page-card');
+            var seen = false;
+            for (var i = 0; i < cards.length; i++) {
+                if (cards[i] === card) { seen = true; continue; }
+                if (cards[i].hidden) continue;
+                if (seen && cards[i]._indicator) { ref = cards[i]._indicator; break; }
+            }
+            var before = [];
+            var items = list.children;
+            for (var j = 0; j < items.length; j++) {
+                before.push(items[j].getBoundingClientRect().top);
+            }
+            if (ref) list.insertBefore(el, ref); else list.appendChild(el);
+            positionCardIndicators();
+            el.style.opacity = '0';
+            if (before.length) {
+                var ai = 0;
+                var newItems = list.children;
+                for (var n = 0; n < newItems.length; n++) {
+                    if (newItems[n] === el) continue;
+                    var d = before[ai] - newItems[n].getBoundingClientRect().top;
+                    ai++;
+                    if (!d) continue;
+                    newItems[n].animate([{ transform: 'translateY(' + d + 'px)' }, { transform: 'translateY(0px)' }], { duration: 300, easing: 'ease', fill: 'backwards' });
+                }
+                setTimeout(function () { showCardIndicator(el); }, 300);
+            } else {
+                showCardIndicator(el);
+            }
+        }
+
+        function showCardIndicator(el) {
+            el.style.opacity = '';
+            el.animate([
+                { opacity: '0', transform: 'translateX(24px)' },
+                { opacity: '1', transform: 'translateX(0px)' }
+            ], { duration: 200, easing: 'ease', fill: 'backwards' });
+        }
+
+        function cardIndicatorVanish(card) {
+            var list = getCardIndicatorList();
+            var el = indicatorForCard(card);
+            if (!list || !el) return;
+            el.animate([
+                { opacity: '1', transform: 'translateX(0px)' },
+                { opacity: '0', transform: 'translateX(24px)' }
+            ], { duration: 300, easing: 'ease', fill: 'forwards' });
+            setTimeout(function () {
+                var before = [];
+                for (var j = 0; j < list.children.length; j++) {
+                    before.push({ el: list.children[j], top: list.children[j].getBoundingClientRect().top });
+                }
+                if (el.parentNode) el.parentNode.removeChild(el);
+                if (card._indicator === el) card._indicator = null;
+                positionCardIndicators();
+                var rest = list.children;
+                for (var i = 0; i < rest.length; i++) {
+                    var b = null;
+                    for (var k = 0; k < before.length; k++) {
+                        if (before[k].el === rest[i]) { b = before[k].top; break; }
+                    }
+                    if (b === null) continue;
+                    var d = b - rest[i].getBoundingClientRect().top;
+                    if (!d) continue;
+                    rest[i].animate([{ transform: 'translateY(' + d + 'px)' }, { transform: 'translateY(0px)' }], { duration: 300, easing: 'ease', fill: 'backwards' });
+                }
+            }, 300);
+        }
+
+        function animateCardIndicatorsOut() {
+            var list = getCardIndicatorList();
+            var items = list.children;
+            for (var i = 0; i < items.length; i++) {
+                items[i].animate([
+                    { opacity: '1', transform: 'translateX(0px)' },
+                    { opacity: '0', transform: 'translateX(24px)' }
+                ], { duration: 200, easing: 'ease', fill: 'forwards' });
+            }
+        }
+
+        function animateCardIndicatorsIn(delayMs) {
+            delayMs = delayMs || 0;
+            var list = getCardIndicatorList();
+            var items = list.children;
+            for (var i = 0; i < items.length; i++) {
+                items[i].animate([
+                    { opacity: '0', transform: 'translateX(24px)' },
+                    { opacity: '1', transform: 'translateX(0px)' }
+                ], { duration: 300, easing: 'ease', delay: delayMs + i * 40, fill: 'backwards' });
+            }
+        }
+
+        function scrollToCard(card) {
+            if (!card || !viewEl) return;
+            var target = card.getBoundingClientRect().top - viewEl.getBoundingClientRect().top + viewEl.scrollTop;
+            viewEl.scrollTo({ top: target, behavior: 'smooth' });
         }
 
         function toggleApiKeysEnabled() {
@@ -1615,7 +2382,9 @@
         function showSliderTooltip(toggle) {
             hoveredToggle = toggle;
             var rect = toggle.getBoundingClientRect();
-            sliderTooltip.textContent = 'Currently Set to: ' + (toggle.classList.contains('on') ? 'On' : 'Off');
+            var onText = toggle.getAttribute('data-tooltip-on') || 'On';
+            var offText = toggle.getAttribute('data-tooltip-off') || 'Off';
+            sliderTooltip.textContent = 'Currently Set to: ' + (toggle.classList.contains('on') ? onText : offText);
             sliderTooltip.hidden = false;
             var tooltipRect = sliderTooltip.getBoundingClientRect();
             sliderTooltip.style.left = Math.round(rect.right + 8) + 'px';
@@ -1635,6 +2404,87 @@
                 toggle.addEventListener('mouseenter', function () { showSliderTooltip(toggle); });
                 toggle.addEventListener('mouseleave', hideSliderTooltip);
             });
+        }
+
+        var sectionTooltip = document.getElementById('sectionTooltip');
+
+        function showSectionTooltip(chevron) {
+            if (!sectionTooltip) return;
+            var expanded = chevron.classList.contains('expanded');
+            sectionTooltip.textContent = expanded ? 'Collapse' : 'Expand';
+            sectionTooltip.hidden = false;
+            var rect = chevron.getBoundingClientRect();
+            var tooltipRect = sectionTooltip.getBoundingClientRect();
+            sectionTooltip.style.left = Math.round(rect.right + 8) + 'px';
+            sectionTooltip.style.top = Math.round(rect.top + rect.height / 2 - tooltipRect.height / 2) + 'px';
+        }
+
+        function hideSectionTooltip() {
+            if (!sectionTooltip) return;
+            sectionTooltip.hidden = true;
+        }
+
+        function toggleAdvancedSettings(chevron, section, expanded) {
+            if (!chevron || !section) return;
+            chevron.classList.toggle('expanded', expanded);
+            chevron.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            chevron.setAttribute('aria-label', expanded ? 'Collapse' : 'Expand');
+            section.style.transition = '';
+            section.style.height = '';
+            section.style.overflow = '';
+            if (section._expandEnd) {
+                section.removeEventListener('transitionend', section._expandEnd);
+                section._expandEnd = null;
+            }
+            if (expanded) {
+                section.hidden = false;
+                var target = section.scrollHeight;
+                section.style.height = '0px';
+                section.style.overflow = 'hidden';
+                void section.getBoundingClientRect();
+                section.style.transition = 'height 0.25s ease';
+                section.style.height = target + 'px';
+                section._expandEnd = function (event) {
+                    if (event.target !== section) return;
+                    section.removeEventListener('transitionend', section._expandEnd);
+                    section._expandEnd = null;
+                    section.style.height = '';
+                    section.style.overflow = '';
+                    section.style.transition = '';
+                };
+                section.addEventListener('transitionend', section._expandEnd);
+            } else {
+                var current = section.getBoundingClientRect().height;
+                section.style.height = current + 'px';
+                section.style.overflow = 'hidden';
+                void section.getBoundingClientRect();
+                section.style.transition = 'height 0.25s ease';
+                section.style.height = '0px';
+                section._expandEnd = function (event) {
+                    if (event.target !== section) return;
+                    section.removeEventListener('transitionend', section._expandEnd);
+                    section._expandEnd = null;
+                    section.hidden = true;
+                    section.style.height = '';
+                    section.style.overflow = '';
+                    section.style.transition = '';
+                };
+                section.addEventListener('transitionend', section._expandEnd);
+            }
+        }
+
+        function wireAdvancedSettingsSection() {
+            var header = document.getElementById('advancedSettingsHeader');
+            var chevron = document.getElementById('advancedSettingsChevron');
+            var section = document.getElementById('advancedSettingsSection');
+            if (!header || !chevron) return;
+            if (header.getAttribute('data-wired')) return;
+            header.setAttribute('data-wired', '1');
+            header.addEventListener('click', function () {
+                toggleAdvancedSettings(chevron, section, !chevron.classList.contains('expanded'));
+            });
+            chevron.addEventListener('mouseenter', function () { showSectionTooltip(chevron); });
+            chevron.addEventListener('mouseleave', hideSectionTooltip);
         }
 
         function wireSoundDropdowns() {
@@ -1722,6 +2572,12 @@
 
         document.addEventListener('click', closeAllSoundDropdowns);
 
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && document.activeElement) {
+                document.activeElement.blur();
+            }
+        });
+
         viewEl.addEventListener('scroll', function () {
             if (!sliderTooltip.hidden && hoveredToggle) {
                 showSliderTooltip(hoveredToggle);
@@ -1757,6 +2613,10 @@
                     togglePlayAudios();
                 } else if (toggle.id === 'sharedMemoryEnabledToggle') {
                     toggleSharedMemoryEnabled();
+                } else if (toggle.id === 'networkInteractionsToggle') {
+                    toggleNetworkInteractions();
+                } else if (toggle.id === 'networkAccessAllowNewToggle') {
+                    toggleNetworkAccessAllowNew();
                 } else {
                     toggleAllowDiscovery();
                 }
@@ -1767,18 +2627,9 @@
             var footer = document.getElementById('pageFooter');
             if (!footer) return;
             if (show) {
-                if (footer.hidden) {
-                    footer.hidden = false;
-                    footer.classList.remove('visible');
-                    void footer.offsetWidth;
-                }
                 footer.classList.add('visible');
             } else {
-                if (footer.hidden) return;
                 footer.classList.remove('visible');
-                setTimeout(function () {
-                    if (!footer.classList.contains('visible')) footer.hidden = true;
-                }, 500);
             }
         }
 

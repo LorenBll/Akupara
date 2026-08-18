@@ -15,10 +15,48 @@ logger = logging.getLogger(__name__)
 
 AUDIOS_DIR = Path(__file__).resolve().parent.parent / "resources" / "audios"
 
-_AUDIO_FILES: dict[str, Path] = {
-    "acknowledge": AUDIOS_DIR / "acknowledge.wav",
-    "process": AUDIOS_DIR / "process.wav",
+SOUND_EVENTS: tuple[str, ...] = ("acknowledge", "warn", "process", "success", "error")
+
+# The .env variable that holds the audio file to play for each event.
+SOUND_ENV_VARS: dict[str, str] = {
+    "acknowledge": "ACKNOWLEDGE_SOUND",
+    "warn": "WARN_SOUND",
+    "process": "PROCESS_SOUND",
+    "success": "SUCCESS_SOUND",
+    "error": "ERROR_SOUND",
 }
+
+# Default audio file names, applied when the corresponding .env variable is absent.
+DEFAULT_SOUND_FILES: dict[str, str] = {
+    "acknowledge": "acknowledge.wav",
+}
+
+
+def list_audio_files() -> list[str]:
+    """Return the names of the audio files available in the audios directory."""
+    if not AUDIOS_DIR.is_dir():
+        return []
+    return sorted(entry.name for entry in AUDIOS_DIR.iterdir() if entry.is_file())
+
+
+def _read_sound_file(event: str) -> str:
+    """Read the audio file name configured for ``event`` from the .env file."""
+    env_name = SOUND_ENV_VARS.get(event)
+    if not env_name:
+        return ""
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return DEFAULT_SOUND_FILES.get(event, "")
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if name.strip() == env_name:
+            return value.strip()
+    return DEFAULT_SOUND_FILES.get(event, "")
 
 
 def _find_ffplay() -> str | None:
@@ -237,14 +275,15 @@ def set_audio_worker_enabled(enabled: bool) -> None:
         _orchestrator.stop()
 
 
-def play_sound(name: str) -> None:
-    """Trigger playback of the sound associated with ``name`` (fire-and-forget)."""
-    path = _AUDIO_FILES.get(name)
-    if path is None:
-        logger.debug(
-            "No audio is associated with %r (available: %s)",
-            name, ", ".join(sorted(_AUDIO_FILES)),
-        )
+def play_sound(event: str) -> None:
+    """Trigger playback of the audio configured for ``event`` (fire-and-forget)."""
+    file_name = _read_sound_file(event)
+    if not file_name:
+        logger.debug("No audio is configured for %r", event)
+        return
+    path = AUDIOS_DIR / file_name
+    if path.name != file_name or not path.is_file():
+        logger.warning("Configured audio file not found for %r: %s", event, file_name)
         return
     _orchestrator.play(path)
 
@@ -253,8 +292,9 @@ def play_audio(name: str):
     """Decorator factory that marks a callable to trigger audio playback.
 
     ``name`` is one of ``"acknowledge"``, ``"warn"``, ``"process"``, ``"success"``
-    or ``"error"``. Only ``"acknowledge"`` and ``"process"`` have an associated
-    audio for now.
+    or ``"error"``. The audio file actually played is read from the ``.env``
+    variable associated with the event (e.g. ``ACKNOWLEDGE_SOUND``); an empty
+    value plays nothing.
 
     Applied to a method/endpoint, the audio plays the moment it is called::
 

@@ -45,6 +45,8 @@ from werkzeug.exceptions import NotFound
 
 import audio
 
+import network
+
 logger = logging.getLogger(__name__)
 
 SERVICE_HOST = "127.0.0.1"
@@ -61,6 +63,12 @@ DISPLAY_PROMOTION: bool = True
 PLAY_AUDIOS: bool = True
 
 SHARED_MEMORY_ENABLED: bool = True
+
+NETWORK_INTERACTIONS: bool = False
+
+EXTERNAL_ACCESS: bool = False
+
+_external_access_worker: network.ExternalAccessWorker | None = None
 
 _CONFIG_CACHE: dict | None = None
 
@@ -100,7 +108,7 @@ def _parse_bool(value: str | None, default: bool = False) -> bool:
 
 
 def _initialize_service_config() -> None:
-    global SERVICE_PORT, GUI_ENABLED, ALLOW_DISCOVERY, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, SHARED_MEMORY_ENABLED, _SESSION_TOKEN, _SESSION_ISSUED
+    global SERVICE_PORT, GUI_ENABLED, ALLOW_DISCOVERY, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, SHARED_MEMORY_ENABLED, NETWORK_INTERACTIONS, EXTERNAL_ACCESS, NETWORK_ACCESS_ALLOW_NEW, _SESSION_TOKEN, _SESSION_ISSUED
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     config = _load_configuration()
 
@@ -125,10 +133,20 @@ def _initialize_service_config() -> None:
 
     SHARED_MEMORY_ENABLED = _parse_bool(os.getenv("SHARED_MEMORY_ENABLED"), True)
 
+    NETWORK_INTERACTIONS = _parse_bool(os.getenv("NETWORK_INTERACTIONS"), False)
+
+    EXTERNAL_ACCESS = _parse_bool(os.getenv("EXTERNAL_ACCESS"), False)
+
+    NETWORK_ACCESS_ALLOW_NEW = _parse_bool(os.getenv("NETWORK_ACCESS_ALLOW_NEW"), False)
+
+    for sound_event, env_name in audio.SOUND_ENV_VARS.items():
+        if _read_env_var(env_name, None) is None:
+            _write_env_var(env_name, audio.DEFAULT_SOUND_FILES.get(sound_event, ""))
+
     _SESSION_TOKEN = _get_or_create_session_token()
     _SESSION_ISSUED = False
 
-    logger.debug(f"Resolved config values: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}")
+    logger.debug(f"Resolved config values: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, externalAccess={EXTERNAL_ACCESS}")
     logger.info("Service configuration initialized")
 
 
@@ -284,6 +302,11 @@ class FeatureDisabledError(RuntimeError):
 def _require_api_keys_enabled() -> None:
     if not API_KEYS_ENABLED:
         raise FeatureDisabledError("The API keys functionality is disabled.")
+
+
+def _require_allow_discovery_enabled() -> None:
+    if not ALLOW_DISCOVERY:
+        raise FeatureDisabledError("The shared memory functionality is disabled.")
 
 
 def _effective_shared_memory_enabled() -> bool:
@@ -452,6 +475,215 @@ def _set_api_keys_enabled(value: bool) -> None:
     _write_env_bool("API_KEYS_ENABLED", value)
 
 
+@audio.play_audio("acknowledge")
+def _set_network_interactions(value: bool) -> None:
+    global NETWORK_INTERACTIONS
+    NETWORK_INTERACTIONS = value
+    _write_env_bool("NETWORK_INTERACTIONS", value)
+
+
+def _resolve_external_host() -> str | None:
+    candidates = sorted(_get_local_device_addresses(), key=lambda address: (":" in address, address))
+    for address in candidates:
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if ip.is_loopback or ip.version != 4:
+            continue
+        return address
+    return None
+
+
+def _network_worker_bind_address() -> dict:
+    host = _resolve_external_host()
+    return {"address": host, "port": SERVICE_PORT}
+
+
+def _start_external_access_worker() -> None:
+    global _external_access_worker
+    if _external_access_worker is not None:
+        return
+    host = _resolve_external_host()
+    if host is None:
+        logger.warning("External access worker not started: no non-loopback device address available")
+        return
+    worker = network.ExternalAccessWorker(app, host, SERVICE_PORT, ip_policy=_network_worker_ip_policy)
+    try:
+        worker.start()
+    except OSError as exc:
+        logger.error(f"External access worker failed to start on {host}:{SERVICE_PORT}: {exc}")
+        return
+    _external_access_worker = worker
+
+
+def _stop_external_access_worker() -> None:
+    global _external_access_worker
+    worker = _external_access_worker
+    _external_access_worker = None
+    if worker is not None:
+        worker.stop()
+
+
+def _require_network_interactions_enabled() -> None:
+    if not NETWORK_INTERACTIONS:
+        raise FeatureDisabledError("The network interactions functionality is disabled.")
+
+
+@audio.play_audio("acknowledge")
+def _set_external_access(value: bool) -> None:
+    _require_network_interactions_enabled()
+    global EXTERNAL_ACCESS
+    EXTERNAL_ACCESS = value
+    _write_env_bool("EXTERNAL_ACCESS", value)
+    if value:
+        _start_external_access_worker()
+    else:
+        _stop_external_access_worker()
+
+
+def _parse_network_ip(ip: str):
+    if not isinstance(ip, str) or not ip.strip():
+        raise ValueError("Invalid IP address.")
+    try:
+        return ipaddress.ip_address(ip.strip())
+    except ValueError:
+        raise ValueError("Invalid IP address.") from None
+
+
+def _canonical_network_ip(address) -> str:
+    if isinstance(address, ipaddress.IPv6Address):
+        return address.exploded
+    return str(address)
+
+
+def _maximize_network_ip(ip: str) -> str:
+    return _canonical_network_ip(_parse_network_ip(ip))
+
+
+_NETWORK_ACCESS_ACTIONS = ("allow", "unknown", "block")
+
+
+def _load_network_access_ips() -> list[dict]:
+    raw = _read_env_var("NETWORK_ACCESS_IPS")
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    entries: list[dict] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        for ip, action in entry.items():
+            if action not in _NETWORK_ACCESS_ACTIONS:
+                continue
+            try:
+                canonical = _canonical_network_ip(ipaddress.ip_address(ip))
+            except ValueError:
+                continue
+            entries.append({canonical: action})
+    return entries
+
+
+def _save_network_access_ips(entries: list[dict]) -> None:
+    _write_env_var("NETWORK_ACCESS_IPS", json.dumps(entries))
+
+
+def _list_network_access_ips() -> list[dict]:
+    _require_network_interactions_enabled()
+    return _load_network_access_ips()
+
+
+@audio.play_audio("acknowledge")
+def _set_network_access_ip(ip: str, action: str) -> tuple[dict, bool]:
+    _require_network_interactions_enabled()
+    if action not in _NETWORK_ACCESS_ACTIONS:
+        raise ValueError("The value must be 'allow', 'unknown' or 'block'.")
+    canonical = _maximize_network_ip(ip)
+    entries = _load_network_access_ips()
+    existing = next((entry for entry in entries if canonical in entry), None)
+    entry = {canonical: action}
+    remaining = [item for item in entries if canonical not in item]
+    remaining.append(entry)
+    _save_network_access_ips(remaining)
+    return entry, existing is None
+
+
+@audio.play_audio("acknowledge")
+def _update_network_access_ip(ip: str, action: str) -> dict | None:
+    _require_network_interactions_enabled()
+    if action not in _NETWORK_ACCESS_ACTIONS:
+        raise ValueError("The value must be 'allow', 'unknown' or 'block'.")
+    canonical = _maximize_network_ip(ip)
+    entries = _load_network_access_ips()
+    if not any(canonical in entry for entry in entries):
+        return None
+    entry = {canonical: action}
+    remaining = [item for item in entries if canonical not in item]
+    remaining.append(entry)
+    _save_network_access_ips(remaining)
+    return entry
+
+
+@audio.play_audio("acknowledge")
+def _delete_network_access_ip(ip: str) -> bool:
+    _require_network_interactions_enabled()
+    canonical = _maximize_network_ip(ip)
+    entries = _load_network_access_ips()
+    remaining = [item for item in entries if canonical not in item]
+    if len(remaining) == len(entries):
+        return False
+    _save_network_access_ips(remaining)
+    return True
+
+
+@audio.play_audio("acknowledge")
+def _set_network_access_allow_new(value: bool) -> None:
+    _require_network_interactions_enabled()
+    global NETWORK_ACCESS_ALLOW_NEW
+    NETWORK_ACCESS_ALLOW_NEW = value
+    _write_env_bool("NETWORK_ACCESS_ALLOW_NEW", value)
+
+
+def _record_network_access_ip(canonical: str, action: str) -> None:
+    entries = _load_network_access_ips()
+    if any(canonical in entry for entry in entries):
+        return
+    entries.append({canonical: action})
+    _save_network_access_ips(entries)
+
+
+def _network_worker_ip_policy(remote_addr: str) -> bool:
+    """Per-request access decision for the network worker.
+
+    Each IP in the list carries one of three actions: ``"allow"`` (requests
+    pass through), ``"block"`` (requests are refused) and ``"unknown"``. New
+    IPs are always recorded in the list with ``"unknown"``. Requests from IPs
+    whose action is ``"unknown"``, and requests from IPs not yet in the list,
+    are decided by ``NETWORK_ACCESS_ALLOW_NEW``. Recordings made here are
+    automatic and play no sound.
+    """
+    try:
+        canonical = _canonical_network_ip(ipaddress.ip_address(remote_addr))
+    except ValueError:
+        return False
+    entries = _load_network_access_ips()
+    for entry in entries:
+        if canonical in entry:
+            action = entry[canonical]
+            if action == "allow":
+                return True
+            if action == "block":
+                return False
+            break
+    _record_network_access_ip(canonical, "unknown")
+    return _read_env_bool("NETWORK_ACCESS_ALLOW_NEW", NETWORK_ACCESS_ALLOW_NEW)
+
+
 def _set_display_promotion(value: bool) -> None:
     global DISPLAY_PROMOTION
     DISPLAY_PROMOTION = value
@@ -465,8 +697,43 @@ def _set_play_audios(value: bool) -> None:
     audio.set_audio_worker_enabled(value)
 
 
+def _require_play_audios_enabled() -> None:
+    if not PLAY_AUDIOS:
+        raise FeatureDisabledError("The audio functionality is disabled.")
+
+
+def _is_valid_sound_file_name(file_name: str) -> bool:
+    if "/" in file_name or "\\" in file_name or file_name in {".", ".."}:
+        return False
+    return (audio.AUDIOS_DIR / file_name).is_file()
+
+
+# The @audio.play_audio("acknowledge") decorator is intentionally not applied here:
+# assigning an audio to an event already plays the selected event sound immediately
+# afterwards (the frontend triggers it), so acknowledging the assignment as well would
+# make two audios play at the same time. Keep this comment — do not delete it — to leave
+# trace of the reason the acknowledge audio is not played when selecting an audio.
+# @audio.play_audio("acknowledge")
+def _set_sound_file(event_name: str, file_name: str) -> None:
+    _require_play_audios_enabled()
+    if event_name not in audio.SOUND_ENV_VARS:
+        raise ValueError("Unknown sound event.")
+    file_name = (file_name or "").strip()
+    if file_name and not _is_valid_sound_file_name(file_name):
+        raise ValueError("Invalid sound file.")
+    _write_env_var(audio.SOUND_ENV_VARS[event_name], file_name)
+
+
+def _play_sound_event(event_name: str) -> None:
+    _require_play_audios_enabled()
+    if event_name not in audio.SOUND_ENV_VARS:
+        raise ValueError("Unknown sound event.")
+    audio.play_sound(event_name)
+
+
 @audio.play_audio("acknowledge")
 def _set_shared_memory_enabled(value: bool) -> None:
+    _require_allow_discovery_enabled()
     global SHARED_MEMORY_ENABLED
     SHARED_MEMORY_ENABLED = value
     _write_env_bool("SHARED_MEMORY_ENABLED", value)
@@ -483,9 +750,12 @@ def settings() -> tuple:
             "allowDiscovery": _read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
             "apiKeysEnabled": _read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
             "displayPromotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
+            "networkInteractions": _read_env_bool("NETWORK_INTERACTIONS", NETWORK_INTERACTIONS),
+            "externalAccess": _read_env_bool("EXTERNAL_ACCESS", EXTERNAL_ACCESS),
+            "networkAccessAllowNew": _read_env_bool("NETWORK_ACCESS_ALLOW_NEW", NETWORK_ACCESS_ALLOW_NEW),
         }), 200
     data = request.get_json(silent=True) or {}
-    keys = [key for key in ("allowDiscovery", "apiKeysEnabled", "displayPromotion") if key in data]
+    keys = [key for key in ("allowDiscovery", "apiKeysEnabled", "displayPromotion", "networkInteractions", "externalAccess", "networkAccessAllowNew") if key in data]
     if not keys:
         return jsonify({"error": "No known setting provided."}), 400
     for key in keys:
@@ -496,13 +766,28 @@ def settings() -> tuple:
             _set_allow_discovery(value)
         elif key == "apiKeysEnabled":
             _set_api_keys_enabled(value)
+        elif key == "networkInteractions":
+            _set_network_interactions(value)
+        elif key == "externalAccess":
+            try:
+                _set_external_access(value)
+            except FeatureDisabledError as exc:
+                return jsonify({"error": str(exc)}), 403
+        elif key == "networkAccessAllowNew":
+            try:
+                _set_network_access_allow_new(value)
+            except FeatureDisabledError as exc:
+                return jsonify({"error": str(exc)}), 403
         else:
             _set_display_promotion(value)
-    logger.info(f"Settings updated by {request.remote_addr}: allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, displayPromotion={DISPLAY_PROMOTION}")
+    logger.info(f"Settings updated by {request.remote_addr}: allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, displayPromotion={DISPLAY_PROMOTION}, networkInteractions={NETWORK_INTERACTIONS}, externalAccess={EXTERNAL_ACCESS}, networkAccessAllowNew={NETWORK_ACCESS_ALLOW_NEW}")
     return jsonify({
         "allowDiscovery": ALLOW_DISCOVERY,
         "apiKeysEnabled": API_KEYS_ENABLED,
         "displayPromotion": DISPLAY_PROMOTION,
+        "networkInteractions": NETWORK_INTERACTIONS,
+        "externalAccess": EXTERNAL_ACCESS,
+        "networkAccessAllowNew": NETWORK_ACCESS_ALLOW_NEW,
     }), 200
 
 
@@ -512,16 +797,56 @@ def settings() -> tuple:
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def audio_playback() -> tuple:
     if request.method == "GET":
-        logger.info(f"Audio playback setting read by {request.remote_addr}")
-        return jsonify({"playAudios": _read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS)}), 200
+        logger.info(f"Audio settings read by {request.remote_addr}")
+        return jsonify({
+            "playAudios": _read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
+            "sounds": {event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
+            "available": audio.list_audio_files(),
+        }), 200
 
     data = request.get_json(silent=True) or {}
-    if "playAudios" not in data or not isinstance(data["playAudios"], bool):
+    if "playAudios" not in data and "event" not in data:
         return jsonify({"error": "Invalid request."}), 400
-    value = data["playAudios"]
-    _set_play_audios(value)
-    logger.info(f"Audio playback set by {request.remote_addr}: playAudios={PLAY_AUDIOS}")
-    return jsonify({"playAudios": PLAY_AUDIOS}), 200
+    if "playAudios" in data:
+        if not isinstance(data["playAudios"], bool):
+            return jsonify({"error": "Invalid request."}), 400
+        _set_play_audios(data["playAudios"])
+    if "event" in data:
+        event_name = data["event"]
+        sound_file = data.get("sound", "")
+        if not isinstance(event_name, str) or not isinstance(sound_file, str):
+            return jsonify({"error": "Invalid request."}), 400
+        try:
+            _set_sound_file(event_name, sound_file)
+        except FeatureDisabledError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except ValueError:
+            return jsonify({"error": "Invalid request."}), 400
+    logger.info(f"Audio settings updated by {request.remote_addr}: playAudios={PLAY_AUDIOS}")
+    return jsonify({
+        "playAudios": PLAY_AUDIOS,
+        "sounds": {event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
+        "available": audio.list_audio_files(),
+    }), 200
+
+
+@app.route("/api/audio/play", methods=["POST", "HEAD", "OPTIONS"])
+@localhost_only
+@cookie_authenticated
+@standard_endpoint("POST", "HEAD", "OPTIONS")
+def play_audio_event() -> tuple:
+    data = request.get_json(silent=True) or {}
+    event_name = data.get("event", "")
+    if not isinstance(event_name, str):
+        return jsonify({"error": "Invalid request."}), 400
+    try:
+        _play_sound_event(event_name)
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    logger.info(f"Audio play triggered by {request.remote_addr}: event={event_name}")
+    return jsonify({"status": "ok"}), 200
 
 
 @app.route("/api/shared-memory-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -537,7 +862,10 @@ def shared_memory_enabled() -> tuple:
     if "sharedMemoryEnabled" not in data or not isinstance(data["sharedMemoryEnabled"], bool):
         return jsonify({"error": "Invalid request."}), 400
     value = data["sharedMemoryEnabled"]
-    _set_shared_memory_enabled(value)
+    try:
+        _set_shared_memory_enabled(value)
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
     logger.info(f"Shared memory enabled set by {request.remote_addr}: sharedMemoryEnabled={SHARED_MEMORY_ENABLED}")
     return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
 
@@ -621,8 +949,8 @@ def api_keys() -> tuple:
     if request.method == "GET":
         try:
             keys = _list_api_keys()
-        except FeatureDisabledError:
-            return jsonify({"error": "Forbidden"}), 403
+        except FeatureDisabledError as exc:
+            return jsonify({"error": str(exc)}), 403
         logger.info(f"API keys read by {request.remote_addr}")
         return jsonify({"apiKeys": keys}), 200
 
@@ -630,8 +958,8 @@ def api_keys() -> tuple:
     name = data.get("name")
     try:
         entry = _create_api_key(name)
-    except FeatureDisabledError:
-        return jsonify({"error": "Forbidden"}), 403
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     logger.info(f"API key generated by {request.remote_addr}: name={name!r}")
@@ -646,8 +974,8 @@ def api_key_item(key: str) -> tuple:
     if request.method == "DELETE":
         try:
             deleted = _delete_api_key(key)
-        except FeatureDisabledError:
-            return jsonify({"error": "Forbidden"}), 403
+        except FeatureDisabledError as exc:
+            return jsonify({"error": str(exc)}), 403
         if not deleted:
             return jsonify({"error": "Not found."}), 404
         logger.info(f"API key deleted by {request.remote_addr}")
@@ -657,8 +985,8 @@ def api_key_item(key: str) -> tuple:
     name = data.get("name")
     try:
         target = _rename_api_key(key, name)
-    except FeatureDisabledError:
-        return jsonify({"error": "Forbidden"}), 403
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     if target is None:
@@ -777,8 +1105,8 @@ def shared_memory() -> tuple:
     if request.method == "GET":
         try:
             variables = _list_shared_memory()
-        except FeatureDisabledError:
-            return jsonify({"error": "Forbidden"}), 403
+        except FeatureDisabledError as exc:
+            return jsonify({"error": str(exc)}), 403
         logger.info(f"Shared memory read by {request.remote_addr}")
         return jsonify({"sharedMemory": variables}), 200
 
@@ -788,8 +1116,8 @@ def shared_memory() -> tuple:
     value_type = data.get("type")
     try:
         entry = _create_shared_variable(name, value, value_type)
-    except FeatureDisabledError:
-        return jsonify({"error": "Forbidden"}), 403
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     logger.info(f"Shared variable created by {request.remote_addr}: name={name!r} type={value_type!r}")
@@ -803,8 +1131,8 @@ def shared_memory() -> tuple:
 def shared_memory_delete(name: str) -> tuple:
     try:
         deleted = _delete_shared_variable(name)
-    except FeatureDisabledError:
-        return jsonify({"error": "Forbidden"}), 403
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
     if not deleted:
         return jsonify({"error": "Not found."}), 404
     logger.info(f"Shared variable deleted by {request.remote_addr}: name={name!r}")
@@ -822,14 +1150,71 @@ def shared_memory_edit(name: str) -> tuple:
     value_type = data.get("type")
     try:
         target = _update_shared_variable(name, value, value_type)
-    except FeatureDisabledError:
-        return jsonify({"error": "Forbidden"}), 403
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     if target is None:
         return jsonify({"error": "Not found."}), 404
     logger.info(f"Shared variable updated by {request.remote_addr}: name={name!r}")
     return jsonify(target), 200
+
+
+@app.route("/api/network-access-ips", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@localhost_only
+@api_key_or_cookie_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def network_access_ips() -> tuple:
+    if request.method == "GET":
+        try:
+            entries = _list_network_access_ips()
+        except FeatureDisabledError as exc:
+            return jsonify({"error": str(exc)}), 403
+        logger.info(f"Network access IPs read by {request.remote_addr}")
+        return jsonify({"networkAccessIps": entries}), 200
+
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip")
+    action = data.get("action")
+    try:
+        entry, created = _set_network_access_ip(ip, action)
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    logger.info(f"Network access IP saved by {request.remote_addr}: {entry}")
+    return jsonify(entry), 201 if created else 200
+
+
+@app.route("/api/network-access-ips/<path:ip>", methods=["PATCH", "DELETE", "OPTIONS"])
+@localhost_only
+@api_key_or_cookie_authenticated
+@standard_endpoint("PATCH", "DELETE", "OPTIONS")
+def network_access_ip_item(ip: str) -> tuple:
+    if request.method == "DELETE":
+        try:
+            deleted = _delete_network_access_ip(ip)
+        except FeatureDisabledError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except ValueError:
+            return jsonify({"error": "Invalid request."}), 400
+        if not deleted:
+            return jsonify({"error": "Not found."}), 404
+        logger.info(f"Network access IP deleted by {request.remote_addr}: {ip}")
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+    action = data.get("action")
+    try:
+        entry = _update_network_access_ip(ip, action)
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    if entry is None:
+        return jsonify({"error": "Not found."}), 404
+    logger.info(f"Network access IP updated by {request.remote_addr}: {ip}")
+    return jsonify(entry), 200
 
 
 @localhost_only
@@ -877,17 +1262,26 @@ def ui_settings_page():
     template = (pages_dir / "settings.html").read_text(encoding="utf-8")
     api_keys = sorted(_load_api_keys(), key=lambda k: (k.get("name") or "").lower())
     shared_memory = _load_shared_memory()
+    network_access_ips = _load_network_access_ips()
     return render_template_string(
         template,
         allow_discovery=_read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
         api_keys_enabled=_read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
         display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
+        network_interactions=_read_env_bool("NETWORK_INTERACTIONS", NETWORK_INTERACTIONS),
         play_audios=_read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
+        sounds={event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
+        available_audios=audio.list_audio_files(),
+        sound_events=[(event, event.capitalize()) for event in audio.SOUND_EVENTS],
         shared_memory_enabled=_read_env_bool("SHARED_MEMORY_ENABLED", SHARED_MEMORY_ENABLED),
         has_api_keys=bool(api_keys),
         api_keys_json=json.dumps(api_keys),
         has_shared_memory=bool(shared_memory),
         shared_memory_json=json.dumps(shared_memory),
+        network_access_allow_new=_read_env_bool("NETWORK_ACCESS_ALLOW_NEW", NETWORK_ACCESS_ALLOW_NEW),
+        has_network_access_ips=bool(network_access_ips),
+        network_access_ips_json=json.dumps(network_access_ips),
+        network_worker_bind=_network_worker_bind_address(),
     )
 
 
@@ -943,6 +1337,9 @@ if __name__ == "__main__":
         logger.error(f"Failed to load configuration: {exc}", exc_info=True)
         exit(1)
 
+    if EXTERNAL_ACCESS:
+        _start_external_access_worker()
+
     try:
         logger.info("=" * 50)
         logger.info("  Akupara")
@@ -953,7 +1350,7 @@ if __name__ == "__main__":
             logger.info("GUI: enabled")
         else:
             logger.info("GUI: disabled")
-        logger.info(f"Config: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}")
+        logger.info(f"Config: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, externalAccess={EXTERNAL_ACCESS}")
         logger.info("Server starting...")
 
         app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)

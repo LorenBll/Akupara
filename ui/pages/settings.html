@@ -23,6 +23,15 @@
                 <span class="ios-toggle-thumb"></span>
             </button>
         </div>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Network Interactions</span>
+            </div>
+            <p class="data-indicator-description">Controls whether plugins can interact with the network.</p>
+            <button type="button" class="ios-toggle{{ ' on' if network_interactions else '' }}" id="networkInteractionsToggle" role="switch" aria-checked="{{ 'true' if network_interactions else 'false' }}" aria-label="Enable network interactions">
+                <span class="ios-toggle-thumb"></span>
+            </button>
+        </div>
     </div>
     <div class="page-card" id="apiKeysCard"{{ '' if api_keys_enabled else ' hidden' }}>
         <h3 class="card-title">
@@ -113,6 +122,65 @@
         </div>
         </div>
     </div>
+    <div class="page-card" id="networkInteractionsCard"{{ '' if network_interactions else ' hidden' }}>
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+            Network Interactions
+        </h3>
+        <div class="network-worker-bind">
+            <div class="pill-item">
+                <span class="pill-label">BIND ADDRESS</span>
+                <span class="pill-value">{{ network_worker_bind.address or 'Not available' }}</span>
+            </div>
+            <div class="pill-item">
+                <span class="pill-label">PORT</span>
+                <span class="pill-value">{{ network_worker_bind.port }}</span>
+            </div>
+        </div>
+        <hr class="card-section-separator">
+        <div class="card-section-header" id="advancedSettingsHeader">
+            <h4 class="card-section-title">Advanced Settings</h4>
+            <button type="button" class="section-chevron-btn" id="advancedSettingsChevron" aria-expanded="false" aria-label="Expand">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+        </div>
+        <div class="advanced-settings-section" id="advancedSettingsSection" hidden>
+            <div class="settings-row">
+                <div class="data-indicator">
+                    <span class="data-indicator-label">Policy for New IPs</span>
+                </div>
+                <p class="data-indicator-description">Controls whether IPs not yet in the known list are allowed to interact.</p>
+                <button type="button" class="ios-toggle{{ ' on' if network_access_allow_new else '' }}" id="networkAccessAllowNewToggle" role="switch" aria-checked="{{ 'true' if network_access_allow_new else 'false' }}" aria-label="Allow new IPs by default" data-tooltip-on="Allow" data-tooltip-off="Block">
+                    <span class="ios-toggle-thumb">
+                        <svg class="toggle-lock" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <svg class="toggle-lock-open" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+                    </span>
+                </button>
+            </div>
+            <div class="network-access-insert-row">
+                <input type="text" id="networkAccessIpInput" class="api-key-name-input network-access-ip-input" placeholder="IP Address" maxlength="45" autocomplete="off" spellcheck="false" aria-label="IP address">
+                <div class="network-access-segmented" id="networkAccessInsertSegmented">
+                    <button type="button" class="network-access-segment" data-value="allow">Allow</button>
+                    <button type="button" class="network-access-segment selected" data-value="unknown">Policy</button>
+                    <button type="button" class="network-access-segment" data-value="block">Block</button>
+                </div>
+                <button type="button" class="generate-api-key-btn" id="insertNetworkAccessEntryBtn">Insert Entry</button>
+            </div>
+            <div class="api-keys-table-wrap">
+                <table class="api-keys-table" id="networkAccessTable"{{ '' if has_network_access_ips else ' hidden' }}>
+                    <thead>
+                        <tr>
+                            <th>IP</th>
+                            <th></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="networkAccessTableBody" data-network-access-ips="{{ network_access_ips_json|e }}"></tbody>
+                </table>
+                <p class="api-keys-empty" id="networkAccessEmpty"{{ '' if not has_network_access_ips else ' hidden' }}>No IPs recorded</p>
+            </div>
+        </div>
+    </div>
     <div class="page-card">
         <h3 class="card-title">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
@@ -139,76 +207,28 @@
                 <span class="ios-toggle-thumb"></span>
             </button>
         </div>
-        <div class="settings-row sound-row{{ '' if play_audios else ' sound-row-disabled' }}">
+        {% for event, label in sound_events %}
+        <div class="settings-row sound-row{{ '' if play_audios else ' sound-row-disabled' }}" data-event="{{ event }}">
             <div class="data-indicator">
-                <span class="data-indicator-label">Acknowledge</span>
+                <span class="data-indicator-label">{{ label }}</span>
             </div>
-            <div class="sound-dropdown">
-                <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="Acknowledge sound"{{ '' if play_audios else ' disabled' }}>
-                    <span class="sound-select-value">Select audio...</span>
+            <div class="sound-dropdown" data-event="{{ event }}">
+                <button type="button" class="sound-play-btn{{ ' visible' if sounds.get(event, '') and play_audios else '' }}" aria-label="Play {{ label }} sound"{{ '' if play_audios else ' disabled' }}>
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                </button>
+                <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="{{ label }} sound"{{ '' if play_audios else ' disabled' }}>
+                    <span class="sound-select-value" data-value="{{ sounds.get(event, '') }}">{{ sounds.get(event, '') or 'Select audio...' }}</span>
                     <svg class="sound-select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
                 <ul class="sound-select-menu" role="listbox">
-                    <li class="sound-select-option selected" role="option" aria-selected="true"><span class="sound-select-option-label">Select audio...</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option{{ '' if sounds.get(event, '') else ' selected' }}" data-value="" role="option" aria-selected="{{ 'true' if not sounds.get(event, '') else 'false' }}"><span class="sound-select-option-label">Select audio...</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    {% for file in available_audios %}
+                    <li class="sound-select-option{{ ' selected' if sounds.get(event, '') == file else '' }}" data-value="{{ file }}" role="option" aria-selected="{{ 'true' if sounds.get(event, '') == file else 'false' }}"><span class="sound-select-option-label">{{ file }}</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    {% endfor %}
                 </ul>
             </div>
         </div>
-        <div class="settings-row sound-row{{ '' if play_audios else ' sound-row-disabled' }}">
-            <div class="data-indicator">
-                <span class="data-indicator-label">Warn</span>
-            </div>
-            <div class="sound-dropdown">
-                <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="Warn sound"{{ '' if play_audios else ' disabled' }}>
-                    <span class="sound-select-value">Select audio...</span>
-                    <svg class="sound-select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-                <ul class="sound-select-menu" role="listbox">
-                    <li class="sound-select-option selected" role="option" aria-selected="true"><span class="sound-select-option-label">Select audio...</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
-                </ul>
-            </div>
-        </div>
-        <div class="settings-row sound-row{{ '' if play_audios else ' sound-row-disabled' }}">
-            <div class="data-indicator">
-                <span class="data-indicator-label">Process</span>
-            </div>
-            <div class="sound-dropdown">
-                <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="Process sound"{{ '' if play_audios else ' disabled' }}>
-                    <span class="sound-select-value">Select audio...</span>
-                    <svg class="sound-select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-                <ul class="sound-select-menu" role="listbox">
-                    <li class="sound-select-option selected" role="option" aria-selected="true"><span class="sound-select-option-label">Select audio...</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
-                </ul>
-            </div>
-        </div>
-        <div class="settings-row sound-row{{ '' if play_audios else ' sound-row-disabled' }}">
-            <div class="data-indicator">
-                <span class="data-indicator-label">Success</span>
-            </div>
-            <div class="sound-dropdown">
-                <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="Success sound"{{ '' if play_audios else ' disabled' }}>
-                    <span class="sound-select-value">Select audio...</span>
-                    <svg class="sound-select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-                <ul class="sound-select-menu" role="listbox">
-                    <li class="sound-select-option selected" role="option" aria-selected="true"><span class="sound-select-option-label">Select audio...</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
-                </ul>
-            </div>
-        </div>
-        <div class="settings-row sound-row{{ '' if play_audios else ' sound-row-disabled' }}">
-            <div class="data-indicator">
-                <span class="data-indicator-label">Error</span>
-            </div>
-            <div class="sound-dropdown">
-                <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="Error sound"{{ '' if play_audios else ' disabled' }}>
-                    <span class="sound-select-value">Select audio...</span>
-                    <svg class="sound-select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
-                <ul class="sound-select-menu" role="listbox">
-                    <li class="sound-select-option selected" role="option" aria-selected="true"><span class="sound-select-option-label">Select audio...</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
-                </ul>
-            </div>
-        </div>
+        {% endfor %}
     </div>
     <div class="page-actions">
         <button class="page-action-btn terminate" data-action="terminate">
