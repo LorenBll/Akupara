@@ -143,7 +143,7 @@ def _initialize_service_config() -> None:
         if _read_env_var(env_name, None) is None:
             _write_env_var(env_name, audio.DEFAULT_SOUND_FILES.get(sound_event, ""))
 
-    _SESSION_TOKEN = _get_or_create_session_token()
+    _SESSION_TOKEN = _generate_session_token()
     _SESSION_ISSUED = False
 
     logger.debug(f"Resolved config values: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, externalAccess={EXTERNAL_ACCESS}")
@@ -208,23 +208,6 @@ def _generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _get_or_create_session_token() -> str:
-    token_file = Path(__file__).resolve().parent.parent / "resources" / "session.token"
-    try:
-        if token_file.exists():
-            stored = token_file.read_text(encoding="utf-8").strip()
-            if stored:
-                return stored
-    except OSError:
-        pass
-    token = _generate_session_token()
-    try:
-        token_file.write_text(token, encoding="utf-8")
-    except OSError:
-        pass
-    return token
-
-
 def localhost_only(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -270,7 +253,6 @@ def _is_valid_api_key() -> bool:
     if not provided_key:
         return False
     keys = [entry["key"] for entry in _load_api_keys()]
-    keys.extend(_load_configuration().get("apiKeys", []))
     return provided_key in keys
 
 
@@ -598,7 +580,6 @@ def _list_network_access_ips() -> list[dict]:
     return _load_network_access_ips()
 
 
-@audio.play_audio("acknowledge")
 def _set_network_access_ip(ip: str, action: str) -> tuple[dict, bool]:
     _require_network_interactions_enabled()
     if action not in _NETWORK_ACCESS_ACTIONS:
@@ -610,6 +591,10 @@ def _set_network_access_ip(ip: str, action: str) -> tuple[dict, bool]:
     remaining = [item for item in entries if canonical not in item]
     remaining.append(entry)
     _save_network_access_ips(remaining)
+    if existing is None:
+        audio.play_audio("success")()
+    else:
+        audio.play_audio("acknowledge")()
     return entry, existing is None
 
 
@@ -629,7 +614,6 @@ def _update_network_access_ip(ip: str, action: str) -> dict | None:
     return entry
 
 
-@audio.play_audio("acknowledge")
 def _delete_network_access_ip(ip: str) -> bool:
     _require_network_interactions_enabled()
     canonical = _maximize_network_ip(ip)
@@ -638,6 +622,7 @@ def _delete_network_access_ip(ip: str) -> bool:
     if len(remaining) == len(entries):
         return False
     _save_network_access_ips(remaining)
+    audio.play_audio("success")()
     return True
 
 
@@ -649,12 +634,13 @@ def _set_network_access_allow_new(value: bool) -> None:
     _write_env_bool("NETWORK_ACCESS_ALLOW_NEW", value)
 
 
-def _record_network_access_ip(canonical: str, action: str) -> None:
+def _record_network_access_ip_automatic(canonical: str, action: str) -> None:
     entries = _load_network_access_ips()
     if any(canonical in entry for entry in entries):
         return
     entries.append({canonical: action})
     _save_network_access_ips(entries)
+    audio.play_audio("warn")()
 
 
 def _network_worker_ip_policy(remote_addr: str) -> bool:
@@ -665,7 +651,7 @@ def _network_worker_ip_policy(remote_addr: str) -> bool:
     IPs are always recorded in the list with ``"unknown"``. Requests from IPs
     whose action is ``"unknown"``, and requests from IPs not yet in the list,
     are decided by ``NETWORK_ACCESS_ALLOW_NEW``. Recordings made here are
-    automatic and play no sound.
+    automatic and play the warn sound.
     """
     try:
         canonical = _canonical_network_ip(ipaddress.ip_address(remote_addr))
@@ -680,7 +666,7 @@ def _network_worker_ip_policy(remote_addr: str) -> bool:
             if action == "block":
                 return False
             break
-    _record_network_access_ip(canonical, "unknown")
+    _record_network_access_ip_automatic(canonical, "unknown")
     return _read_env_bool("NETWORK_ACCESS_ALLOW_NEW", NETWORK_ACCESS_ALLOW_NEW)
 
 
@@ -903,7 +889,7 @@ def _list_api_keys() -> list[dict]:
     return _load_api_keys()
 
 
-@audio.play_audio("acknowledge")
+@audio.play_audio("success")
 def _create_api_key(name: str) -> dict:
     _require_api_keys_enabled()
     if not isinstance(name, str) or not _is_valid_key_name(name):
@@ -916,7 +902,6 @@ def _create_api_key(name: str) -> dict:
     return entry
 
 
-@audio.play_audio("acknowledge")
 def _delete_api_key(key: str) -> bool:
     _require_api_keys_enabled()
     keys = _load_api_keys()
@@ -924,6 +909,7 @@ def _delete_api_key(key: str) -> bool:
     if len(remaining) == len(keys):
         return False
     _save_api_keys(remaining)
+    audio.play_audio("success")()
     return True
 
 
@@ -1057,7 +1043,7 @@ def _list_shared_memory() -> list[dict]:
     return _load_shared_memory()
 
 
-@audio.play_audio("acknowledge")
+@audio.play_audio("success")
 def _create_shared_variable(name: str, value, value_type: str) -> dict:
     _require_shared_memory_enabled()
     if not isinstance(name, str) or not _is_valid_key_name(name):
@@ -1086,7 +1072,6 @@ def _update_shared_variable(name: str, value, value_type=None) -> dict | None:
     return target
 
 
-@audio.play_audio("acknowledge")
 def _delete_shared_variable(name: str) -> bool:
     _require_shared_memory_enabled()
     variables = _load_shared_memory()
@@ -1094,6 +1079,7 @@ def _delete_shared_variable(name: str) -> bool:
     if len(remaining) == len(variables):
         return False
     _save_shared_memory(remaining)
+    audio.play_audio("success")()
     return True
 
 
