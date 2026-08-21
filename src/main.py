@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import hmac
 import ipaddress
 import json
 import logging
@@ -14,6 +15,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -40,8 +42,7 @@ if _missing_libraries:
     sys.exit(1)
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory, render_template_string
-from werkzeug.exceptions import NotFound
+from flask import Flask, jsonify, redirect, request, send_from_directory, render_template_string
 
 import audio
 
@@ -72,9 +73,9 @@ _external_access_worker: network.ExternalAccessWorker | None = None
 
 _CONFIG_CACHE: dict | None = None
 
-SESSION_COOKIE_NAME = "akupara-session"
-_SESSION_TOKEN: str | None = None
-_SESSION_ISSUED: bool = False
+SESSION_COOKIE_NAME = "akupara-refresh"
+_SESSION_STORE: dict[str, dict] = {}
+_SESSION_MAX_AGE: int = 900
 _SESSION_LOCK = threading.Lock()
 
 
@@ -108,7 +109,7 @@ def _parse_bool(value: str | None, default: bool = False) -> bool:
 
 
 def _initialize_service_config() -> None:
-    global SERVICE_PORT, GUI_ENABLED, ALLOW_DISCOVERY, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, SHARED_MEMORY_ENABLED, NETWORK_INTERACTIONS, EXTERNAL_ACCESS, NETWORK_ACCESS_ALLOW_NEW, _SESSION_TOKEN, _SESSION_ISSUED
+    global SERVICE_PORT, GUI_ENABLED, ALLOW_DISCOVERY, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, SHARED_MEMORY_ENABLED, NETWORK_INTERACTIONS, EXTERNAL_ACCESS, NETWORK_ACCESS_ALLOW_NEW
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     config = _load_configuration()
 
@@ -143,8 +144,10 @@ def _initialize_service_config() -> None:
         if _read_env_var(env_name, None) is None:
             _write_env_var(env_name, audio.DEFAULT_SOUND_FILES.get(sound_event, ""))
 
-    _SESSION_TOKEN = _generate_session_token()
-    _SESSION_ISSUED = False
+    _SESSION_STORE.clear()
+
+    if not _login_credentials_configured():
+        logger.warning("Login credentials not configured: set USERNAME and PASSWORD (or USERS) in .env")
 
     logger.debug(f"Resolved config values: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, externalAccess={EXTERNAL_ACCESS}")
     logger.info("Service configuration initialized")
@@ -190,60 +193,90 @@ def _get_local_device_addresses() -> set[str]:
     return normalized_addresses
 
 
-def _is_local_request() -> bool:
-    remote_address = request.remote_addr
-    if not isinstance(remote_address, str) or not remote_address.strip():
-        return False
-    try:
-        client_ip = ipaddress.ip_address(remote_address.strip())
-    except ValueError:
-        logger.debug(f"Non-IP remote address rejected: {remote_address!r}")
-        return False
-    if client_ip.is_loopback:
-        return True
-    return client_ip.compressed in _get_local_device_addresses()
-
-
 def _generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def localhost_only(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        if not _is_local_request():
-            logger.warning(f"Blocked non-local request from {request.remote_addr} for {request.path}")
-            return NotFound().get_response()
-        return func(*args, **kwargs)
-    return wrapper
+def _prune_expired_sessions() -> None:
+    cutoff = time.time() - _SESSION_MAX_AGE
+    with _SESSION_LOCK:
+        expired = [token for token, session in _SESSION_STORE.items() if session["last_refresh"] < cutoff]
+        for token in expired:
+            del _SESSION_STORE[token]
+    if expired:
+        logger.debug(f"Pruned {len(expired)} expired session(s)")
+
+
+def _active_session() -> dict | None:
+    provided_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not provided_token:
+        return None
+    with _SESSION_LOCK:
+        session = _SESSION_STORE.get(provided_token)
+        if session is None:
+            return None
+        if time.time() - session["last_refresh"] > _SESSION_MAX_AGE:
+            _SESSION_STORE.pop(provided_token, None)
+            return None
+        return {"username": session["username"], "admin": session["admin"]}
 
 
 def _is_valid_session_cookie() -> bool:
+    return _active_session() is not None
+
+
+def _issue_session_cookie(response, username: str, admin: bool) -> None:
+    _prune_expired_sessions()
+    token = _generate_session_token()
+    with _SESSION_LOCK:
+        _SESSION_STORE[token] = {"username": username, "admin": admin, "last_refresh": time.time()}
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        httponly=True,
+        samesite="Lax",
+        max_age=_SESSION_MAX_AGE,
+        path="/",
+    )
+
+
+def _renew_session_cookie(response) -> None:
     provided_token = request.cookies.get(SESSION_COOKIE_NAME)
-    return _SESSION_TOKEN is not None and provided_token == _SESSION_TOKEN
+    if not provided_token:
+        return
+    with _SESSION_LOCK:
+        session = _SESSION_STORE.get(provided_token)
+        if session is not None:
+            session["last_refresh"] = time.time()
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        provided_token,
+        httponly=True,
+        samesite="Lax",
+        max_age=_SESSION_MAX_AGE,
+        path="/",
+    )
 
 
 def _unauthorized_response():
-    global _SESSION_ISSUED
-    first = False
-    with _SESSION_LOCK:
-        if not _SESSION_ISSUED:
-            _SESSION_ISSUED = True
-            first = True
-    if first:
-        response = NotFound().get_response()
-        response.set_cookie(SESSION_COOKIE_NAME, _SESSION_TOKEN, httponly=True, samesite="Lax", max_age=31536000)
-        logger.info("Issued akupara-session cookie to establish a new runtime session")
-        return response
-    logger.warning(f"Rejected request from {request.remote_addr}: missing or invalid akupara-session cookie")
-    return NotFound().get_response()
+    if request.path.startswith("/api/"):
+        logger.warning(f"Rejected API request from {request.remote_addr}: missing or invalid refresh cookie")
+        return jsonify({"error": "API key required."}), 401
+    logger.warning(f"Redirecting unauthenticated request from {request.remote_addr} to /login")
+    return redirect("/login")
 
 
-def cookie_authenticated(func):
+def _refresh_cookie_when_valid(func, *args, **kwargs):
+    response = app.make_response(func(*args, **kwargs))
+    _renew_session_cookie(response)
+    return response
+
+
+def session_authenticated(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         if _is_valid_session_cookie():
-            return func(*args, **kwargs)
+            return _refresh_cookie_when_valid(func, *args, **kwargs)
         return _unauthorized_response()
     return wrapper
 
@@ -256,29 +289,283 @@ def _is_valid_api_key() -> bool:
     return provided_key in keys
 
 
-def api_key_authenticated(func):
+def api_key_or_admin_authenticated(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         if _is_valid_api_key():
             return func(*args, **kwargs)
-        logger.warning(f"Rejected request from {request.remote_addr}: invalid or missing API key")
-        return jsonify({"error": "API key required."}), 401
-    return wrapper
-
-
-def api_key_or_cookie_authenticated(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        if _is_valid_api_key():
-            return func(*args, **kwargs)
-        if _is_valid_session_cookie():
-            return func(*args, **kwargs)
+        session = _active_session()
+        if session is not None and session["admin"]:
+            return _refresh_cookie_when_valid(func, *args, **kwargs)
+        logger.warning(f"Rejected admin request from {request.remote_addr}: logged-in user is not an admin")
         return _unauthorized_response()
     return wrapper
 
 
+def _require_admin_session():
+    """Return a 401/403 response when the active session is not an admin, else None."""
+    session = _active_session()
+    if session is None:
+        return _unauthorized_response()
+    if not session["admin"]:
+        logger.warning(f"Rejected admin request from {request.remote_addr}: logged-in user is not an admin")
+        return jsonify({"error": "Admin privileges required."}), 403
+    return None
+
+
+def admin_session_authenticated(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        denied = _require_admin_session()
+        if denied is not None:
+            return denied
+        return _refresh_cookie_when_valid(func, *args, **kwargs)
+    return wrapper
+
+
+def _login_credentials_configured() -> bool:
+    if _read_env_var("USERNAME") and _read_env_var("PASSWORD"):
+        return True
+    return bool(_load_users())
+
+
+def _load_users() -> list[dict]:
+    raw = _read_env_var("USERS")
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    users: list[dict] = []
+    seen: set[str] = set()
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        username = entry.get("username")
+        password = entry.get("password")
+        if not isinstance(username, str) or not username.strip():
+            continue
+        if not isinstance(password, str) or not password.strip():
+            continue
+        key = username.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        users.append({"username": username, "password": password, "admin": bool(entry.get("admin", False))})
+    return users
+
+
+def _authenticate_user(username: str, password_hash: str) -> dict | None:
+    username_key = username.casefold()
+    for user in _load_users():
+        if username_key == user["username"].casefold() and hmac.compare_digest(password_hash, user["password"]):
+            return {"username": user["username"], "admin": user["admin"]}
+    expected_username = _read_env_var("USERNAME")
+    expected_password = _read_env_var("PASSWORD")
+    if expected_username and expected_password:
+        if username_key == expected_username.casefold() and hmac.compare_digest(password_hash, expected_password):
+            return {"username": expected_username, "admin": False}
+    return None
+
+
+def _validate_login(username: str, password_hash: str) -> bool:
+    return _authenticate_user(username, password_hash) is not None
+
+
+class AccountNotFoundError(RuntimeError):
+    """Raised when the account is not found in the configured credentials."""
+
+
+class CurrentPasswordError(RuntimeError):
+    """Raised when the current password provided does not match the stored one."""
+
+
+def _matching_stored_passwords(username: str) -> list[tuple[str, str]]:
+    """Return the (source, password hash) records configured for the username."""
+    username_key = username.casefold()
+    records: list[tuple[str, str]] = []
+    for user in _load_users():
+        if username_key == user["username"].casefold():
+            records.append(("users", user["password"]))
+    expected_username = _read_env_var("USERNAME")
+    expected_password = _read_env_var("PASSWORD")
+    if expected_username and username_key == expected_username.casefold():
+        records.append(("legacy", expected_password))
+    return records
+
+
+def _set_user_password_env(username: str, new_password_hash: str) -> bool:
+    raw = _read_env_var("USERS")
+    if not raw:
+        return False
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return False
+    if not isinstance(data, list):
+        return False
+    username_key = username.casefold()
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        entry_username = entry.get("username")
+        if isinstance(entry_username, str) and entry_username.casefold() == username_key:
+            entry["password"] = new_password_hash
+            _write_env_var("USERS", json.dumps(data, ensure_ascii=False))
+            return True
+    return False
+
+
+def _change_password(username: str, current_password_hash: str, new_password_hash: str, keep_token: str | None = None) -> None:
+    records = _matching_stored_passwords(username)
+    if not records:
+        raise AccountNotFoundError("Account not found.")
+    if not any(hmac.compare_digest(current_password_hash, stored) for _, stored in records):
+        raise CurrentPasswordError("Current password is incorrect.")
+    for source, _ in records:
+        if source == "users":
+            if not _set_user_password_env(username, new_password_hash):
+                raise AccountNotFoundError("Account not found.")
+        else:
+            _write_env_var("PASSWORD", new_password_hash)
+    _revoke_other_sessions(username, keep_token)
+    logger.info(f"Password changed for user {username!r}")
+
+
+class UsernameTakenError(RuntimeError):
+    """Raised when registering a username that already exists."""
+
+
+def _register_user(username: str, password_hash: str, admin: bool) -> None:
+    username = username.strip()
+    if not username:
+        raise ValueError("Username must not be empty.")
+    if any(ch in username for ch in " ,;\\/:%"):
+        raise ValueError("Username contains prohibited characters.")
+    if len(username) < 8:
+        raise ValueError("Username must be at least 8 characters long.")
+    if not isinstance(password_hash, str) or not password_hash.startswith("$argon2id$"):
+        raise ValueError("Invalid password hash.")
+    username_key = username.casefold()
+    for user in _load_users():
+        if username_key == user["username"].casefold():
+            raise UsernameTakenError("A user with that username already exists.")
+    expected_username = _read_env_var("USERNAME")
+    if expected_username and username_key == expected_username.casefold():
+        raise UsernameTakenError("A user with that username already exists.")
+    raw = _read_env_var("USERS")
+    try:
+        data = json.loads(raw) if raw else []
+    except (json.JSONDecodeError, ValueError, TypeError):
+        data = []
+    if not isinstance(data, list):
+        data = []
+    data.append({"username": username, "password": password_hash, "admin": bool(admin)})
+    _write_env_var("USERS", json.dumps(data, ensure_ascii=False))
+    audio.play_audio("success")()
+    logger.info(f"User {username!r} registered")
+
+
+def _list_users() -> list[dict]:
+    return [{"username": user["username"], "admin": user["admin"]} for user in _load_users()]
+
+
+def _save_users(users: list[dict]) -> None:
+    _write_env_var("USERS", json.dumps(users, ensure_ascii=False))
+
+
+def _rename_session_username(old_username: str, new_username: str) -> None:
+    old_key = old_username.casefold()
+    with _SESSION_LOCK:
+        for session in _SESSION_STORE.values():
+            if session["username"].casefold() == old_key:
+                session["username"] = new_username
+
+
+def _set_session_admin(username: str, admin: bool) -> None:
+    key = username.casefold()
+    with _SESSION_LOCK:
+        for session in _SESSION_STORE.values():
+            if session["username"].casefold() == key:
+                session["admin"] = admin
+
+
+def _delete_session_username(username: str) -> None:
+    key = username.casefold()
+    with _SESSION_LOCK:
+        for token in [t for t, s in _SESSION_STORE.items() if s["username"].casefold() == key]:
+            del _SESSION_STORE[token]
+
+
+def _revoke_other_sessions(username: str, keep_token: str | None) -> None:
+    key = username.casefold()
+    with _SESSION_LOCK:
+        for token in [t for t, s in _SESSION_STORE.items() if s["username"].casefold() == key and t != keep_token]:
+            del _SESSION_STORE[token]
+
+
+@audio.play_audio("acknowledge")
+def _rename_user(username: str, new_username: str) -> dict | None:
+    if not isinstance(new_username, str) or not new_username.strip():
+        raise ValueError("Username must not be empty.")
+    if any(ch in new_username for ch in " ,;\\/:%"):
+        raise ValueError("Username contains prohibited characters.")
+    if len(new_username) < 8:
+        raise ValueError("Username must be at least 8 characters long.")
+    users = _load_users()
+    target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
+    if not target:
+        return None
+    new_key = new_username.casefold()
+    if any(user is not target and user["username"].casefold() == new_key for user in users):
+        raise UsernameTakenError("A user with that username already exists.")
+    expected_username = _read_env_var("USERNAME")
+    if expected_username and new_key == expected_username.casefold():
+        raise UsernameTakenError("A user with that username already exists.")
+    old_username = target["username"]
+    target["username"] = new_username
+    _save_users(users)
+    _rename_session_username(old_username, new_username)
+    logger.info(f"User {old_username!r} renamed to {new_username!r}")
+    return {"username": new_username, "admin": target["admin"]}
+
+
+@audio.play_audio("acknowledge")
+def _set_user_admin(username: str, admin: bool) -> dict | None:
+    if not isinstance(admin, bool):
+        raise ValueError("Invalid admin value.")
+    users = _load_users()
+    target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
+    if not target:
+        return None
+    target["admin"] = admin
+    _save_users(users)
+    _set_session_admin(target["username"], admin)
+    logger.info(f"Admin status set for user {target['username']!r}: admin={admin}")
+    return {"username": target["username"], "admin": target["admin"]}
+
+
+def _delete_user(username: str) -> bool:
+    users = _load_users()
+    remaining = [user for user in users if user["username"].casefold() != username.casefold()]
+    if len(remaining) == len(users):
+        return False
+    _save_users(remaining)
+    _delete_session_username(username)
+    audio.play_audio("success")()
+    logger.info(f"User {username!r} deleted")
+    return True
+
+
 class FeatureDisabledError(RuntimeError):
     """Raised when a feature is disabled and its functionality is unavailable."""
+
+
+class DuplicateNameError(RuntimeError):
+    """Raised when creating/renaming an entity whose name is already taken."""
 
 
 def _require_api_keys_enabled() -> None:
@@ -345,7 +632,7 @@ def standard_endpoint(*methods: str):
 
 
 @app.route("/api/health", methods=["GET", "HEAD", "OPTIONS"])
-@localhost_only
+@network.network_worker_callable
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def health() -> tuple:
     logger.info(f"Health check from {request.remote_addr}")
@@ -372,8 +659,8 @@ def _restart() -> None:
 
 
 @app.route("/api/terminate", methods=["POST", "OPTIONS"])
-@localhost_only
-@api_key_or_cookie_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("POST", "OPTIONS")
 def terminate() -> tuple:
     logger.info(f"Terminate requested by {request.remote_addr}")
@@ -382,8 +669,8 @@ def terminate() -> tuple:
 
 
 @app.route("/api/restart", methods=["POST", "OPTIONS"])
-@localhost_only
-@api_key_or_cookie_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("POST", "OPTIONS")
 def restart() -> tuple:
     logger.info(f"Restart requested by {request.remote_addr}")
@@ -457,11 +744,25 @@ def _set_api_keys_enabled(value: bool) -> None:
     _write_env_bool("API_KEYS_ENABLED", value)
 
 
+def _external_interactions_enabled() -> bool:
+    return bool(NETWORK_INTERACTIONS) and bool(EXTERNAL_ACCESS)
+
+
 @audio.play_audio("acknowledge")
-def _set_network_interactions(value: bool) -> None:
-    global NETWORK_INTERACTIONS
-    NETWORK_INTERACTIONS = value
-    _write_env_bool("NETWORK_INTERACTIONS", value)
+def _set_external_interactions(value: bool) -> None:
+    global NETWORK_INTERACTIONS, EXTERNAL_ACCESS
+    if value:
+        NETWORK_INTERACTIONS = True
+        EXTERNAL_ACCESS = True
+        _write_env_bool("NETWORK_INTERACTIONS", True)
+        _write_env_bool("EXTERNAL_ACCESS", True)
+        _start_external_access_worker()
+    else:
+        EXTERNAL_ACCESS = False
+        NETWORK_INTERACTIONS = False
+        _stop_external_access_worker()
+        _write_env_bool("EXTERNAL_ACCESS", False)
+        _write_env_bool("NETWORK_INTERACTIONS", False)
 
 
 def _resolve_external_host() -> str | None:
@@ -478,6 +779,8 @@ def _resolve_external_host() -> str | None:
 
 
 def _network_worker_bind_address() -> dict:
+    if _external_access_worker is None:
+        return {"address": None, "port": SERVICE_PORT}
     host = _resolve_external_host()
     return {"address": host, "port": SERVICE_PORT}
 
@@ -640,7 +943,7 @@ def _record_network_access_ip_automatic(canonical: str, action: str) -> None:
         return
     entries.append({canonical: action})
     _save_network_access_ips(entries)
-    audio.play_audio("warn")()
+    audio.play_audio("acknowledge")()
 
 
 def _network_worker_ip_policy(remote_addr: str) -> bool:
@@ -651,7 +954,7 @@ def _network_worker_ip_policy(remote_addr: str) -> bool:
     IPs are always recorded in the list with ``"unknown"``. Requests from IPs
     whose action is ``"unknown"``, and requests from IPs not yet in the list,
     are decided by ``NETWORK_ACCESS_ALLOW_NEW``. Recordings made here are
-    automatic and play the warn sound.
+    automatic and play the acknowledge sound.
     """
     try:
         canonical = _canonical_network_ip(ipaddress.ip_address(remote_addr))
@@ -726,22 +1029,22 @@ def _set_shared_memory_enabled(value: bool) -> None:
 
 
 @app.route("/api/settings", methods=["GET", "POST", "HEAD", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
+@session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def settings() -> tuple:
     if request.method == "GET":
         logger.info(f"Settings read by {request.remote_addr}")
         return jsonify({
             "allowDiscovery": _read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
-            "apiKeysEnabled": _read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
             "displayPromotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
-            "networkInteractions": _read_env_bool("NETWORK_INTERACTIONS", NETWORK_INTERACTIONS),
             "externalAccess": _read_env_bool("EXTERNAL_ACCESS", EXTERNAL_ACCESS),
             "networkAccessAllowNew": _read_env_bool("NETWORK_ACCESS_ALLOW_NEW", NETWORK_ACCESS_ALLOW_NEW),
         }), 200
+    denied = _require_admin_session()
+    if denied is not None:
+        return denied
     data = request.get_json(silent=True) or {}
-    keys = [key for key in ("allowDiscovery", "apiKeysEnabled", "displayPromotion", "networkInteractions", "externalAccess", "networkAccessAllowNew") if key in data]
+    keys = [key for key in ("allowDiscovery", "displayPromotion", "externalAccess", "networkAccessAllowNew") if key in data]
     if not keys:
         return jsonify({"error": "No known setting provided."}), 400
     for key in keys:
@@ -750,10 +1053,6 @@ def settings() -> tuple:
             return jsonify({"error": f"{key} must be a boolean."}), 400
         if key == "allowDiscovery":
             _set_allow_discovery(value)
-        elif key == "apiKeysEnabled":
-            _set_api_keys_enabled(value)
-        elif key == "networkInteractions":
-            _set_network_interactions(value)
         elif key == "externalAccess":
             try:
                 _set_external_access(value)
@@ -766,20 +1065,18 @@ def settings() -> tuple:
                 return jsonify({"error": str(exc)}), 403
         else:
             _set_display_promotion(value)
-    logger.info(f"Settings updated by {request.remote_addr}: allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, displayPromotion={DISPLAY_PROMOTION}, networkInteractions={NETWORK_INTERACTIONS}, externalAccess={EXTERNAL_ACCESS}, networkAccessAllowNew={NETWORK_ACCESS_ALLOW_NEW}")
+    logger.info(f"Settings updated by {request.remote_addr}: allowDiscovery={ALLOW_DISCOVERY}, displayPromotion={DISPLAY_PROMOTION}, externalAccess={EXTERNAL_ACCESS}, networkAccessAllowNew={NETWORK_ACCESS_ALLOW_NEW}")
     return jsonify({
         "allowDiscovery": ALLOW_DISCOVERY,
-        "apiKeysEnabled": API_KEYS_ENABLED,
         "displayPromotion": DISPLAY_PROMOTION,
-        "networkInteractions": NETWORK_INTERACTIONS,
         "externalAccess": EXTERNAL_ACCESS,
         "networkAccessAllowNew": NETWORK_ACCESS_ALLOW_NEW,
     }), 200
 
 
 @app.route("/api/audio", methods=["GET", "POST", "HEAD", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@admin_session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def audio_playback() -> tuple:
     if request.method == "GET":
@@ -817,8 +1114,8 @@ def audio_playback() -> tuple:
 
 
 @app.route("/api/audio/play", methods=["POST", "HEAD", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@admin_session_authenticated
 @standard_endpoint("POST", "HEAD", "OPTIONS")
 def play_audio_event() -> tuple:
     data = request.get_json(silent=True) or {}
@@ -836,8 +1133,8 @@ def play_audio_event() -> tuple:
 
 
 @app.route("/api/shared-memory-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@admin_session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def shared_memory_enabled() -> tuple:
     if request.method == "GET":
@@ -856,7 +1153,43 @@ def shared_memory_enabled() -> tuple:
     return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
 
 
-_FORBIDDEN_KEY_NAME_CHARS = set(" ,;:\\/")
+@app.route("/api/api-keys-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.network_worker_callable
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def api_keys_enabled() -> tuple:
+    if request.method == "GET":
+        logger.info(f"API keys enabled setting read by {request.remote_addr}")
+        return jsonify({"apiKeysEnabled": API_KEYS_ENABLED}), 200
+
+    data = request.get_json(silent=True) or {}
+    if "apiKeysEnabled" not in data or not isinstance(data["apiKeysEnabled"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["apiKeysEnabled"]
+    _set_api_keys_enabled(value)
+    logger.info(f"API keys enabled set by {request.remote_addr}: apiKeysEnabled={API_KEYS_ENABLED}")
+    return jsonify({"apiKeysEnabled": API_KEYS_ENABLED}), 200
+
+
+@app.route("/api/external-interactions-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.network_worker_callable
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def external_interactions_enabled() -> tuple:
+    if request.method == "GET":
+        logger.info(f"External interactions enabled setting read by {request.remote_addr}")
+        return jsonify({"externalInteractions": _external_interactions_enabled()}), 200
+
+    data = request.get_json(silent=True) or {}
+    if "externalInteractions" not in data or not isinstance(data["externalInteractions"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["externalInteractions"]
+    _set_external_interactions(value)
+    logger.info(f"External interactions enabled set by {request.remote_addr}: externalInteractions={value}")
+    return jsonify({"externalInteractions": _external_interactions_enabled()}), 200
+
+
+_FORBIDDEN_KEY_NAME_CHARS = set(" ,;:\\/%")
 
 
 def _is_valid_key_name(name: str) -> bool:
@@ -896,6 +1229,8 @@ def _create_api_key(name: str) -> dict:
         raise ValueError("Invalid API key name.")
     key = _generate_api_key()
     keys = _load_api_keys()
+    if any(entry["name"].lower() == name.lower() for entry in keys):
+        raise DuplicateNameError("An API key with this name already exists.")
     entry = {"name": name, "key": key}
     keys.append(entry)
     _save_api_keys(keys)
@@ -922,14 +1257,16 @@ def _rename_api_key(key: str, name: str) -> dict | None:
     target = next((entry for entry in keys if entry["key"] == key), None)
     if not target:
         return None
+    if any(entry["name"].lower() == name.lower() and entry is not target for entry in keys):
+        raise DuplicateNameError("An API key with this name already exists.")
     target["name"] = name
     _save_api_keys(keys)
     return target
 
 
 @app.route("/api/api-keys", methods=["GET", "POST", "HEAD", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def api_keys() -> tuple:
     if request.method == "GET":
@@ -946,6 +1283,8 @@ def api_keys() -> tuple:
         entry = _create_api_key(name)
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
+    except DuplicateNameError as exc:
+        return jsonify({"error": str(exc)}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     logger.info(f"API key generated by {request.remote_addr}: name={name!r}")
@@ -953,8 +1292,8 @@ def api_keys() -> tuple:
 
 
 @app.route("/api/api-keys/<path:key>", methods=["PATCH", "DELETE", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("PATCH", "DELETE", "OPTIONS")
 def api_key_item(key: str) -> tuple:
     if request.method == "DELETE":
@@ -973,6 +1312,8 @@ def api_key_item(key: str) -> tuple:
         target = _rename_api_key(key, name)
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
+    except DuplicateNameError as exc:
+        return jsonify({"error": str(exc)}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     if target is None:
@@ -1051,7 +1392,7 @@ def _create_shared_variable(name: str, value, value_type: str) -> dict:
     value = _normalize_shared_value(value, value_type)
     variables = _load_shared_memory()
     if any(entry["name"].lower() == name.lower() for entry in variables):
-        raise ValueError("A shared variable with this name already exists.")
+        raise DuplicateNameError("A shared variable with this name already exists.")
     entry = {"name": name, "type": value_type, "value": value}
     variables.append(entry)
     _save_shared_memory(variables)
@@ -1084,8 +1425,8 @@ def _delete_shared_variable(name: str) -> bool:
 
 
 @app.route("/api/shared-memory", methods=["GET", "POST", "HEAD", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def shared_memory() -> tuple:
     if request.method == "GET":
@@ -1104,6 +1445,8 @@ def shared_memory() -> tuple:
         entry = _create_shared_variable(name, value, value_type)
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
+    except DuplicateNameError as exc:
+        return jsonify({"error": str(exc)}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     logger.info(f"Shared variable created by {request.remote_addr}: name={name!r} type={value_type!r}")
@@ -1111,8 +1454,8 @@ def shared_memory() -> tuple:
 
 
 @app.route("/api/shared-memory/<path:name>", methods=["DELETE", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("DELETE", "OPTIONS")
 def shared_memory_delete(name: str) -> tuple:
     try:
@@ -1126,9 +1469,8 @@ def shared_memory_delete(name: str) -> tuple:
 
 
 @app.route("/api/shared-memory/<path:name>", methods=["PATCH", "OPTIONS"])
-@localhost_only
-@cookie_authenticated
-@api_key_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("PATCH", "OPTIONS")
 def shared_memory_edit(name: str) -> tuple:
     data = request.get_json(silent=True) or {}
@@ -1147,8 +1489,8 @@ def shared_memory_edit(name: str) -> tuple:
 
 
 @app.route("/api/network-access-ips", methods=["GET", "POST", "HEAD", "OPTIONS"])
-@localhost_only
-@api_key_or_cookie_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def network_access_ips() -> tuple:
     if request.method == "GET":
@@ -1173,8 +1515,8 @@ def network_access_ips() -> tuple:
 
 
 @app.route("/api/network-access-ips/<path:ip>", methods=["PATCH", "DELETE", "OPTIONS"])
-@localhost_only
-@api_key_or_cookie_authenticated
+@network.network_worker_callable
+@api_key_or_admin_authenticated
 @standard_endpoint("PATCH", "DELETE", "OPTIONS")
 def network_access_ip_item(ip: str) -> tuple:
     if request.method == "DELETE":
@@ -1203,8 +1545,8 @@ def network_access_ip_item(ip: str) -> tuple:
     return jsonify(entry), 200
 
 
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def index():
     logger.info(f"Serving UI to {request.remote_addr}")
@@ -1216,32 +1558,30 @@ def index():
     )
 
 
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_css(filename: str):
     css_dir = Path(__file__).resolve().parent.parent / "ui" / "css"
     return send_from_directory(css_dir, filename)
 
 
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_icon(filename: str):
     icons_dir = Path(__file__).resolve().parent.parent / "resources" / "icons"
     return send_from_directory(icons_dir, filename)
 
 
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_page(filename: str):
     pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
     return send_from_directory(pages_dir, filename)
 
 
-@localhost_only
-@cookie_authenticated
+@network.network_worker_callable
+@session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_settings_page():
     pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
@@ -1249,12 +1589,16 @@ def ui_settings_page():
     api_keys = sorted(_load_api_keys(), key=lambda k: (k.get("name") or "").lower())
     shared_memory = _load_shared_memory()
     network_access_ips = _load_network_access_ips()
+    legacy_username = _read_env_var("USERNAME")
+    users = _list_users()
+    session = _active_session()
     return render_template_string(
         template,
+        is_admin=bool(session and session["admin"]),
+        account_username=session["username"] if session else "",
         allow_discovery=_read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
         api_keys_enabled=_read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
         display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
-        network_interactions=_read_env_bool("NETWORK_INTERACTIONS", NETWORK_INTERACTIONS),
         play_audios=_read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
         sounds={event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
         available_audios=audio.list_audio_files(),
@@ -1267,13 +1611,200 @@ def ui_settings_page():
         network_access_allow_new=_read_env_bool("NETWORK_ACCESS_ALLOW_NEW", NETWORK_ACCESS_ALLOW_NEW),
         has_network_access_ips=bool(network_access_ips),
         network_access_ips_json=json.dumps(network_access_ips),
+        external_interactions_enabled=_external_interactions_enabled(),
+        has_users=bool(users),
+        users_json=json.dumps(users),
+        current_username=session["username"] if session else "",
+        legacy_username=legacy_username,
         network_worker_bind=_network_worker_bind_address(),
     )
+
+
+@network.network_worker_callable
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def login_page():
+    if _is_valid_session_cookie():
+        return redirect("/")
+    web_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
+    template = (web_dir / "login.html").read_text(encoding="utf-8")
+    return render_template_string(template)
+
+
+@network.network_worker_callable
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_argon2_script():
+    js_dir = Path(__file__).resolve().parent.parent / "ui" / "js" / "argon2"
+    return send_from_directory(js_dir, "argon2-bundled.min.js")
+
+
+@network.network_worker_callable
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_login_icon():
+    icons_dir = Path(__file__).resolve().parent.parent / "resources" / "icons"
+    return send_from_directory(icons_dir, "akupara.svg")
+
+
+@app.route("/api/login", methods=["POST", "OPTIONS"])
+@network.network_worker_callable
+@standard_endpoint("POST", "OPTIONS")
+def login() -> tuple:
+    data = request.get_json(silent=True) or {}
+    username = data.get("username")
+    password_hash = data.get("password_hash")
+    if not isinstance(username, str) or not isinstance(password_hash, str):
+        return jsonify({"error": "Invalid request."}), 400
+    if not _login_credentials_configured():
+        logger.warning(f"Login rejected from {request.remote_addr}: USERNAME/PASSWORD or USERS not configured in .env")
+        return jsonify({"error": "Login is not configured."}), 403
+    user = _authenticate_user(username, password_hash)
+    if user is not None:
+        response = jsonify({"status": "ok"})
+        _issue_session_cookie(response, user["username"], user["admin"])
+        logger.info(f"Login successful for user {user['username']!r} from {request.remote_addr}")
+        audio.play_audio("success")()
+        return response, 200
+    logger.warning(f"Login failed from {request.remote_addr}")
+    audio.play_audio("error")()
+    return jsonify({"error": "Invalid credentials."}), 401
+
+
+@app.route("/api/change-password", methods=["POST", "OPTIONS"])
+@network.network_worker_callable
+@session_authenticated
+@standard_endpoint("POST", "OPTIONS")
+def change_password() -> tuple:
+    data = request.get_json(silent=True) or {}
+    current_password_hash = data.get("current_password_hash")
+    new_password_hash = data.get("new_password_hash")
+    if (
+        not isinstance(current_password_hash, str)
+        or not current_password_hash
+        or not isinstance(new_password_hash, str)
+        or not new_password_hash
+    ):
+        return jsonify({"error": "Invalid request."}), 400
+    if not new_password_hash.startswith("$argon2id$"):
+        return jsonify({"error": "Invalid new password hash."}), 400
+    session = _active_session()
+    if session is None:
+        return _unauthorized_response()
+    keep_token = request.cookies.get(SESSION_COOKIE_NAME)
+    try:
+        _change_password(session["username"], current_password_hash, new_password_hash, keep_token)
+    except AccountNotFoundError as exc:
+        logger.warning(f"Password change rejected from {request.remote_addr}: {exc}")
+        return jsonify({"error": str(exc)}), 404
+    except CurrentPasswordError as exc:
+        logger.warning(f"Password change rejected from {request.remote_addr}: {exc}")
+        audio.play_audio("error")()
+        return jsonify({"error": str(exc)}), 403
+    audio.play_audio("success")()
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/users", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.network_worker_callable
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def users() -> tuple:
+    if request.method == "GET":
+        users_list = _list_users()
+        logger.info(f"Users list read by {request.remote_addr}")
+        return jsonify({"users": users_list}), 200
+
+    data = request.get_json(silent=True) or {}
+    username = data.get("username")
+    password_hash = data.get("password_hash")
+    admin = data.get("admin", False)
+    if not isinstance(username, str) or not username.strip():
+        return jsonify({"error": "Invalid request."}), 400
+    if not isinstance(password_hash, str) or not password_hash.startswith("$argon2id$"):
+        return jsonify({"error": "Invalid password hash."}), 400
+    if not isinstance(admin, bool):
+        return jsonify({"error": "Invalid request."}), 400
+    try:
+        _register_user(username, password_hash, admin)
+    except UsernameTakenError as exc:
+        logger.warning(f"User registration rejected from {request.remote_addr}: {exc}")
+        return jsonify({"error": str(exc)}), 409
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    logger.info(f"User {username.strip()!r} registered by {request.remote_addr}")
+    return jsonify({"status": "ok"}), 201
+
+
+@app.route("/api/users/<path:username>", methods=["PATCH", "DELETE", "OPTIONS"])
+@network.network_worker_callable
+@admin_session_authenticated
+@standard_endpoint("PATCH", "DELETE", "OPTIONS")
+def user_item(username: str) -> tuple:
+    session = _active_session()
+    if session is None:
+        return _unauthorized_response()
+    if request.method == "DELETE":
+        if username.casefold() == session["username"].casefold():
+            logger.warning(f"Self-deletion rejected from {request.remote_addr}: user {username!r}")
+            return jsonify({"error": "You cannot delete your own account."}), 403
+        deleted = _delete_user(username)
+        if not deleted:
+            return jsonify({"error": "Not found."}), 404
+        logger.info(f"User deleted by {request.remote_addr}: username={username!r}")
+        return jsonify({"status": "ok"}), 200
+
+    data = request.get_json(silent=True) or {}
+    new_username = data.get("new_username")
+    admin = data.get("admin")
+    if new_username is not None:
+        try:
+            target = _rename_user(username, new_username)
+        except UsernameTakenError as exc:
+            logger.warning(f"User rename rejected from {request.remote_addr}: {exc}")
+            return jsonify({"error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if target is None:
+            return jsonify({"error": "Not found."}), 404
+        logger.info(f"User renamed by {request.remote_addr}: {username!r} -> {new_username!r}")
+        return jsonify(target), 200
+    if admin is not None:
+        if not isinstance(admin, bool):
+            return jsonify({"error": "Invalid request."}), 400
+        if username.casefold() == session["username"].casefold():
+            logger.warning(f"Self admin change rejected from {request.remote_addr}: user {username!r}")
+            return jsonify({"error": "You cannot change your own admin status."}), 403
+        target = _set_user_admin(username, admin)
+        if target is None:
+            return jsonify({"error": "Not found."}), 404
+        logger.info(f"Admin status updated by {request.remote_addr}: username={username!r} admin={admin}")
+        return jsonify(target), 200
+    return jsonify({"error": "Invalid request."}), 400
+
+
+@app.route("/api/session", methods=["GET", "HEAD", "OPTIONS"])
+@network.network_worker_callable
+@session_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def session_info() -> tuple:
+    session = _active_session()
+    if session is None:
+        return _unauthorized_response()
+    return jsonify({"username": session["username"], "admin": session["admin"]}), 200
 
 
 def _register_ui_routes(app_instance: Flask) -> None:
     if not GUI_ENABLED:
         return
+    app_instance.add_url_rule("/login", methods=["GET", "HEAD", "OPTIONS"], view_func=login_page)
+    app_instance.add_url_rule(
+        "/ui/js/argon2/argon2-bundled.min.js",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=ui_argon2_script,
+    )
+    app_instance.add_url_rule(
+        "/ui/icons/akupara.svg",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=ui_login_icon,
+    )
     app_instance.add_url_rule("/", methods=["GET", "HEAD", "OPTIONS"], view_func=index)
     app_instance.add_url_rule(
         "/ui/pages/settings.html",

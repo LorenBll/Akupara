@@ -39,7 +39,6 @@ body {
     scrollbar-width: none;
     width: 50vw;
     margin: 0 auto;
-    padding: 0 0 80px;
 }
 
 .view::-webkit-scrollbar {
@@ -163,6 +162,10 @@ body {
     margin: 16px 0;
 }
 
+.pill .separator {
+    margin: 10px 0;
+}
+
 .pill-item {
     display: flex;
     align-items: baseline;
@@ -212,9 +215,17 @@ body {
 }
 
 .page-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 1.25rem;
     font-weight: 600;
     margin-bottom: 16px;
+}
+
+.page-title svg {
+    width: 16px;
+    height: 16px;
 }
 
 .page-card {
@@ -427,6 +438,51 @@ body {
 
 .generate-api-key-btn:hover {
     background: #b8bec6;
+}
+
+.account-summary {
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    margin-bottom: 16px;
+}
+
+.account-summary-item {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    white-space: nowrap;
+}
+
+.password-change-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.account-password-input:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.account-password-input.account-password-input-invalid,
+.account-password-input.account-password-input-invalid:focus {
+    border-color: #dc2626;
+    background: #fee2e2;
+}
+
+.account-password-status {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.account-password-status.error {
+    color: #b91c1c;
+}
+
+.account-password-status.success {
+    color: #15803d;
 }
 
 .shared-variable-generator {
@@ -668,6 +724,13 @@ body {
     text-overflow: ellipsis;
 }
 
+.user-name-cell {
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .api-key-actions-cell {
     white-space: nowrap;
     padding: 8px 4px;
@@ -845,6 +908,16 @@ body {
     color: var(--accent);
 }
 
+.network-access-segment:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.network-access-segment:disabled:hover {
+    background: transparent;
+    color: var(--muted);
+}
+
 .network-access-ip-cell {
     white-space: nowrap;
     overflow: hidden;
@@ -865,7 +938,7 @@ body {
     flex: 1;
 }
 
-.ios-toggle {
+.toggle {
     position: relative;
     flex-shrink: 0;
     width: 46px;
@@ -878,12 +951,17 @@ body {
     transition: background-color 0.3s ease;
 }
 
-.ios-toggle:focus-visible {
+.toggle:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
-.ios-toggle-thumb {
+.toggle:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.toggle-thumb {
     position: absolute;
     top: 2px;
     left: 2px;
@@ -907,19 +985,19 @@ body {
     opacity: 0;
 }
 
-.ios-toggle.on .toggle-lock {
+.toggle.on .toggle-lock {
     opacity: 0;
 }
 
-.ios-toggle.on .toggle-lock-open {
+.toggle.on .toggle-lock-open {
     opacity: 1;
 }
 
-.ios-toggle.on {
+.toggle.on {
     background: var(--border);
 }
 
-.ios-toggle.on .ios-toggle-thumb {
+.toggle.on .toggle-thumb {
     transform: translateX(20px);
 }
 
@@ -1106,6 +1184,13 @@ body {
     padding: 2px 8px;
     border-radius: 6px;
     pointer-events: none;
+}
+
+.floating-tooltip.error-tooltip {
+    color: #b91c1c;
+    background: #fee2e2;
+    border-color: #dc2626;
+    font-weight: 500;
 }
 
 .page-actions {
