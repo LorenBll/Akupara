@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import functools
 import inspect
-import logging
 import os
 import shutil
 import subprocess
 import threading
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from logginglib import log_debug, log_warn
 
 AUDIOS_DIR = Path(__file__).resolve().parent.parent / "resources" / "audios"
 
@@ -105,12 +104,12 @@ class AudioSubWorker(threading.Thread):
 
     def run(self) -> None:
         if not self.path.exists():
-            logger.warning("Audio file not found at %s", self.path)
+            log_warn("Audio file not found", {"path": str(self.path)})
             return
         try:
             self._play()
         except Exception as exc:  # noqa: BLE001 - playback must never crash the worker
-            logger.debug("Audio playback error for %s: %s", self.path.name, exc)
+            log_debug("Audio playback error", {"path": self.path.name, "error": str(exc)})
 
     def _play(self) -> None:
         ffplay = _find_ffplay()
@@ -140,7 +139,7 @@ class AudioSubWorker(threading.Thread):
     def _run_powershell(self) -> None:
         # SoundPlayer does not support speed/volume; loop is simulated manually.
         if self.speed != 1.0 or self.volume != 1.0:
-            logger.debug("speed/volume ignored: PowerShell playback for %s", self.path.name)
+            log_debug("speed/volume ignored: PowerShell playback", {"path": self.path.name})
         while True:
             if self._terminate.is_set():
                 return
@@ -157,7 +156,7 @@ class AudioSubWorker(threading.Thread):
     def _run_aplay(self) -> None:
         # aplay does not support speed/volume; loop is simulated manually.
         if self.speed != 1.0 or self.volume != 1.0:
-            logger.debug("speed/volume ignored: aplay playback for %s", self.path.name)
+            log_debug("speed/volume ignored: aplay playback", {"path": self.path.name})
         while True:
             if self._terminate.is_set():
                 return
@@ -227,7 +226,7 @@ class AudioOrchestrator:
     ) -> AudioSubWorker | None:
         """Create and start a sub-worker to play ``path`` in parallel, if started."""
         if not self.is_started():
-            logger.debug("Audio worker not started; ignoring playback of %s", Path(path).name)
+            log_debug("Audio worker not started; ignoring playback", {"path": Path(path).name})
             return None
         worker = AudioSubWorker(path, speed=speed, volume=volume, loop=loop)
         with self._lock:
@@ -279,11 +278,11 @@ def play_sound(event: str) -> None:
     """Trigger playback of the audio configured for ``event`` (fire-and-forget)."""
     file_name = _read_sound_file(event)
     if not file_name:
-        logger.debug("No audio is configured for %r", event)
+        log_debug("No audio is configured", {"event": event})
         return
     path = AUDIOS_DIR / file_name
     if path.name != file_name or not path.is_file():
-        logger.warning("Configured audio file not found for %r: %s", event, file_name)
+        log_warn("Configured audio file not found", {"event": event, "file": file_name})
         return
     _orchestrator.play(path)
 
