@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import hmac
 import ipaddress
 import json
-import logging
 import os
 import secrets
 import signal
@@ -16,7 +16,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime
+import traceback
 from pathlib import Path
 
 # ============================================================================
@@ -48,7 +48,7 @@ import audio
 
 import network
 
-logger = logging.getLogger(__name__)
+from logginglib import init_logging, log_debug, log_error, log_info, log_warn
 
 SERVICE_HOST = "127.0.0.1"
 SERVICE_PORT = None
@@ -79,26 +79,30 @@ _SESSION_MAX_AGE: int = 900
 _SESSION_LOCK = threading.Lock()
 
 
+def _format_exc() -> str:
+    return traceback.format_exc()
+
+
 def _load_configuration() -> dict:
     global _CONFIG_CACHE
     if _CONFIG_CACHE is not None:
-        logger.debug("Configuration loaded from cache")
+        log_debug("Configuration loaded from cache")
         return _CONFIG_CACHE
 
     config_path = Path(__file__).resolve().parent.parent / "resources" / "configuration.json"
     if not config_path.exists():
-        logger.warning(f"Configuration file not found at {config_path}")
+        log_warn("Configuration file not found", {"path": str(config_path)})
         raise FileNotFoundError("Configuration file not found.")
 
     try:
         with open(config_path, "r", encoding="utf-8-sig") as f:
             config = json.load(f)
     except json.JSONDecodeError as exc:
-        logger.warning(f"Configuration file contains invalid JSON: {exc}")
+        log_warn("Configuration file contains invalid JSON", {"error": str(exc)})
         raise ValueError("Configuration file contains invalid JSON") from exc
 
     _CONFIG_CACHE = config
-    logger.debug(f"Configuration loaded from {config_path}")
+    log_debug("Configuration loaded", {"path": str(config_path)})
     return config
 
 
@@ -117,7 +121,7 @@ def _initialize_service_config() -> None:
     if isinstance(configured_port, str) and configured_port.isdigit():
         configured_port = int(configured_port)
     if not isinstance(configured_port, int):
-        logger.warning(f"Invalid port value in configuration ({configured_port!r}); defaulting to 49150")
+        log_warn("Invalid port value in configuration; defaulting to 49150", {"port": configured_port})
         configured_port = 49150
     SERVICE_PORT = configured_port
 
@@ -147,10 +151,10 @@ def _initialize_service_config() -> None:
     _SESSION_STORE.clear()
 
     if not _login_credentials_configured():
-        logger.warning("Login credentials not configured: set USERNAME and PASSWORD (or USERS) in .env")
+        log_warn("Login credentials not configured", {"hint": "set USERNAME and PASSWORD (or USERS) in .env"})
 
-    logger.debug(f"Resolved config values: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, externalAccess={EXTERNAL_ACCESS}")
-    logger.info("Service configuration initialized")
+    log_debug("Resolved config values", {"port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "allowDiscovery": ALLOW_DISCOVERY, "apiKeysEnabled": API_KEYS_ENABLED, "externalAccess": EXTERNAL_ACCESS})
+    log_info("Service configuration initialized")
 
 
 def _get_local_device_addresses() -> set[str]:
@@ -166,11 +170,11 @@ def _get_local_device_addresses() -> set[str]:
                 for address_info in socket.getaddrinfo(candidate_name, None)
             )
         except OSError:
-            logger.debug(f"getaddrinfo failed for {candidate_name}")
+            log_debug("getaddrinfo failed", {"host": candidate_name})
         try:
             local_addresses.update(socket.gethostbyname_ex(candidate_name)[2])
         except OSError:
-            logger.debug(f"gethostbyname_ex failed for {candidate_name}")
+            log_debug("gethostbyname_ex failed", {"host": candidate_name})
 
     for probe_address in ("8.8.8.8", "1.1.1.1"):
         try:
@@ -178,18 +182,18 @@ def _get_local_device_addresses() -> set[str]:
                 socket_handle.connect((probe_address, 80))
                 local_addresses.add(socket_handle.getsockname()[0])
         except OSError:
-            logger.debug(f"UDP probe to {probe_address} failed")
+            log_debug("UDP probe failed", {"address": probe_address})
 
     normalized_addresses: set[str] = set()
     for address_value in local_addresses:
         try:
             normalized_addresses.add(ipaddress.ip_address(address_value).compressed)
         except ValueError:
-            logger.debug(f"Invalid local address value ignored: {address_value}")
+            log_debug("Invalid local address value ignored", {"address": address_value})
             continue
 
     normalized_addresses.update({"127.0.0.1", "::1"})
-    logger.debug(f"Local device address cache populated: {len(normalized_addresses)} address(es)")
+    log_debug("Local device address cache populated", {"count": len(normalized_addresses)})
     return normalized_addresses
 
 
@@ -204,7 +208,7 @@ def _prune_expired_sessions() -> None:
         for token in expired:
             del _SESSION_STORE[token]
     if expired:
-        logger.debug(f"Pruned {len(expired)} expired session(s)")
+        log_debug("Pruned expired sessions", {"count": len(expired)})
 
 
 def _active_session() -> dict | None:
@@ -218,18 +222,18 @@ def _active_session() -> dict | None:
         if time.time() - session["last_refresh"] > _SESSION_MAX_AGE:
             _SESSION_STORE.pop(provided_token, None)
             return None
-        return {"username": session["username"], "admin": session["admin"]}
+        return {"username": session["username"], "admin": session["admin"], "root": bool(session.get("root", False))}
 
 
 def _is_valid_session_cookie() -> bool:
     return _active_session() is not None
 
 
-def _issue_session_cookie(response, username: str, admin: bool) -> None:
+def _issue_session_cookie(response, username: str, admin: bool, root: bool = False) -> None:
     _prune_expired_sessions()
     token = _generate_session_token()
     with _SESSION_LOCK:
-        _SESSION_STORE[token] = {"username": username, "admin": admin, "last_refresh": time.time()}
+        _SESSION_STORE[token] = {"username": username, "admin": admin, "root": bool(root), "last_refresh": time.time()}
     response.set_cookie(
         SESSION_COOKIE_NAME,
         token,
@@ -260,9 +264,9 @@ def _renew_session_cookie(response) -> None:
 
 def _unauthorized_response():
     if request.path.startswith("/api/"):
-        logger.warning(f"Rejected API request from {request.remote_addr}: missing or invalid refresh cookie")
+        log_warn("Rejected API request: missing or invalid refresh cookie", {"client": request.remote_addr})
         return jsonify({"error": "API key required."}), 401
-    logger.warning(f"Redirecting unauthenticated request from {request.remote_addr} to /login")
+    log_warn("Redirecting unauthenticated request to /login", {"client": request.remote_addr})
     return redirect("/login")
 
 
@@ -297,7 +301,7 @@ def api_key_or_admin_authenticated(func):
         session = _active_session()
         if session is not None and session["admin"]:
             return _refresh_cookie_when_valid(func, *args, **kwargs)
-        logger.warning(f"Rejected admin request from {request.remote_addr}: logged-in user is not an admin")
+        log_warn("Rejected admin request: logged-in user is not an admin", {"client": request.remote_addr})
         return _unauthorized_response()
     return wrapper
 
@@ -308,7 +312,7 @@ def _require_admin_session():
     if session is None:
         return _unauthorized_response()
     if not session["admin"]:
-        logger.warning(f"Rejected admin request from {request.remote_addr}: logged-in user is not an admin")
+        log_warn("Rejected admin request: logged-in user is not an admin", {"client": request.remote_addr})
         return jsonify({"error": "Admin privileges required."}), 403
     return None
 
@@ -320,6 +324,44 @@ def admin_session_authenticated(func):
         if denied is not None:
             return denied
         return _refresh_cookie_when_valid(func, *args, **kwargs)
+    return wrapper
+
+
+def _resolve_actor() -> tuple[str, str] | None:
+    """Return (kind, id) of the authenticated caller (a user session or an API key), or None.
+
+    The id is used only for change logging; it is never exposed through any response.
+    """
+    provided_key = request.headers.get("X-Api-Key")
+    if provided_key:
+        for entry in _load_api_keys():
+            if entry["key"] == provided_key:
+                return ("api-key", str(entry.get("id") or ""))
+        return None
+    session = _active_session()
+    if session:
+        for user in _load_users():
+            if user["username"].casefold() == session["username"].casefold():
+                return ("user", str(user.get("id") or ""))
+        return None
+    return None
+
+
+def log_change(func):
+    """Mark an endpoint as a change: after a successful authenticated call, log the
+    caller's id (user or API key) alongside the request, for the change logs."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        status = result[1] if isinstance(result, tuple) and len(result) > 1 else 200
+        if request.method in ("POST", "PATCH", "DELETE") and isinstance(status, int) and 200 <= status < 300:
+            actor = _resolve_actor()
+            if actor and actor[1]:
+                kind, actor_id = actor
+                log_info("Change recorded", {"kind": kind, "id": actor_id, "method": request.method, "path": request.path, "status": status})
+        return result
+
     return wrapper
 
 
@@ -354,7 +396,13 @@ def _load_users() -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        users.append({"username": username, "password": password, "admin": bool(entry.get("admin", False))})
+        users.append({
+            "username": username,
+            "password": password,
+            "admin": bool(entry.get("admin", False)),
+            "root": bool(entry.get("root", False)),
+            "id": str(entry.get("id") or ""),
+        })
     return users
 
 
@@ -362,12 +410,12 @@ def _authenticate_user(username: str, password_hash: str) -> dict | None:
     username_key = username.casefold()
     for user in _load_users():
         if username_key == user["username"].casefold() and hmac.compare_digest(password_hash, user["password"]):
-            return {"username": user["username"], "admin": user["admin"]}
+            return {"username": user["username"], "admin": user["admin"], "root": user["root"]}
     expected_username = _read_env_var("USERNAME")
     expected_password = _read_env_var("PASSWORD")
     if expected_username and expected_password:
         if username_key == expected_username.casefold() and hmac.compare_digest(password_hash, expected_password):
-            return {"username": expected_username, "admin": False}
+            return {"username": expected_username, "admin": False, "root": False}
     return None
 
 
@@ -432,7 +480,7 @@ def _change_password(username: str, current_password_hash: str, new_password_has
         else:
             _write_env_var("PASSWORD", new_password_hash)
     _revoke_other_sessions(username, keep_token)
-    logger.info(f"Password changed for user {username!r}")
+    log_info("Password changed for user", {"username": username})
 
 
 class UsernameTakenError(RuntimeError):
@@ -463,14 +511,20 @@ def _register_user(username: str, password_hash: str, admin: bool) -> None:
         data = []
     if not isinstance(data, list):
         data = []
-    data.append({"username": username, "password": password_hash, "admin": bool(admin)})
+    data.append({"username": username, "password": password_hash, "admin": bool(admin), "root": False, "id": secrets.token_hex(16)})
     _write_env_var("USERS", json.dumps(data, ensure_ascii=False))
     audio.play_audio("success")()
-    logger.info(f"User {username!r} registered")
+    log_info("User registered", {"username": username})
 
 
 def _list_users() -> list[dict]:
-    return [{"username": user["username"], "admin": user["admin"]} for user in _load_users()]
+    users = [{"username": user["username"], "admin": user["admin"], "root": user["root"]} for user in _load_users()]
+    users.sort(key=lambda user: (not user["root"], not user["admin"], user["username"].casefold()))
+    return users
+
+
+def _is_root_username(username: str) -> bool:
+    return any(user["root"] for user in _load_users() if user["username"].casefold() == username.casefold())
 
 
 def _save_users(users: list[dict]) -> None:
@@ -529,8 +583,8 @@ def _rename_user(username: str, new_username: str) -> dict | None:
     target["username"] = new_username
     _save_users(users)
     _rename_session_username(old_username, new_username)
-    logger.info(f"User {old_username!r} renamed to {new_username!r}")
-    return {"username": new_username, "admin": target["admin"]}
+    log_info("User renamed", {"old_username": old_username, "new_username": new_username})
+    return {"username": new_username, "admin": target["admin"], "root": target["root"]}
 
 
 @audio.play_audio("acknowledge")
@@ -541,22 +595,27 @@ def _set_user_admin(username: str, admin: bool) -> dict | None:
     target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
     if not target:
         return None
+    if target["root"] and not admin:
+        raise ValueError("The root user cannot lose admin status.")
     target["admin"] = admin
     _save_users(users)
     _set_session_admin(target["username"], admin)
-    logger.info(f"Admin status set for user {target['username']!r}: admin={admin}")
-    return {"username": target["username"], "admin": target["admin"]}
+    log_info("Admin status set for user", {"username": target["username"], "admin": admin})
+    return {"username": target["username"], "admin": target["admin"], "root": target["root"]}
 
 
 def _delete_user(username: str) -> bool:
     users = _load_users()
-    remaining = [user for user in users if user["username"].casefold() != username.casefold()]
-    if len(remaining) == len(users):
+    target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
+    if target is None:
         return False
+    if target["root"]:
+        raise ValueError("The root user cannot be deleted.")
+    remaining = [user for user in users if user["username"].casefold() != username.casefold()]
     _save_users(remaining)
     _delete_session_username(username)
     audio.play_audio("success")()
-    logger.info(f"User {username!r} deleted")
+    log_info("User deleted", {"username": username})
     return True
 
 
@@ -609,10 +668,10 @@ def set_connection_header(response):
     content_type = response.headers.get("Content-Type", "")
     if content_type.startswith("text/html"):
         response.headers["Connection"] = "keep-alive"
-        logger.debug(f"Connection set to keep-alive for {request.path}")
+        log_debug("Connection set to keep-alive", {"path": request.path})
     else:
         response.headers["Connection"] = "close"
-        logger.debug(f"Connection set to close for {request.path}")
+        log_debug("Connection set to close", {"path": request.path})
     return response
 
 
@@ -621,10 +680,10 @@ def standard_endpoint(*methods: str):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             if request.method == "OPTIONS":
-                logger.debug(f"OPTIONS request handled for {request.path}")
+                log_debug("OPTIONS request handled", {"path": request.path})
                 return _options_response(list(methods))
             if request.method == "HEAD":
-                logger.debug(f"HEAD request handled for {request.path}")
+                log_debug("HEAD request handled", {"path": request.path})
                 return _head_response()
             return func(*args, **kwargs)
         return wrapper
@@ -635,7 +694,7 @@ def standard_endpoint(*methods: str):
 @network.network_worker_callable
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def health() -> tuple:
-    logger.info(f"Health check from {request.remote_addr}")
+    log_info("Health check", {"client": request.remote_addr})
 
     return jsonify({
         "status": "ok",
@@ -648,32 +707,34 @@ def health() -> tuple:
 
 
 def _terminate() -> None:
-    logger.info("Akupara terminating")
+    log_info("Akupara terminating")
     os.kill(os.getpid(), signal.SIGTERM)
 
 
 def _restart() -> None:
-    logger.info("Akupara restarting")
+    log_info("Akupara restarting")
     subprocess.Popen([sys.executable, str(Path(__file__).resolve())] + sys.argv[1:])
     os._exit(0)
 
 
 @app.route("/api/terminate", methods=["POST", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("POST", "OPTIONS")
 def terminate() -> tuple:
-    logger.info(f"Terminate requested by {request.remote_addr}")
+    log_info("Terminate requested", {"client": request.remote_addr})
     threading.Timer(0.5, _terminate).start()
     return jsonify({"status": "ok", "message": "Akupara is terminating."}), 200
 
 
 @app.route("/api/restart", methods=["POST", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("POST", "OPTIONS")
 def restart() -> tuple:
-    logger.info(f"Restart requested by {request.remote_addr}")
+    log_info("Restart requested", {"client": request.remote_addr})
     threading.Timer(0.5, _restart).start()
     return jsonify({"status": "ok", "message": "Akupara is restarting."}), 200
 
@@ -791,13 +852,13 @@ def _start_external_access_worker() -> None:
         return
     host = _resolve_external_host()
     if host is None:
-        logger.warning("External access worker not started: no non-loopback device address available")
+        log_warn("External access worker not started: no non-loopback device address available")
         return
     worker = network.ExternalAccessWorker(app, host, SERVICE_PORT, ip_policy=_network_worker_ip_policy)
     try:
         worker.start()
     except OSError as exc:
-        logger.error(f"External access worker failed to start on {host}:{SERVICE_PORT}: {exc}")
+        log_error("External access worker failed to start", {"host": host, "port": SERVICE_PORT, "error": str(exc)})
         return
     _external_access_worker = worker
 
@@ -1029,11 +1090,12 @@ def _set_shared_memory_enabled(value: bool) -> None:
 
 
 @app.route("/api/settings", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@log_change
 @session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def settings() -> tuple:
     if request.method == "GET":
-        logger.info(f"Settings read by {request.remote_addr}")
+        log_info("Settings read", {"client": request.remote_addr})
         return jsonify({
             "allowDiscovery": _read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
             "displayPromotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
@@ -1065,7 +1127,7 @@ def settings() -> tuple:
                 return jsonify({"error": str(exc)}), 403
         else:
             _set_display_promotion(value)
-    logger.info(f"Settings updated by {request.remote_addr}: allowDiscovery={ALLOW_DISCOVERY}, displayPromotion={DISPLAY_PROMOTION}, externalAccess={EXTERNAL_ACCESS}, networkAccessAllowNew={NETWORK_ACCESS_ALLOW_NEW}")
+    log_info("Settings updated", {"client": request.remote_addr, "allowDiscovery": ALLOW_DISCOVERY, "displayPromotion": DISPLAY_PROMOTION, "externalAccess": EXTERNAL_ACCESS, "networkAccessAllowNew": NETWORK_ACCESS_ALLOW_NEW})
     return jsonify({
         "allowDiscovery": ALLOW_DISCOVERY,
         "displayPromotion": DISPLAY_PROMOTION,
@@ -1076,11 +1138,12 @@ def settings() -> tuple:
 
 @app.route("/api/audio", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @admin_session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def audio_playback() -> tuple:
     if request.method == "GET":
-        logger.info(f"Audio settings read by {request.remote_addr}")
+        log_info("Audio settings read", {"client": request.remote_addr})
         return jsonify({
             "playAudios": _read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
             "sounds": {event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
@@ -1105,7 +1168,7 @@ def audio_playback() -> tuple:
             return jsonify({"error": str(exc)}), 403
         except ValueError:
             return jsonify({"error": "Invalid request."}), 400
-    logger.info(f"Audio settings updated by {request.remote_addr}: playAudios={PLAY_AUDIOS}")
+    log_info("Audio settings updated", {"client": request.remote_addr, "playAudios": PLAY_AUDIOS})
     return jsonify({
         "playAudios": PLAY_AUDIOS,
         "sounds": {event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
@@ -1115,6 +1178,7 @@ def audio_playback() -> tuple:
 
 @app.route("/api/audio/play", methods=["POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @admin_session_authenticated
 @standard_endpoint("POST", "HEAD", "OPTIONS")
 def play_audio_event() -> tuple:
@@ -1128,17 +1192,18 @@ def play_audio_event() -> tuple:
         return jsonify({"error": str(exc)}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
-    logger.info(f"Audio play triggered by {request.remote_addr}: event={event_name}")
+    log_info("Audio play triggered", {"client": request.remote_addr, "event": event_name})
     return jsonify({"status": "ok"}), 200
 
 
 @app.route("/api/shared-memory-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @admin_session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def shared_memory_enabled() -> tuple:
     if request.method == "GET":
-        logger.info(f"Shared memory enabled setting read by {request.remote_addr}")
+        log_info("Shared memory enabled setting read", {"client": request.remote_addr})
         return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1149,17 +1214,18 @@ def shared_memory_enabled() -> tuple:
         _set_shared_memory_enabled(value)
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
-    logger.info(f"Shared memory enabled set by {request.remote_addr}: sharedMemoryEnabled={SHARED_MEMORY_ENABLED}")
+    log_info("Shared memory enabled set", {"client": request.remote_addr, "sharedMemoryEnabled": SHARED_MEMORY_ENABLED})
     return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
 
 
 @app.route("/api/api-keys-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @admin_session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def api_keys_enabled() -> tuple:
     if request.method == "GET":
-        logger.info(f"API keys enabled setting read by {request.remote_addr}")
+        log_info("API keys enabled setting read", {"client": request.remote_addr})
         return jsonify({"apiKeysEnabled": API_KEYS_ENABLED}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1167,17 +1233,18 @@ def api_keys_enabled() -> tuple:
         return jsonify({"error": "Invalid request."}), 400
     value = data["apiKeysEnabled"]
     _set_api_keys_enabled(value)
-    logger.info(f"API keys enabled set by {request.remote_addr}: apiKeysEnabled={API_KEYS_ENABLED}")
+    log_info("API keys enabled set", {"client": request.remote_addr, "apiKeysEnabled": API_KEYS_ENABLED})
     return jsonify({"apiKeysEnabled": API_KEYS_ENABLED}), 200
 
 
 @app.route("/api/external-interactions-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @admin_session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def external_interactions_enabled() -> tuple:
     if request.method == "GET":
-        logger.info(f"External interactions enabled setting read by {request.remote_addr}")
+        log_info("External interactions enabled setting read", {"client": request.remote_addr})
         return jsonify({"externalInteractions": _external_interactions_enabled()}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1185,7 +1252,7 @@ def external_interactions_enabled() -> tuple:
         return jsonify({"error": "Invalid request."}), 400
     value = data["externalInteractions"]
     _set_external_interactions(value)
-    logger.info(f"External interactions enabled set by {request.remote_addr}: externalInteractions={value}")
+    log_info("External interactions enabled set", {"client": request.remote_addr, "externalInteractions": value})
     return jsonify({"externalInteractions": _external_interactions_enabled()}), 200
 
 
@@ -1196,20 +1263,31 @@ def _is_valid_key_name(name: str) -> bool:
     return bool(name) and not any(ch in name for ch in _FORBIDDEN_KEY_NAME_CHARS)
 
 
+def _api_key_id(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
 def _load_api_keys() -> list[dict]:
     value = _read_env_var("API_KEYS")
     keys: list[dict] = []
     for part in value.split(","):
         part = part.strip()
-        if not part or ":" not in part:
+        if not part:
             continue
-        name, _, key = part.partition(":")
-        keys.append({"name": name.strip(), "key": key.strip()})
+        fields = part.split(":")
+        if len(fields) < 2:
+            continue
+        name = fields[0].strip()
+        key = fields[1].strip()
+        if not name or not key:
+            continue
+        key_id = fields[2].strip() if len(fields) > 2 and fields[2].strip() else _api_key_id(key)
+        keys.append({"name": name, "key": key, "id": key_id})
     return keys
 
 
 def _save_api_keys(keys: list[dict]) -> None:
-    value = ",".join(f"{entry['name']}:{entry['key']}" for entry in keys)
+    value = ",".join(f"{entry['name']}:{entry['key']}:{entry.get('id') or _api_key_id(entry['key'])}" for entry in keys)
     _write_env_var("API_KEYS", value)
 
 
@@ -1219,7 +1297,7 @@ def _generate_api_key() -> str:
 
 def _list_api_keys() -> list[dict]:
     _require_api_keys_enabled()
-    return _load_api_keys()
+    return [{"name": entry["name"], "key": entry["key"]} for entry in _load_api_keys()]
 
 
 @audio.play_audio("success")
@@ -1231,10 +1309,10 @@ def _create_api_key(name: str) -> dict:
     keys = _load_api_keys()
     if any(entry["name"].lower() == name.lower() for entry in keys):
         raise DuplicateNameError("An API key with this name already exists.")
-    entry = {"name": name, "key": key}
+    entry = {"name": name, "key": key, "id": _api_key_id(key)}
     keys.append(entry)
     _save_api_keys(keys)
-    return entry
+    return {"name": entry["name"], "key": entry["key"]}
 
 
 def _delete_api_key(key: str) -> bool:
@@ -1261,11 +1339,12 @@ def _rename_api_key(key: str, name: str) -> dict | None:
         raise DuplicateNameError("An API key with this name already exists.")
     target["name"] = name
     _save_api_keys(keys)
-    return target
+    return {"name": target["name"], "key": target["key"]}
 
 
 @app.route("/api/api-keys", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def api_keys() -> tuple:
@@ -1274,7 +1353,7 @@ def api_keys() -> tuple:
             keys = _list_api_keys()
         except FeatureDisabledError as exc:
             return jsonify({"error": str(exc)}), 403
-        logger.info(f"API keys read by {request.remote_addr}")
+        log_info("API keys read", {"client": request.remote_addr})
         return jsonify({"apiKeys": keys}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1287,12 +1366,13 @@ def api_keys() -> tuple:
         return jsonify({"error": str(exc)}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
-    logger.info(f"API key generated by {request.remote_addr}: name={name!r}")
+    log_info("API key generated", {"client": request.remote_addr, "name": name})
     return jsonify(entry), 201
 
 
 @app.route("/api/api-keys/<path:key>", methods=["PATCH", "DELETE", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("PATCH", "DELETE", "OPTIONS")
 def api_key_item(key: str) -> tuple:
@@ -1303,7 +1383,7 @@ def api_key_item(key: str) -> tuple:
             return jsonify({"error": str(exc)}), 403
         if not deleted:
             return jsonify({"error": "Not found."}), 404
-        logger.info(f"API key deleted by {request.remote_addr}")
+        log_info("API key deleted", {"client": request.remote_addr})
         return jsonify({"status": "ok"}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1318,7 +1398,7 @@ def api_key_item(key: str) -> tuple:
         return jsonify({"error": "Invalid request."}), 400
     if target is None:
         return jsonify({"error": "Not found."}), 404
-    logger.info(f"API key renamed by {request.remote_addr}: name={name!r}")
+    log_info("API key renamed", {"client": request.remote_addr, "name": name})
     return jsonify(target), 200
 
 
@@ -1426,6 +1506,7 @@ def _delete_shared_variable(name: str) -> bool:
 
 @app.route("/api/shared-memory", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def shared_memory() -> tuple:
@@ -1434,7 +1515,7 @@ def shared_memory() -> tuple:
             variables = _list_shared_memory()
         except FeatureDisabledError as exc:
             return jsonify({"error": str(exc)}), 403
-        logger.info(f"Shared memory read by {request.remote_addr}")
+        log_info("Shared memory read", {"client": request.remote_addr})
         return jsonify({"sharedMemory": variables}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1449,12 +1530,13 @@ def shared_memory() -> tuple:
         return jsonify({"error": str(exc)}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
-    logger.info(f"Shared variable created by {request.remote_addr}: name={name!r} type={value_type!r}")
+    log_info("Shared variable created", {"client": request.remote_addr, "name": name, "type": value_type})
     return jsonify(entry), 201
 
 
 @app.route("/api/shared-memory/<path:name>", methods=["DELETE", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("DELETE", "OPTIONS")
 def shared_memory_delete(name: str) -> tuple:
@@ -1464,12 +1546,13 @@ def shared_memory_delete(name: str) -> tuple:
         return jsonify({"error": str(exc)}), 403
     if not deleted:
         return jsonify({"error": "Not found."}), 404
-    logger.info(f"Shared variable deleted by {request.remote_addr}: name={name!r}")
+    log_info("Shared variable deleted", {"client": request.remote_addr, "name": name})
     return jsonify({"status": "ok"}), 200
 
 
 @app.route("/api/shared-memory/<path:name>", methods=["PATCH", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("PATCH", "OPTIONS")
 def shared_memory_edit(name: str) -> tuple:
@@ -1484,12 +1567,13 @@ def shared_memory_edit(name: str) -> tuple:
         return jsonify({"error": "Invalid request."}), 400
     if target is None:
         return jsonify({"error": "Not found."}), 404
-    logger.info(f"Shared variable updated by {request.remote_addr}: name={name!r}")
+    log_info("Shared variable updated", {"client": request.remote_addr, "name": name})
     return jsonify(target), 200
 
 
 @app.route("/api/network-access-ips", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def network_access_ips() -> tuple:
@@ -1498,7 +1582,7 @@ def network_access_ips() -> tuple:
             entries = _list_network_access_ips()
         except FeatureDisabledError as exc:
             return jsonify({"error": str(exc)}), 403
-        logger.info(f"Network access IPs read by {request.remote_addr}")
+        log_info("Network access IPs read", {"client": request.remote_addr})
         return jsonify({"networkAccessIps": entries}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1510,12 +1594,13 @@ def network_access_ips() -> tuple:
         return jsonify({"error": str(exc)}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
-    logger.info(f"Network access IP saved by {request.remote_addr}: {entry}")
+    log_info("Network access IP saved", {"client": request.remote_addr, "entry": entry})
     return jsonify(entry), 201 if created else 200
 
 
 @app.route("/api/network-access-ips/<path:ip>", methods=["PATCH", "DELETE", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @api_key_or_admin_authenticated
 @standard_endpoint("PATCH", "DELETE", "OPTIONS")
 def network_access_ip_item(ip: str) -> tuple:
@@ -1528,7 +1613,7 @@ def network_access_ip_item(ip: str) -> tuple:
             return jsonify({"error": "Invalid request."}), 400
         if not deleted:
             return jsonify({"error": "Not found."}), 404
-        logger.info(f"Network access IP deleted by {request.remote_addr}: {ip}")
+        log_info("Network access IP deleted", {"client": request.remote_addr, "ip": ip})
         return jsonify({"status": "ok"}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1541,7 +1626,7 @@ def network_access_ip_item(ip: str) -> tuple:
         return jsonify({"error": "Invalid request."}), 400
     if entry is None:
         return jsonify({"error": "Not found."}), 404
-    logger.info(f"Network access IP updated by {request.remote_addr}: {ip}")
+    log_info("Network access IP updated", {"client": request.remote_addr, "ip": ip})
     return jsonify(entry), 200
 
 
@@ -1549,7 +1634,7 @@ def network_access_ip_item(ip: str) -> tuple:
 @session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def index():
-    logger.info(f"Serving UI to {request.remote_addr}")
+    log_info("Serving UI", {"client": request.remote_addr})
     web_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
     template = (web_dir / "index.html").read_text(encoding="utf-8")
     return render_template_string(
@@ -1595,6 +1680,7 @@ def ui_settings_page():
     return render_template_string(
         template,
         is_admin=bool(session and session["admin"]),
+        is_root=bool(session and session.get("root", False)),
         account_username=session["username"] if session else "",
         allow_discovery=_read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
         api_keys_enabled=_read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
@@ -1654,22 +1740,23 @@ def login() -> tuple:
     if not isinstance(username, str) or not isinstance(password_hash, str):
         return jsonify({"error": "Invalid request."}), 400
     if not _login_credentials_configured():
-        logger.warning(f"Login rejected from {request.remote_addr}: USERNAME/PASSWORD or USERS not configured in .env")
+        log_warn("Login rejected: USERNAME/PASSWORD or USERS not configured in .env", {"client": request.remote_addr})
         return jsonify({"error": "Login is not configured."}), 403
     user = _authenticate_user(username, password_hash)
     if user is not None:
         response = jsonify({"status": "ok"})
-        _issue_session_cookie(response, user["username"], user["admin"])
-        logger.info(f"Login successful for user {user['username']!r} from {request.remote_addr}")
+        _issue_session_cookie(response, user["username"], user["admin"], user.get("root", False))
+        log_info("Login successful for user", {"username": user["username"], "client": request.remote_addr})
         audio.play_audio("success")()
         return response, 200
-    logger.warning(f"Login failed from {request.remote_addr}")
+    log_warn("Login failed", {"client": request.remote_addr})
     audio.play_audio("error")()
     return jsonify({"error": "Invalid credentials."}), 401
 
 
 @app.route("/api/change-password", methods=["POST", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @session_authenticated
 @standard_endpoint("POST", "OPTIONS")
 def change_password() -> tuple:
@@ -1692,10 +1779,10 @@ def change_password() -> tuple:
     try:
         _change_password(session["username"], current_password_hash, new_password_hash, keep_token)
     except AccountNotFoundError as exc:
-        logger.warning(f"Password change rejected from {request.remote_addr}: {exc}")
+        log_warn("Password change rejected", {"client": request.remote_addr, "error": str(exc)})
         return jsonify({"error": str(exc)}), 404
     except CurrentPasswordError as exc:
-        logger.warning(f"Password change rejected from {request.remote_addr}: {exc}")
+        log_warn("Password change rejected", {"client": request.remote_addr, "error": str(exc)})
         audio.play_audio("error")()
         return jsonify({"error": str(exc)}), 403
     audio.play_audio("success")()
@@ -1704,12 +1791,13 @@ def change_password() -> tuple:
 
 @app.route("/api/users", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @admin_session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def users() -> tuple:
     if request.method == "GET":
         users_list = _list_users()
-        logger.info(f"Users list read by {request.remote_addr}")
+        log_info("Users list read", {"client": request.remote_addr})
         return jsonify({"users": users_list}), 200
 
     data = request.get_json(silent=True) or {}
@@ -1725,16 +1813,17 @@ def users() -> tuple:
     try:
         _register_user(username, password_hash, admin)
     except UsernameTakenError as exc:
-        logger.warning(f"User registration rejected from {request.remote_addr}: {exc}")
+        log_warn("User registration rejected", {"client": request.remote_addr, "error": str(exc)})
         return jsonify({"error": str(exc)}), 409
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    logger.info(f"User {username.strip()!r} registered by {request.remote_addr}")
+    log_info("User registered", {"username": username.strip(), "client": request.remote_addr})
     return jsonify({"status": "ok"}), 201
 
 
 @app.route("/api/users/<path:username>", methods=["PATCH", "DELETE", "OPTIONS"])
 @network.network_worker_callable
+@log_change
 @admin_session_authenticated
 @standard_endpoint("PATCH", "DELETE", "OPTIONS")
 def user_item(username: str) -> tuple:
@@ -1743,39 +1832,50 @@ def user_item(username: str) -> tuple:
         return _unauthorized_response()
     if request.method == "DELETE":
         if username.casefold() == session["username"].casefold():
-            logger.warning(f"Self-deletion rejected from {request.remote_addr}: user {username!r}")
+            log_warn("Self-deletion rejected", {"client": request.remote_addr, "user": username})
             return jsonify({"error": "You cannot delete your own account."}), 403
-        deleted = _delete_user(username)
+        try:
+            deleted = _delete_user(username)
+        except ValueError as exc:
+            log_warn("Root deletion rejected", {"client": request.remote_addr, "user": username})
+            return jsonify({"error": str(exc)}), 403
         if not deleted:
             return jsonify({"error": "Not found."}), 404
-        logger.info(f"User deleted by {request.remote_addr}: username={username!r}")
+        log_info("User deleted", {"client": request.remote_addr, "username": username})
         return jsonify({"status": "ok"}), 200
 
     data = request.get_json(silent=True) or {}
     new_username = data.get("new_username")
     admin = data.get("admin")
     if new_username is not None:
+        if _is_root_username(username) and not session.get("root", False):
+            log_warn("Non-root rename of root rejected", {"client": request.remote_addr, "user": username})
+            return jsonify({"error": "Only the root user can change its username."}), 403
         try:
             target = _rename_user(username, new_username)
         except UsernameTakenError as exc:
-            logger.warning(f"User rename rejected from {request.remote_addr}: {exc}")
+            log_warn("User rename rejected", {"client": request.remote_addr, "error": str(exc)})
             return jsonify({"error": str(exc)}), 409
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         if target is None:
             return jsonify({"error": "Not found."}), 404
-        logger.info(f"User renamed by {request.remote_addr}: {username!r} -> {new_username!r}")
+        log_info("User renamed", {"client": request.remote_addr, "old_username": username, "new_username": new_username})
         return jsonify(target), 200
     if admin is not None:
         if not isinstance(admin, bool):
             return jsonify({"error": "Invalid request."}), 400
         if username.casefold() == session["username"].casefold():
-            logger.warning(f"Self admin change rejected from {request.remote_addr}: user {username!r}")
+            log_warn("Self admin change rejected", {"client": request.remote_addr, "user": username})
             return jsonify({"error": "You cannot change your own admin status."}), 403
-        target = _set_user_admin(username, admin)
+        try:
+            target = _set_user_admin(username, admin)
+        except ValueError as exc:
+            log_warn("Root admin change rejected", {"client": request.remote_addr, "user": username})
+            return jsonify({"error": str(exc)}), 403
         if target is None:
             return jsonify({"error": "Not found."}), 404
-        logger.info(f"Admin status updated by {request.remote_addr}: username={username!r} admin={admin}")
+        log_info("Admin status updated", {"client": request.remote_addr, "username": username, "admin": admin})
         return jsonify(target), 200
     return jsonify({"error": "Invalid request."}), 400
 
@@ -1788,7 +1888,7 @@ def session_info() -> tuple:
     session = _active_session()
     if session is None:
         return _unauthorized_response()
-    return jsonify({"username": session["username"], "admin": session["admin"]}), 200
+    return jsonify({"username": session["username"], "admin": session["admin"], "root": bool(session.get("root", False))}), 200
 
 
 def _register_ui_routes(app_instance: Flask) -> None:
@@ -1830,60 +1930,36 @@ def _register_ui_routes(app_instance: Flask) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Akupara")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose/debug logging")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args, _ = parser.parse_known_args()
 
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    log_dir = Path(__file__).resolve().parent.parent / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / f"{datetime.now().strftime('%d-%m-%Y_%H.%M.%S')}.log"
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(log_file, encoding="utf-8"),
-        ],
-    )
-    logger.info(f"Log file: {log_file}")
+    init_logging("Akupara", debug=args.debug)
 
     try:
         _initialize_service_config()
         _register_ui_routes(app)
     except Exception as exc:
-        logger.error(f"Failed to load configuration: {exc}", exc_info=True)
+        log_error("Failed to load configuration", {"error": str(exc), "traceback": _format_exc()})
         exit(1)
 
     if EXTERNAL_ACCESS:
         _start_external_access_worker()
 
     try:
-        logger.info("=" * 50)
-        logger.info("  Akupara")
-        logger.info("=" * 50)
-        logger.info(f"Binding to: http://{SERVICE_HOST}:{SERVICE_PORT}")
-        logger.info(f"Mode: private (local only)")
-        if GUI_ENABLED:
-            logger.info("GUI: enabled")
-        else:
-            logger.info("GUI: disabled")
-        logger.info(f"Config: port={SERVICE_PORT}, guiEnabled={GUI_ENABLED}, allowDiscovery={ALLOW_DISCOVERY}, apiKeysEnabled={API_KEYS_ENABLED}, externalAccess={EXTERNAL_ACCESS}")
-        logger.info("Server starting...")
+        log_info("Akupara starting", {"bind": f"http://{SERVICE_HOST}:{SERVICE_PORT}", "mode": "private (local only)", "gui": GUI_ENABLED, "port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "allowDiscovery": ALLOW_DISCOVERY, "apiKeysEnabled": API_KEYS_ENABLED, "externalAccess": EXTERNAL_ACCESS})
 
         app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)
 
     except OSError as exc:
         if "Address already in use" in str(exc):
-            logger.error(f"Port {SERVICE_PORT} is already in use. Change the port in resources/configuration.json")
+            log_error("Port already in use", {"port": SERVICE_PORT, "hint": "Change the port in resources/configuration.json"})
         elif "Permission denied" in str(exc):
-            logger.error(f"Permission denied to bind to port {SERVICE_PORT}. Use a port >= 1024 or run with elevated privileges.")
+            log_error("Permission denied to bind to port", {"port": SERVICE_PORT, "hint": "Use a port >= 1024 or run with elevated privileges."})
         else:
-            logger.error(f"Network binding failed: {exc}")
+            log_error("Network binding failed", {"error": str(exc)})
 
     except KeyboardInterrupt:
-        logger.info("=" * 50)
-        logger.info("  Server Stopped")
-        logger.info("=" * 50)
+        log_info("Akupara stopped")
 
     except Exception as exc:
-        logger.error(f"Server startup failed: {exc}")
+        log_error("Server startup failed", {"error": str(exc)})

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import threading
 
 from werkzeug.exceptions import NotFound
 from werkzeug.serving import make_server
 
-logger = logging.getLogger(__name__)
+from logginglib import log_debug, log_info
 
 _MARKER = "_network_worker_callable"
 
@@ -79,7 +78,7 @@ class ExternalAccessWorker:
             daemon=True,
         )
         self._thread.start()
-        logger.info("External access worker started on http://%s:%s", self._host, self._port)
+        log_info("External access worker started", {"host": self._host, "port": self._port})
 
     def stop(self) -> None:
         """Stop serving the app and release the socket (idempotent)."""
@@ -91,7 +90,7 @@ class ExternalAccessWorker:
             try:
                 server.shutdown()
             except Exception as exc:  # noqa: BLE001
-                logger.debug("External access worker shutdown error: %s", exc)
+                log_debug("External access worker shutdown error", {"error": str(exc)})
         if thread is not None:
             thread.join(timeout=5)
-        logger.info("External access worker stopped")
+        log_info("External access worker stopped")

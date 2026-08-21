@@ -25,9 +25,13 @@ Akupara binds to `127.0.0.1` on port `49150` and rejects non-local requests. It 
 
 ## Run
 
-1. Windows: run `scripts\run.bat` (add `--verbose` for debug output).
-2. Unix-like: run `bash scripts/run.sh` (add `--verbose` for debug output).
-3. Manual: run `python src/main.py` from the project root (add `--verbose` for debug output).
+1. Windows: run `scripts\run.bat` (add `--debug` for debug output).
+2. Unix-like: run `bash scripts/run.sh` (add `--debug` for debug output).
+3. Manual: run `python src/main.py` from the project root (add `--debug` for debug output).
+
+## Logging
+
+Akupara writes JSON log events to `logs/` (one file per start, e.g. `DD-MM-YYYY_HH.MM.SS.json`). Each event carries `timestamp`, `type` (`ERROR`/`WARN`/`INFO`/`DEBUG`), `title`, `data` and `hash`. `DEBUG` events are only written when the service is started with `--debug`. Log files older than 14 days are pruned automatically at every start.
 
 ## Access Control
 
