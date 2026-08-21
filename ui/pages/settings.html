@@ -1,17 +1,36 @@
 <section class="page-content">
-    <h2 class="page-title">Settings</h2>
+    <h2 class="page-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>Settings</h2>
     <div class="page-card">
         <h3 class="card-title">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-            Configuration
+            General
         </h3>
+        <h4 class="card-section-title">Account</h4>
+        <div class="account-summary">
+            <div class="account-summary-item">
+                <span class="pill-label">USERNAME</span>
+                <span class="pill-value" id="accountUsernameValue">{{ account_username }}</span>
+            </div>
+            <div class="account-summary-item">
+                <span class="pill-label">ROLE</span>
+                <span class="pill-value" id="accountRoleValue" data-admin="{{ 'true' if is_admin else 'false' }}">{{ 'Admin' if is_admin else 'Standard User' }}</span>
+            </div>
+        </div>
+        <div class="password-change-row">
+            <input type="password" id="currentPasswordInput" class="api-key-name-input account-password-input" placeholder="Current Password" autocomplete="current-password" aria-label="Current password">
+            <input type="password" id="newPasswordInput" class="api-key-name-input account-password-input" placeholder="New Password" autocomplete="new-password" aria-label="New password" disabled>
+            <input type="password" id="confirmPasswordInput" class="api-key-name-input account-password-input" placeholder="Confirm New Password" autocomplete="new-password" aria-label="Confirm new password" disabled>
+            <button type="button" class="generate-api-key-btn" id="changePasswordBtn" disabled>Change Password</button>
+        </div>
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Functionalities</h4>
         <div class="settings-row">
             <div class="data-indicator">
                 <span class="data-indicator-label">API Keys</span>
             </div>
             <p class="data-indicator-description">Controls whether the API keys functionality is enabled.</p>
-            <button type="button" class="ios-toggle{{ ' on' if api_keys_enabled else '' }}" id="apiKeysEnabledToggle" role="switch" aria-checked="{{ 'true' if api_keys_enabled else 'false' }}" aria-label="Enable the API keys functionality">
-                <span class="ios-toggle-thumb"></span>
+            <button type="button" class="toggle{{ ' on' if api_keys_enabled else '' }}" id="apiKeysEnabledToggle" role="switch" aria-checked="{{ 'true' if api_keys_enabled else 'false' }}" aria-label="Enable the API keys functionality"{{ '' if is_admin else ' disabled' }}>
+                <span class="toggle-thumb"></span>
             </button>
         </div>
         <div class="settings-row">
@@ -19,20 +38,52 @@
                 <span class="data-indicator-label">Allow Discovery</span>
             </div>
             <p class="data-indicator-description">Controls whether plugins can discover one another.</p>
-            <button type="button" class="ios-toggle{{ ' on' if allow_discovery else '' }}" id="allowDiscoveryToggle" role="switch" aria-checked="{{ 'true' if allow_discovery else 'false' }}" aria-label="Allow plugins to discover one another">
-                <span class="ios-toggle-thumb"></span>
+            <button type="button" class="toggle{{ ' on' if allow_discovery else '' }}" id="allowDiscoveryToggle" role="switch" aria-checked="{{ 'true' if allow_discovery else 'false' }}" aria-label="Allow plugins to discover one another"{{ '' if is_admin else ' disabled' }}>
+                <span class="toggle-thumb"></span>
             </button>
         </div>
         <div class="settings-row">
             <div class="data-indicator">
-                <span class="data-indicator-label">Network Interactions</span>
+                <span class="data-indicator-label">External Interactions</span>
             </div>
-            <p class="data-indicator-description">Controls whether plugins can interact with the network.</p>
-            <button type="button" class="ios-toggle{{ ' on' if network_interactions else '' }}" id="networkInteractionsToggle" role="switch" aria-checked="{{ 'true' if network_interactions else 'false' }}" aria-label="Enable network interactions">
-                <span class="ios-toggle-thumb"></span>
+            <p class="data-indicator-description">Controls whether external devices can access the service over the network.</p>
+            <button type="button" class="toggle{{ ' on' if external_interactions_enabled else '' }}" id="externalInteractionsToggle" role="switch" aria-checked="{{ 'true' if external_interactions_enabled else 'false' }}" aria-label="Enable external interactions"{{ '' if is_admin else ' disabled' }}>
+                <span class="toggle-thumb"></span>
             </button>
         </div>
     </div>
+    {% if is_admin %}
+    <div class="page-card" id="usersCard">
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Users
+        </h3>
+        <div class="password-change-row">
+            <input type="text" id="registerUsernameInput" class="api-key-name-input account-password-input" placeholder="Username" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="New username">
+            <input type="password" id="registerPasswordInput" class="api-key-name-input account-password-input" placeholder="Password" autocomplete="new-password" aria-label="New password">
+            <input type="password" id="registerConfirmInput" class="api-key-name-input account-password-input" placeholder="Confirm Password" autocomplete="new-password" aria-label="Confirm password" disabled>
+            <div class="network-access-segmented" id="registerAdminSegmented">
+                <button type="button" class="network-access-segment selected" data-value="false">Standard</button>
+                <button type="button" class="network-access-segment" data-value="true">Admin</button>
+            </div>
+            <button type="button" class="generate-api-key-btn" id="registerUserBtn" disabled>Register User</button>
+        </div>
+        <div class="api-keys-table-wrap">
+            <table class="api-keys-table" id="usersTable"{{ '' if has_users else ' hidden' }}>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody" data-users="{{ users_json|e }}" data-current="{{ current_username|e }}" data-legacy="{{ legacy_username|e }}"></tbody>
+            </table>
+            <p class="api-keys-empty" id="usersEmpty"{{ '' if not has_users else ' hidden' }}>No users registered</p>
+        </div>
+    </div>
+    {% endif %}
+    {% if is_admin %}
     <div class="page-card" id="apiKeysCard"{{ '' if api_keys_enabled else ' hidden' }}>
         <h3 class="card-title">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>
@@ -70,8 +121,8 @@
                 <span class="data-indicator-label">Shared Memory</span>
             </div>
             <p class="data-indicator-description">Controls whether plugins can share memory with one another.</p>
-            <button type="button" class="ios-toggle{{ ' on' if shared_memory_enabled else '' }}" id="sharedMemoryEnabledToggle" role="switch" aria-checked="{{ 'true' if shared_memory_enabled else 'false' }}" aria-label="Enable the shared memory feature">
-                <span class="ios-toggle-thumb"></span>
+            <button type="button" class="toggle{{ ' on' if shared_memory_enabled else '' }}" id="sharedMemoryEnabledToggle" role="switch" aria-checked="{{ 'true' if shared_memory_enabled else 'false' }}" aria-label="Enable the shared memory feature">
+                <span class="toggle-thumb"></span>
             </button>
         </div>
         <div class="shared-memory-content{{ '' if shared_memory_enabled else ' shared-memory-disabled' }}">
@@ -122,7 +173,7 @@
         </div>
         </div>
     </div>
-    <div class="page-card" id="networkInteractionsCard"{{ '' if network_interactions else ' hidden' }}>
+    <div class="page-card" id="networkInteractionsCard"{{ '' if external_interactions_enabled else ' hidden' }}>
         <h3 class="card-title">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
             Network Interactions
@@ -130,7 +181,7 @@
         <div class="network-worker-bind">
             <div class="pill-item">
                 <span class="pill-label">BIND ADDRESS</span>
-                <span class="pill-value">{{ network_worker_bind.address or 'Not available' }}</span>
+                <span class="pill-value">{{ network_worker_bind.address or 'Disabled' }}</span>
             </div>
             <div class="pill-item">
                 <span class="pill-label">PORT</span>
@@ -150,8 +201,8 @@
                     <span class="data-indicator-label">Policy for New IPs</span>
                 </div>
                 <p class="data-indicator-description">Controls whether IPs not yet in the known list are allowed to interact.</p>
-                <button type="button" class="ios-toggle{{ ' on' if network_access_allow_new else '' }}" id="networkAccessAllowNewToggle" role="switch" aria-checked="{{ 'true' if network_access_allow_new else 'false' }}" aria-label="Allow new IPs by default" data-tooltip-on="Allow" data-tooltip-off="Block">
-                    <span class="ios-toggle-thumb">
+                <button type="button" class="toggle{{ ' on' if network_access_allow_new else '' }}" id="networkAccessAllowNewToggle" role="switch" aria-checked="{{ 'true' if network_access_allow_new else 'false' }}" aria-label="Allow new IPs by default" data-tooltip-on="Allow" data-tooltip-off="Block">
+                    <span class="toggle-thumb">
                         <svg class="toggle-lock" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                         <svg class="toggle-lock-open" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
                     </span>
@@ -181,6 +232,8 @@
             </div>
         </div>
     </div>
+    {% endif %}
+    {% if is_admin %}
     <div class="page-card">
         <h3 class="card-title">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
@@ -192,8 +245,8 @@
                 <span class="data-indicator-label">Display Promotion</span>
             </div>
             <p class="data-indicator-description">Shows the "report issues" and "created by" line at the bottom of the page.</p>
-            <button type="button" class="ios-toggle{{ ' on' if display_promotion else '' }}" id="displayPromotionToggle" role="switch" aria-checked="{{ 'true' if display_promotion else 'false' }}" aria-label="Show the promotion line">
-                <span class="ios-toggle-thumb"></span>
+            <button type="button" class="toggle{{ ' on' if display_promotion else '' }}" id="displayPromotionToggle" role="switch" aria-checked="{{ 'true' if display_promotion else 'false' }}" aria-label="Show the promotion line">
+                <span class="toggle-thumb"></span>
             </button>
         </div>
         <hr class="card-section-separator">
@@ -203,8 +256,8 @@
                 <span class="data-indicator-label">Play Audios</span>
             </div>
             <p class="data-indicator-description">Controls whether Akupara plays audio sounds.</p>
-            <button type="button" class="ios-toggle{{ ' on' if play_audios else '' }}" id="playAudiosToggle" role="switch" aria-checked="{{ 'true' if play_audios else 'false' }}" aria-label="Play audio sounds">
-                <span class="ios-toggle-thumb"></span>
+            <button type="button" class="toggle{{ ' on' if play_audios else '' }}" id="playAudiosToggle" role="switch" aria-checked="{{ 'true' if play_audios else 'false' }}" aria-label="Play audio sounds">
+                <span class="toggle-thumb"></span>
             </button>
         </div>
         {% for event, label in sound_events %}
@@ -240,4 +293,5 @@
             Restart Akupara
         </button>
     </div>
+    {% endif %}
 </section>

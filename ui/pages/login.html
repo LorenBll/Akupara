@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login - Akupara</title>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --panel: #f9fafb;
+            --ink: #1a1a1a;
+            --muted: #6b7280;
+            --border: #d1d5db;
+            --accent: #374151;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            font-family: 'Cascadia Code', monospace;
+            color: var(--ink);
+            background: var(--bg);
+        }
+        .title {
+            font-size: 2.5rem;
+            font-weight: 600;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+        .title-icon {
+            height: 1em;
+            width: auto;
+        }
+        .title-link {
+            color: inherit;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+        .card {
+            width: min(420px, 90vw);
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 32px 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 340px;
+        }
+        .card h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--muted);
+            letter-spacing: 0.08em;
+            margin-bottom: 20px;
+        }
+        .field {
+            margin-bottom: 16px;
+        }
+        .field label {
+            display: block;
+            font-size: 0.72rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 6px;
+        }
+        .field input {
+            width: 100%;
+            padding: 10px 12px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            color: var(--ink);
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            outline: none;
+        }
+        .field input:focus {
+            border-color: var(--accent);
+        }
+        .submit-btn {
+            width: 100%;
+            height: 29px;
+            padding: 0 16px;
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: var(--accent);
+            background: var(--border);
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+        }
+        .submit-btn:hover {
+            background: #b8bec6;
+        }
+        .submit-btn:disabled {
+            cursor: wait;
+        }
+        .status {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #b91c1c;
+        }
+        .status.idle {
+            color: var(--muted);
+        }
+        @keyframes slideUpFadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .load-in {
+            opacity: 0;
+            animation: slideUpFadeIn 0.4s ease both;
+        }
+        .init-hidden {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+    </style>
+</head>
+<body>
+    <div class="title init-hidden"><a class="title-link" href="https://www.github.com/LorenBll/Akupara" target="_blank" rel="noopener"><img src="/ui/icons/akupara.svg" alt="" class="title-icon">Akupara</a></div>
+    <div class="card init-hidden">
+        <h2>Sign In</h2>
+        <form id="loginForm" autocomplete="on">
+            <div class="field">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+            </div>
+            <div class="field">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="submit-btn" id="submitBtn">Sign in</button>
+        </form>
+        <div class="status idle" id="status" role="status"></div>
+    </div>
+
+    <script src="/ui/js/argon2/argon2-bundled.min.js"></script>
+    <script>
+        (function () {
+            function triggerLoadIn() {
+                var items = [
+                    { el: document.querySelector('.title'), delay: 0.3 },
+                    { el: document.querySelector('.card'), delay: 0.45 }
+                ];
+                requestAnimationFrame(function () {
+                    items.forEach(function (item) {
+                        if (!item.el) return;
+                        item.el.style.animationDelay = item.delay + 's';
+                        item.el.classList.remove('init-hidden');
+                        item.el.classList.add('load-in');
+                        item.el.addEventListener('animationend', function () {
+                            this.classList.remove('load-in');
+                            this.style.animationDelay = '';
+                        }, { once: true });
+                    });
+                });
+            }
+
+            triggerLoadIn();
+
+            var form = document.getElementById('loginForm');
+            var usernameInput = document.getElementById('username');
+            var passwordInput = document.getElementById('password');
+            var submitBtn = document.getElementById('submitBtn');
+            var statusEl = document.getElementById('status');
+            var errorTimeout = null;
+
+            var SALT = 'akupara-salt';
+            var PARAMS = { time: 2, mem: 65536, hashLen: 32, parallelism: 1, type: argon2.ArgonType.Argon2id };
+
+            usernameInput.value = '';
+
+            function showError(message) {
+                statusEl.textContent = message;
+                statusEl.classList.remove('idle');
+                if (errorTimeout) clearTimeout(errorTimeout);
+                errorTimeout = setTimeout(clearStatus, 3000);
+            }
+
+            function clearStatus() {
+                statusEl.textContent = '';
+                statusEl.classList.add('idle');
+                if (errorTimeout) {
+                    clearTimeout(errorTimeout);
+                    errorTimeout = null;
+                }
+            }
+
+            function setBusy(busy) {
+                submitBtn.disabled = busy;
+                if (busy) {
+                    statusEl.textContent = 'Signing in...';
+                    statusEl.classList.add('idle');
+                } else if (statusEl.textContent === 'Signing in...') {
+                    statusEl.textContent = '';
+                    statusEl.classList.add('idle');
+                }
+            }
+
+            function hashPassword(password) {
+                var options = { pass: password, salt: SALT };
+                for (var key in PARAMS) options[key] = PARAMS[key];
+                return argon2.hash(options).then(function (result) {
+                    return result.encoded;
+                });
+            }
+
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                clearStatus();
+                var username = usernameInput.value.trim();
+                var password = passwordInput.value;
+                if (!username || !password) {
+                    showError('Enter a username and password.');
+                    return;
+                }
+                setBusy(true);
+                hashPassword(password)
+                    .then(function (passwordHash) {
+                        return fetch('/api/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ username: username, password_hash: passwordHash })
+                        });
+                    })
+                    .then(function (response) {
+                        if (response.status === 200) {
+                            window.location.href = '/';
+                            return;
+                        }
+                        return response.json().then(function (data) {
+                            throw new Error((data && data.error) || 'Login failed.');
+                        });
+                    })
+                    .catch(function (error) {
+                        showError(error.message || 'Login failed.');
+                        setBusy(false);
+                    });
+            });
+        })();
+    </script>
+</body>
+</html>

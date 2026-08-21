@@ -8,7 +8,7 @@
 </head>
 <body>
     <header class="page-header">
-        <h1 class="title init-hidden"><a href="#" class="title-link"><img src="/ui/icons/akupara.svg" alt="" class="title-icon">Akupara</a></h1>
+        <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/Akupara" target="_blank" rel="noopener" class="title-link"><img src="/ui/icons/akupara.svg" alt="" class="title-icon">Akupara</a></h1>
         <div class="pill init-hidden">
             <div class="pill-row">
                 <div class="pill-item"><span class="pill-label">HOSTNAME</span><span class="pill-value" data-field="hostname">--</span></div>
@@ -18,9 +18,8 @@
                 <div class="pill-item"><span class="pill-label">STATUS</span><span class="pill-value pill-value-emphasis" data-field="status">--</span></div>
                 <div class="pill-item"><span class="pill-label">REGISTERED PLUGINS</span><span class="pill-value" data-field="registered_plugins">--</span></div>
             </div>
-            <div class="pill-expandable">
-                <div class="separator"></div>
-                <div class="pill-row pill-actions">
+            <div class="separator"></div>
+            <div class="pill-row pill-actions">
                     <button class="pill-action-btn" aria-label="Home" data-page="home" data-label="Home">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V10"/></svg>
                     </button>
@@ -31,7 +30,6 @@
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg>
                     </button>
                 </div>
-            </div>
         </div>
     </header>
 
@@ -47,6 +45,9 @@
 
     <div class="floating-tooltip" id="tableTooltip" hidden></div>
 
+    <div class="floating-tooltip error-tooltip" id="errorTooltip" hidden></div>
+
+    <script src="/ui/js/argon2/argon2-bundled.min.js"></script>
     <script>
         function triggerLoadIn() {
             var items = [
@@ -75,7 +76,7 @@
             options.credentials = 'same-origin';
             return fetch(url, options).then(function (r) {
                 if (r.status === 401) {
-                    return fetch(url, options);
+                    window.location.href = '/login';
                 }
                 return r;
             });
@@ -110,6 +111,7 @@
         var isFirstLoad = true;
 
         function setActivePage(page) {
+            currentPage = page;
             pageButtons.forEach(function (btn) {
                 btn.disabled = btn.getAttribute('data-page') === page;
             });
@@ -118,12 +120,9 @@
         function loadPage(page) {
             hideSliderTooltip();
             hideSectionTooltip();
+            hideErrorTooltip();
             animateCardIndicatorsOut();
-            var keysReq = page === 'settings'
-                ? fetchWithHandshake('/api/api-keys')
-                    .then(function (r) { return r.ok ? r.json() : null; })
-                    .catch(function () { return null; })
-                : Promise.resolve(null);
+            var keysReq = Promise.resolve(null);
             fetchWithHandshake('/ui/pages/' + page + '.html')
                 .then(function (r) {
                     if (!r.ok) throw new Error('Failed to load ' + page);
@@ -133,6 +132,10 @@
                     setTimeout(function () {
                         var html = results[0];
                         var keysData = results[1];
+                        if (html.indexOf('loginForm') !== -1) {
+                            window.location.href = '/login';
+                            return;
+                        }
                         viewEl.innerHTML = html;
                         var content = viewEl.firstElementChild;
                         var loadInDelay = 0;
@@ -155,10 +158,28 @@
                         wireAdvancedSettingsSection();
                         wireApiKeyGenerator();
                         wireApiKeysTable();
+                        wireAccountSection();
 wireSoundDropdowns();
                         wireAudioSoundDropdowns();
                         wireSharedVariableGenerator();
                         wireSharedMemoryTable();
+                        wireUserRegistration();
+                        var usersTbody = document.getElementById('usersTableBody');
+                        if (usersTbody && usersTbody.dataset.users) {
+                            try {
+                                usersList = JSON.parse(usersTbody.dataset.users);
+                            } catch (e) {
+                                usersList = [];
+                            }
+                        }
+                        currentUsername = (usersTbody && usersTbody.dataset.current) || '';
+                        legacyUsername = (usersTbody && usersTbody.dataset.legacy) || '';
+                        var roleEl = document.getElementById('accountRoleValue');
+                        lastSessionAdmin = roleEl ? roleEl.dataset.admin === 'true' : false;
+                        rebuildRegisteredUsernames();
+                        renderUsersTable(usersList);
+                        wireUsersTable();
+                        loadUsers();
                         var sharedTbody = document.getElementById('sharedMemoryTableBody');
                         if (sharedTbody && sharedTbody.dataset.variables) {
                             try {
@@ -218,6 +239,27 @@ wireSoundDropdowns();
         var apiKeysList = [];
         var sharedVariablesList = [];
         var networkAccessIpsList = [];
+        var usersList = [];
+        var currentUsername = '';
+        var legacyUsername = '';
+        var currentPage = '';
+        var lastSessionAdmin = false;
+        var registeredUsernames = [];
+
+        function rebuildRegisteredUsernames() {
+            var names = usersList.map(function (u) { return u.username; });
+            if (legacyUsername) names.push(legacyUsername);
+            registeredUsernames = names;
+        }
+
+        function isUsernameTaken(username, excludeName) {
+            var u = String(username || '').trim().toLowerCase();
+            if (!u) return false;
+            return registeredUsernames.some(function (name) {
+                if (excludeName && String(name).toLowerCase() === String(excludeName).toLowerCase()) return false;
+                return String(name).toLowerCase() === u;
+            });
+        }
 
         function isApiKeyNameTaken(name, excludeKey) {
             var n = String(name || '').trim().toLowerCase();
@@ -229,11 +271,19 @@ wireSoundDropdowns();
         }
 
         function refreshApiKeyInputInvalid(input) {
-            if (input._flashTimer) return;
-            input.classList.toggle('api-key-input-invalid', isApiKeyNameTaken(input.value, input.dataset.excludeKey));
+            var taken = isApiKeyNameTaken(input.value, input.dataset.excludeKey);
+            if (!input._flashTimer) {
+                input.classList.toggle('api-key-input-invalid', taken);
+            }
+            if (!taken) {
+                hideErrorTooltip();
+            } else {
+                showErrorTooltip(input, 'That name is already taken.');
+            }
         }
 
         function flashApiKeyInputRed(input) {
+            if (input.classList.contains('api-key-input-invalid')) return;
             if (input._flashTimer) clearTimeout(input._flashTimer);
             input.classList.remove('api-key-input-invalid');
             void input.offsetWidth;
@@ -244,23 +294,33 @@ wireSoundDropdowns();
             }, 600);
         }
 
+        function refreshApiKeyGenerateBtn() {
+            var input = document.getElementById('apiKeyNameInput');
+            var btn = document.getElementById('generateApiKeyBtn');
+            if (!input || !btn) return;
+            var name = input.value.trim();
+            btn.disabled = name === '' || isApiKeyNameTaken(name);
+        }
+
         function wireApiKeyGenerator() {
             var input = document.getElementById('apiKeyNameInput');
             if (!input) return;
             input.addEventListener('keydown', function (event) {
-                if (event.key.length === 1 && /[ ,;\\/]/.test(event.key)) {
+                if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
                     event.preventDefault();
                     flashApiKeyInputRed(this);
                 }
             });
             input.addEventListener('input', function () {
                 var before = this.value;
-                this.value = this.value.replace(/[ ,;\\/]/g, '');
+                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
                 if (this.value !== before) {
                     flashApiKeyInputRed(this);
                 }
                 refreshApiKeyInputInvalid(this);
+                refreshApiKeyGenerateBtn();
             });
+            refreshApiKeyGenerateBtn();
         }
 
         function generateApiKey() {
@@ -269,10 +329,12 @@ wireSoundDropdowns();
             var name = input.value.trim();
             if (!name) {
                 flashApiKeyInputRed(input);
+                showErrorTooltip(input, 'Name cannot be empty.');
                 return;
             }
             if (isApiKeyNameTaken(name)) {
                 flashApiKeyInputRed(input);
+                showErrorTooltip(input, 'That name is already taken.');
                 return;
             }
             fetchWithHandshake('/api/api-keys', {
@@ -285,6 +347,8 @@ wireSoundDropdowns();
                     if (data && typeof data.key === 'string') {
                         input.value = '';
                         refreshApiKeyInputInvalid(input);
+                        refreshApiKeyGenerateBtn();
+                        hideErrorTooltip();
                         loadApiKeys();
                     }
                 })
@@ -318,6 +382,7 @@ wireSoundDropdowns();
             if (!input) return;
             input.value = randomApiKeyName();
             refreshApiKeyInputInvalid(input);
+            refreshApiKeyGenerateBtn();
             input.focus();
         }
 
@@ -386,7 +451,24 @@ wireSoundDropdowns();
             tableTooltip.hidden = true;
         }
 
+        function showErrorTooltip(target, message) {
+            var tooltip = document.getElementById('errorTooltip');
+            if (!tooltip || !target || !message) return;
+            tooltip.textContent = message;
+            tooltip.hidden = false;
+            var tooltipRect = tooltip.getBoundingClientRect();
+            var r = target.getBoundingClientRect();
+            tooltip.style.left = Math.round(r.left + r.width / 2 - tooltipRect.width / 2) + 'px';
+            tooltip.style.top = Math.round(r.top - tooltipRect.height - 8) + 'px';
+        }
+
+        function hideErrorTooltip() {
+            var tooltip = document.getElementById('errorTooltip');
+            if (tooltip) tooltip.hidden = true;
+        }
+
         function loadApiKeys() {
+            if (!document.getElementById('apiKeysTableBody')) return;
             fetchWithHandshake('/api/api-keys')
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (data) {
@@ -398,6 +480,7 @@ wireSoundDropdowns();
         }
 
         function loadSharedMemory() {
+            if (!document.getElementById('sharedMemoryTableBody')) return;
             fetchWithHandshake('/api/shared-memory')
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (data) {
@@ -417,10 +500,11 @@ wireSoundDropdowns();
         }
 
         function isSharedVariableNameValid(n) {
-            return typeof n === 'string' && n.trim() !== '' && !/[ ,;\\/]/.test(n);
+            return typeof n === 'string' && n.trim() !== '' && !/[ ,;\\/:%]/.test(n);
         }
 
         function flashSharedVariableInvalid(el) {
+            if (el.classList.contains('api-key-input-invalid')) return;
             if (el._flashTimer) clearTimeout(el._flashTimer);
             el.classList.remove('api-key-input-invalid');
             void el.offsetWidth;
@@ -448,6 +532,23 @@ wireSoundDropdowns();
             var boolean = getSoundDropdownValue(typeDropdown) === 'boolean';
             valueInput.hidden = boolean;
             booleanDropdown.hidden = !boolean;
+            var addBtn = document.getElementById('addSharedVariableBtn');
+            if (addBtn) addBtn.disabled = !isSharedVariableFormReady();
+        }
+
+        function isSharedVariableFormReady() {
+            var nameInput = document.getElementById('sharedVariableNameInput');
+            var typeDropdown = document.getElementById('sharedVariableTypeDropdown');
+            var valueInput = document.getElementById('sharedVariableValueInput');
+            var booleanDropdown = document.getElementById('sharedVariableBooleanDropdown');
+            if (!nameInput || !typeDropdown || !valueInput || !booleanDropdown) return false;
+            if (!isSharedVariableNameValid(nameInput.value)) return false;
+            if (isSharedVariableNameTaken(nameInput.value)) return false;
+            var type = getSoundDropdownValue(typeDropdown);
+            if (!type) return false;
+            if (type === 'boolean') return getSoundDropdownValue(booleanDropdown) !== '';
+            if (type === 'integer' || type === 'float') return valueInput.value.trim() !== '';
+            return true;
         }
 
         function isSharedValueCharAllowed(ch, type) {
@@ -465,18 +566,24 @@ wireSoundDropdowns();
             if (!nameInput || !typeDropdown || !valueInput || !booleanDropdown || !addBtn) return;
 
             nameInput.addEventListener('keydown', function (event) {
-                if (event.key.length === 1 && /[ ,;\\/]/.test(event.key)) {
+                if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
                     event.preventDefault();
                     flashSharedVariableInvalid(this);
                 }
             });
             nameInput.addEventListener('input', function () {
                 var before = this.value;
-                this.value = this.value.replace(/[ ,;\\/]/g, '');
+                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
                 if (this.value !== before) {
                     flashSharedVariableInvalid(this);
                 }
-                this.classList.toggle('api-key-input-invalid', isSharedVariableNameTaken(this.value));
+                var taken = isSharedVariableNameTaken(this.value);
+                this.classList.toggle('api-key-input-invalid', taken);
+                if (taken) {
+                    showErrorTooltip(this, 'That name is already taken.');
+                } else {
+                    hideErrorTooltip();
+                }
                 updateSharedVariableInputs();
             });
 
@@ -486,12 +593,17 @@ wireSoundDropdowns();
                 if (typeBtn) typeBtn.classList.remove('api-key-input-invalid');
                 valueInput.classList.remove('api-key-input-invalid');
                 if (booleanBtn) booleanBtn.classList.remove('api-key-input-invalid');
+                valueInput.value = '';
+                resetSoundDropdown(booleanDropdown);
                 updateSharedVariableInputs();
+                hideErrorTooltip();
             };
 
             booleanDropdown._onSelect = function () {
                 var booleanBtn = getSoundDropdownButton(booleanDropdown);
                 if (booleanBtn) booleanBtn.classList.remove('api-key-input-invalid');
+                updateSharedVariableInputs();
+                hideErrorTooltip();
             };
 
             valueInput.addEventListener('keydown', function (event) {
@@ -509,9 +621,12 @@ wireSoundDropdowns();
                     this.value = filtered;
                     flashSharedVariableInvalid(this);
                 }
+                updateSharedVariableInputs();
+                hideErrorTooltip();
             });
 
             addBtn.addEventListener('click', addSharedVariable);
+            updateSharedVariableInputs();
         }
 
         function addSharedVariable() {
@@ -524,16 +639,19 @@ wireSoundDropdowns();
             var name = nameInput.value.trim();
             var type = getSoundDropdownValue(typeDropdown);
 
-            if (!name || /[ ,;\\/]/.test(name)) {
+            if (!name || /[ ,;\\/:%]/.test(name)) {
                 flashSharedVariableInvalid(nameInput);
+                showErrorTooltip(nameInput, 'Enter a valid name.');
                 return;
             }
             if (isSharedVariableNameTaken(name)) {
                 flashSharedVariableInvalid(nameInput);
+                showErrorTooltip(nameInput, 'That name is already taken.');
                 return;
             }
             if (!type) {
                 flashSharedVariableInvalid(getSoundDropdownButton(typeDropdown));
+                showErrorTooltip(getSoundDropdownButton(typeDropdown), 'Select a type.');
                 return;
             }
 
@@ -542,6 +660,7 @@ wireSoundDropdowns();
                 var booleanValue = getSoundDropdownValue(booleanDropdown);
                 if (booleanValue === '') {
                     flashSharedVariableInvalid(getSoundDropdownButton(booleanDropdown));
+                    showErrorTooltip(getSoundDropdownButton(booleanDropdown), 'Select a value.');
                     return;
                 }
                 value = booleanValue === 'true';
@@ -553,6 +672,7 @@ wireSoundDropdowns();
                     else if (type === 'dictionary') value = {};
                     else {
                         flashSharedVariableInvalid(valueInput);
+                        showErrorTooltip(valueInput, 'A value is required for this type.');
                         return;
                     }
                 } else {
@@ -572,6 +692,7 @@ wireSoundDropdowns();
                         }
                     } catch (e) {
                         flashSharedVariableInvalid(valueInput);
+                        showErrorTooltip(valueInput, 'Invalid value for this type.');
                         return;
                     }
                 }
@@ -590,6 +711,7 @@ wireSoundDropdowns();
                         valueInput.value = '';
                         resetSoundDropdown(booleanDropdown);
                         updateSharedVariableInputs();
+                        hideErrorTooltip();
                         loadSharedMemory();
                     }
                 })
@@ -659,7 +781,13 @@ wireSoundDropdowns();
                 }
                 return;
             }
-            variables.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }).forEach(function (entry) {
+            variables.slice().sort(function (a, b) {
+                var c = String(a.name).localeCompare(String(b.name));
+                if (c !== 0) return c;
+                c = String(a.type).localeCompare(String(b.type));
+                if (c !== 0) return c;
+                return String(serializeSharedValue(a.value, a.type)).localeCompare(String(serializeSharedValue(b.value, b.type)));
+            }).forEach(function (entry) {
                 tbody.appendChild(buildSharedMemoryRow(entry));
             });
         }
@@ -790,6 +918,7 @@ wireSoundDropdowns();
                         this.value = filtered;
                         flashSharedVariableInvalid(this);
                     }
+                    hideErrorTooltip();
                 });
                 valueTd.appendChild(input);
             }
@@ -854,7 +983,10 @@ wireSoundDropdowns();
                 var dropdown = valueTd.querySelector('.sound-dropdown');
                 var bv = dropdown ? getSoundDropdownValue(dropdown) : '';
                 if (bv === '') {
-                    if (dropdown) flashSharedVariableInvalid(getSoundDropdownButton(dropdown));
+                    if (dropdown) {
+                        flashSharedVariableInvalid(getSoundDropdownButton(dropdown));
+                        showErrorTooltip(getSoundDropdownButton(dropdown), 'Select a value.');
+                    }
                     return;
                 }
                 value = bv === 'true';
@@ -864,7 +996,10 @@ wireSoundDropdowns();
                 try {
                     value = parseSharedValueInput(rawValue, type);
                 } catch (e) {
-                    if (input) flashSharedVariableInvalid(input);
+                    if (input) {
+                        flashSharedVariableInvalid(input);
+                        showErrorTooltip(input, 'Invalid value for this type.');
+                    }
                     return;
                 }
             }
@@ -873,13 +1008,30 @@ wireSoundDropdowns();
                 headers: sharedMemoryPatchHeaders(),
                 body: JSON.stringify({ type: type, value: value })
             })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
+                .then(function (r) {
+                    return r.json().catch(function () { return {}; }).then(function (data) {
+                        return { ok: r.ok, data: data };
+                    });
+                })
+                .then(function (res) {
+                    if (!res.ok) return;
+                    var data = res.data;
                     if (data && typeof data.name === 'string') {
                         sharedVariablesList = sharedVariablesList.map(function (v) {
                             return v.name === name ? data : v;
                         });
+                        hideErrorTooltip();
                         exitSharedEdit(row, btn, data);
+                    } else {
+                        row.dataset.editing = '0';
+                        btn.innerHTML = ICONS.pen;
+                        btn.dataset.tableTooltip = 'Edit Variable';
+                        var typeTd = row.querySelector('.shared-var-type-cell');
+                        var valueTd = row.querySelector('.shared-var-value-cell');
+                        if (typeTd) typeTd.textContent = row.dataset.type;
+                        if (valueTd) valueTd.textContent = row.dataset.value;
+                        hideTableTooltip();
+                        hideErrorTooltip();
                     }
                 })
                 .catch(function () {});
@@ -889,8 +1041,9 @@ wireSoundDropdowns();
             var row = btn.closest('tr');
             var table = row.closest('table');
             var wrap = row.closest('.api-keys-table-wrap');
+            var tbody = row.closest('tbody');
+            var isLast = tbody ? tbody.children.length === 1 : false;
             var below = getRowsBelow(row);
-            var isLast = below.length === 0;
             var firstTops = below.map(function (e) { return e.getBoundingClientRect().top; });
             var h1 = wrap ? wrap.offsetHeight : 0;
             hideTableTooltip();
@@ -912,24 +1065,20 @@ wireSoundDropdowns();
                     .catch(function () {});
                 overlay.remove();
                 sharedVariablesList = sharedVariablesList.filter(function (v) { return v.name !== name; });
-                if (isLast) {
-                    row.remove();
-                    var tbody = document.getElementById('sharedMemoryTableBody');
-                    if (tbody && tbody.children.length === 0) renderSharedMemoryTable([]);
-                } else {
-                    row.remove();
-                    if (wrap && below.length) {
-                        var h2 = wrap.offsetHeight;
-                        wrap.style.height = h1 + 'px';
-                        wrap.style.transition = 'height 0.4s ease';
-                        void wrap.offsetHeight;
-                        wrap.style.height = h2 + 'px';
-                        flipRows(below, firstTops);
-                        setTimeout(function () {
-                            wrap.style.height = '';
-                            wrap.style.transition = '';
-                        }, 400);
-                    }
+                row.remove();
+                if (tbody && tbody.children.length === 0) {
+                    renderSharedMemoryTable([]);
+                } else if (wrap) {
+                    var h2 = wrap.offsetHeight;
+                    wrap.style.height = h1 + 'px';
+                    wrap.style.transition = 'height 0.4s ease';
+                    void wrap.offsetHeight;
+                    wrap.style.height = h2 + 'px';
+                    if (below.length) flipRows(below, firstTops);
+                    setTimeout(function () {
+                        wrap.style.height = '';
+                        wrap.style.transition = '';
+                    }, 400);
                 }
             }, 1050);
         }
@@ -1005,7 +1154,7 @@ wireSoundDropdowns();
                 }
                 return;
             }
-            keys.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+            keys.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
             keys.forEach(function (entry) {
                 tbody.appendChild(buildApiKeyRow(entry));
             });
@@ -1133,11 +1282,17 @@ wireSoundDropdowns();
                 var input = nameTd.querySelector('input');
                 var newName = input ? input.value.trim() : '';
                 if (!newName) {
-                    if (input) flashApiKeyInputRed(input);
+                    if (input) {
+                        flashApiKeyInputRed(input);
+                        showErrorTooltip(input, 'Name cannot be empty.');
+                    }
                     return;
                 }
                 if (isApiKeyNameTaken(newName, key)) {
-                    if (input) flashApiKeyInputRed(input);
+                    if (input) {
+                        flashApiKeyInputRed(input);
+                        showErrorTooltip(input, 'That name is already taken.');
+                    }
                     return;
                 }
                 fetchWithHandshake('/api/api-keys/' + encodeURIComponent(key), {
@@ -1145,14 +1300,22 @@ wireSoundDropdowns();
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: newName })
                 })
-                    .then(function (r) { return r.json(); })
-                    .then(function (data) {
-                        if (data && typeof data.name === 'string') {
-                            apiKeysList = apiKeysList.map(function (k) {
-                                return k.key === key ? { name: data.name, key: key } : k;
-                            });
-                            exitRename(row, btn, data.name);
+                    .then(function (r) {
+                        return r.json().catch(function () { return {}; }).then(function (data) {
+                            return { ok: r.ok, data: data };
+                        });
+                    })
+                    .then(function (res) {
+                        if (!res.ok) {
+                            if (input && res.data && res.data.error) showErrorTooltip(input, res.data.error);
+                            return;
                         }
+                        var data = res.data;
+                        var finalName = (data && typeof data.name === 'string') ? data.name : newName;
+                        apiKeysList = apiKeysList.map(function (k) {
+                            return k.key === key ? { name: finalName, key: key } : k;
+                        });
+                        exitRename(row, btn, finalName);
                     })
                     .catch(function () {});
             } else {
@@ -1176,14 +1339,14 @@ wireSoundDropdowns();
             nameTd.appendChild(input);
             input.addEventListener('input', function () {
                 var before = this.value;
-                this.value = this.value.replace(/[ ,;\\/]/g, '');
+                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
                 if (this.value !== before) flashApiKeyInputRed(this);
                 refreshApiKeyInputInvalid(this);
             });
             input.addEventListener('keydown', function (event) {
                 if (event.key === 'Enter') {
                     toggleRename(row.dataset.key, btn);
-                } else if (event.key.length === 1 && /[ ,;\\/]/.test(event.key)) {
+                } else if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
                     event.preventDefault();
                     flashApiKeyInputRed(this);
                 }
@@ -1200,6 +1363,7 @@ wireSoundDropdowns();
             btn.dataset.tableTooltip = 'Edit Name';
             nameTd.textContent = newName;
             hideTableTooltip();
+            hideErrorTooltip();
             sortTableRows();
         }
 
@@ -1245,8 +1409,9 @@ wireSoundDropdowns();
             var row = btn.closest('tr');
             var table = row.closest('table');
             var wrap = row.closest('.api-keys-table-wrap');
+            var tbody = row.closest('tbody');
+            var isLast = tbody ? tbody.children.length === 1 : false;
             var below = getRowsBelow(row);
-            var isLast = below.length === 0;
             var firstTops = below.map(function (e) { return e.getBoundingClientRect().top; });
             var h1 = wrap ? wrap.offsetHeight : 0;
             hideTableTooltip();
@@ -1268,24 +1433,20 @@ wireSoundDropdowns();
                     .catch(function () {});
                 overlay.remove();
                 apiKeysList = apiKeysList.filter(function (k) { return k.key !== key; });
-                if (isLast) {
-                    row.remove();
-                    var tbody = document.getElementById('apiKeysTableBody');
-                    if (tbody && tbody.children.length === 0) renderApiKeysTable([]);
-                } else {
-                    row.remove();
-                    if (wrap && below.length) {
-                        var h2 = wrap.offsetHeight;
-                        wrap.style.height = h1 + 'px';
-                        wrap.style.transition = 'height 0.4s ease';
-                        void wrap.offsetHeight;
-                        wrap.style.height = h2 + 'px';
-                        flipRows(below, firstTops);
-                        setTimeout(function () {
-                            wrap.style.height = '';
-                            wrap.style.transition = '';
-                        }, 400);
-                    }
+                row.remove();
+                if (tbody && tbody.children.length === 0) {
+                    renderApiKeysTable([]);
+                } else if (wrap) {
+                    var h2 = wrap.offsetHeight;
+                    wrap.style.height = h1 + 'px';
+                    wrap.style.transition = 'height 0.4s ease';
+                    void wrap.offsetHeight;
+                    wrap.style.height = h2 + 'px';
+                    if (below.length) flipRows(below, firstTops);
+                    setTimeout(function () {
+                        wrap.style.height = '';
+                        wrap.style.transition = '';
+                    }, 400);
                 }
             }, 1050);
         }
@@ -1325,6 +1486,21 @@ wireSoundDropdowns();
             });
         }
 
+        function compareNetworkIps(a, b) {
+            var pa = String(a).split('.');
+            var pb = String(b).split('.');
+            var len = Math.max(pa.length, pb.length);
+            for (var i = 0; i < len; i++) {
+                var na = parseInt(pa[i], 10);
+                var nb = parseInt(pb[i], 10);
+                if (isNaN(na) || isNaN(nb)) {
+                    return String(a).localeCompare(String(b));
+                }
+                if (na !== nb) return na - nb;
+            }
+            return 0;
+        }
+
         function renderNetworkAccessTable(entries) {
             var table = document.getElementById('networkAccessTable');
             var tbody = document.getElementById('networkAccessTableBody');
@@ -1350,7 +1526,11 @@ wireSoundDropdowns();
                 return;
             }
             entries.slice().sort(function (a, b) {
-                return String(Object.keys(a)[0]).localeCompare(String(Object.keys(b)[0]));
+                var ia = Object.keys(a)[0];
+                var ib = Object.keys(b)[0];
+                var c = compareNetworkIps(ia, ib);
+                if (c !== 0) return c;
+                return String(a[ia]).localeCompare(String(b[ib]));
             }).forEach(function (entry) {
                 tbody.appendChild(buildNetworkAccessRow(entry));
             });
@@ -1439,8 +1619,9 @@ wireSoundDropdowns();
             var row = btn.closest('tr');
             var table = row.closest('table');
             var wrap = row.closest('.api-keys-table-wrap');
+            var tbody = row.closest('tbody');
+            var isLast = tbody ? tbody.children.length === 1 : false;
             var below = getRowsBelow(row);
-            var isLast = below.length === 0;
             var firstTops = below.map(function (e) { return e.getBoundingClientRect().top; });
             var h1 = wrap ? wrap.offsetHeight : 0;
             hideTableTooltip();
@@ -1462,24 +1643,20 @@ wireSoundDropdowns();
                     .catch(function () {});
                 overlay.remove();
                 networkAccessIpsList = networkAccessIpsList.filter(function (entry) { return Object.keys(entry)[0] !== ip; });
-                if (isLast) {
-                    row.remove();
-                    var tbody = document.getElementById('networkAccessTableBody');
-                    if (tbody && tbody.children.length === 0) renderNetworkAccessTable([]);
-                } else {
-                    row.remove();
-                    if (wrap && below.length) {
-                        var h2 = wrap.offsetHeight;
-                        wrap.style.height = h1 + 'px';
-                        wrap.style.transition = 'height 0.4s ease';
-                        void wrap.offsetHeight;
-                        wrap.style.height = h2 + 'px';
-                        flipRows(below, firstTops);
-                        setTimeout(function () {
-                            wrap.style.height = '';
-                            wrap.style.transition = '';
-                        }, 400);
-                    }
+                row.remove();
+                if (tbody && tbody.children.length === 0) {
+                    renderNetworkAccessTable([]);
+                } else if (wrap) {
+                    var h2 = wrap.offsetHeight;
+                    wrap.style.height = h1 + 'px';
+                    wrap.style.transition = 'height 0.4s ease';
+                    void wrap.offsetHeight;
+                    wrap.style.height = h2 + 'px';
+                    if (below.length) flipRows(below, firstTops);
+                    setTimeout(function () {
+                        wrap.style.height = '';
+                        wrap.style.transition = '';
+                    }, 400);
                 }
             }, 1050);
         }
@@ -1514,6 +1691,7 @@ wireSoundDropdowns();
         }
 
         function loadNetworkAccessIps() {
+            if (!document.getElementById('networkAccessTableBody')) return;
             fetchWithHandshake('/api/network-access-ips')
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (data) {
@@ -1533,11 +1711,19 @@ wireSoundDropdowns();
         }
 
         function refreshNetworkAccessIpInputInvalid(input) {
-            if (input._flashTimer) return;
-            input.classList.toggle('api-key-input-invalid', isNetworkAccessIpDuplicate(input.value));
+            var dup = isNetworkAccessIpDuplicate(input.value);
+            if (!input._flashTimer) {
+                input.classList.toggle('api-key-input-invalid', dup);
+            }
+            if (!dup) {
+                hideErrorTooltip();
+            } else {
+                showErrorTooltip(input, 'That IP is already in the list.');
+            }
         }
 
         function flashNetworkAccessIpInputRed(input) {
+            if (input.classList.contains('api-key-input-invalid')) return;
             if (input._flashTimer) clearTimeout(input._flashTimer);
             input.classList.remove('api-key-input-invalid');
             void input.offsetWidth;
@@ -1546,6 +1732,14 @@ wireSoundDropdowns();
                 input._flashTimer = null;
                 refreshNetworkAccessIpInputInvalid(input);
             }, 600);
+        }
+
+        function refreshNetworkAccessInsertBtn() {
+            var input = document.getElementById('networkAccessIpInput');
+            var btn = document.getElementById('insertNetworkAccessEntryBtn');
+            if (!input || !btn) return;
+            var ip = input.value.trim();
+            btn.disabled = ip === '' || !isValidIp(ip) || isNetworkAccessIpDuplicate(ip);
         }
 
         function isValidIpv4(s) {
@@ -1632,6 +1826,7 @@ wireSoundDropdowns();
             var ip = input.value.trim();
             if (!ip || !isValidIp(ip)) {
                 flashNetworkAccessIpInputRed(input);
+                showErrorTooltip(input, 'Enter a valid IP address.');
                 return;
             }
             if (ip.indexOf(':') !== -1) {
@@ -1640,6 +1835,7 @@ wireSoundDropdowns();
             }
             if (isNetworkAccessIpDuplicate(ip)) {
                 flashNetworkAccessIpInputRed(input);
+                showErrorTooltip(input, 'That IP is already in the list.');
                 return;
             }
             var seg = document.getElementById('networkAccessInsertSegmented');
@@ -1660,10 +1856,553 @@ wireSoundDropdowns();
                     if (res.status === 201) {
                         input.value = '';
                         refreshNetworkAccessIpInputInvalid(input);
+                        refreshNetworkAccessInsertBtn();
+                        hideErrorTooltip();
                         loadNetworkAccessIps();
                     } else {
                         flashNetworkAccessIpInputRed(input);
+                        showErrorTooltip(input, (res.data && res.data.error) || 'Failed to add the IP.');
                     }
+                })
+                .catch(function () {});
+        }
+
+        function wireUserRegistration() {
+            var usernameInput = document.getElementById('registerUsernameInput');
+            var passwordInput = document.getElementById('registerPasswordInput');
+            var confirmInput = document.getElementById('registerConfirmInput');
+            var registerBtn = document.getElementById('registerUserBtn');
+            if (!usernameInput || !passwordInput || !confirmInput || !registerBtn) return;
+
+            var SALT = 'akupara-salt';
+            var PARAMS = { time: 2, mem: 65536, hashLen: 32, parallelism: 1, type: argon2.ArgonType.Argon2id };
+            var busy = false;
+
+            function hashPassword(password) {
+                var options = { pass: password, salt: SALT };
+                for (var key in PARAMS) options[key] = PARAMS[key];
+                return argon2.hash(options).then(function (result) {
+                    return result.encoded;
+                });
+            }
+
+            function markInvalid(input, invalid) {
+                input.classList.toggle('account-password-input-invalid', invalid);
+            }
+
+            function markPersistent(input) {
+                if (input._flashTimer) { clearTimeout(input._flashTimer); input._flashTimer = null; }
+                input.classList.add('account-password-input-invalid');
+            }
+
+            function flashInvalid(input) {
+                if (input.classList.contains('account-password-input-invalid')) return;
+                if (input._flashTimer) clearTimeout(input._flashTimer);
+                input.classList.remove('account-password-input-invalid');
+                void input.offsetWidth;
+                input.classList.add('account-password-input-invalid');
+                input._flashTimer = setTimeout(function () {
+                    input._flashTimer = null;
+                    input.classList.remove('account-password-input-invalid');
+                }, 600);
+            }
+
+            function refreshRegisterUsernameInvalid() {
+                var username = usernameInput.value.trim();
+                var invalid = username !== '' && (username.length < 8 || isUsernameTaken(username));
+                markInvalid(usernameInput, invalid);
+                if (!invalid) {
+                    hideErrorTooltip();
+                } else if (username.length < 8) {
+                    showErrorTooltip(usernameInput, 'Username must be at least 8 characters long.');
+                } else {
+                    showErrorTooltip(usernameInput, 'That username is already registered.');
+                }
+            }
+
+            function sync() {
+                var usernameHas = usernameInput.value.trim().length > 0;
+                var passwordHas = passwordInput.value.length > 0;
+                if (!passwordHas) {
+                    confirmInput.value = '';
+                    confirmInput.disabled = true;
+                } else {
+                    confirmInput.disabled = busy;
+                }
+                var confirmHas = confirmInput.value.length > 0;
+                registerBtn.disabled = busy || !(usernameHas && passwordHas && confirmHas);
+            }
+
+            var seg = document.getElementById('registerAdminSegmented');
+            if (seg) {
+                seg.addEventListener('click', function (event) {
+                    var btn = event.target.closest('.network-access-segment');
+                    if (!btn) return;
+                    Array.prototype.forEach.call(seg.querySelectorAll('.network-access-segment'), function (b) {
+                        b.classList.toggle('selected', b === btn);
+                    });
+                });
+            }
+
+            usernameInput.addEventListener('keydown', function (event) {
+                if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
+                    event.preventDefault();
+                    flashInvalid(this);
+                }
+            });
+            usernameInput.addEventListener('input', function () {
+                var before = this.value;
+                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
+                if (this.value !== before) {
+                    flashInvalid(this);
+                }
+                refreshRegisterUsernameInvalid();
+                sync();
+            });
+            passwordInput.addEventListener('input', function () {
+                confirmInput.value = '';
+                markInvalid(passwordInput, false);
+                markInvalid(confirmInput, false);
+                hideErrorTooltip();
+                sync();
+            });
+            confirmInput.addEventListener('input', function () {
+                markInvalid(confirmInput, false);
+                hideErrorTooltip();
+                sync();
+            });
+
+            registerBtn.addEventListener('click', function () {
+                if (busy) return;
+                var username = usernameInput.value.trim();
+                var password = passwordInput.value;
+                if (!username) {
+                    markPersistent(usernameInput);
+                    showErrorTooltip(usernameInput, 'Enter a username.');
+                    usernameInput.focus();
+                    return;
+                }
+                if (username.length < 8) {
+                    markPersistent(usernameInput);
+                    showErrorTooltip(usernameInput, 'Username must be at least 8 characters long.');
+                    usernameInput.focus();
+                    return;
+                }
+                if (isUsernameTaken(username)) {
+                    markPersistent(usernameInput);
+                    showErrorTooltip(usernameInput, 'That username is already registered.');
+                    usernameInput.focus();
+                    return;
+                }
+                if (password !== confirmInput.value) {
+                    markPersistent(confirmInput);
+                    showErrorTooltip(confirmInput, 'Passwords do not match.');
+                    confirmInput.focus();
+                    return;
+                }
+                var selected = seg ? seg.querySelector('.network-access-segment.selected') : null;
+                var admin = selected ? selected.dataset.value === 'true' : false;
+                busy = true;
+                sync();
+                hashPassword(password)
+                    .then(function (passwordHash) {
+                        return fetchWithHandshake('/api/users', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username: username, password_hash: passwordHash, admin: admin })
+                        });
+                    })
+                    .then(function (r) {
+                        return r.json().catch(function () { return {}; }).then(function (data) {
+                            return { status: r.status, data: data };
+                        });
+                    })
+                    .then(function (res) {
+                        busy = false;
+                        if (res.status === 201) {
+                            usernameInput.value = '';
+                            passwordInput.value = '';
+                            confirmInput.value = '';
+                            markInvalid(usernameInput, false);
+                            markInvalid(passwordInput, false);
+                            markInvalid(confirmInput, false);
+                            hideErrorTooltip();
+                            loadUsers();
+                        } else if (res.status === 409 || res.status === 400) {
+                            markPersistent(usernameInput);
+                            showErrorTooltip(usernameInput, (res.data && res.data.error) || 'Failed to register the user.');
+                            usernameInput.focus();
+                        }
+                        sync();
+                    })
+                    .catch(function () {
+                        busy = false;
+                        sync();
+                    });
+            });
+
+            sync();
+        }
+
+        function renderUsersTable(users) {
+            var table = document.getElementById('usersTable');
+            var tbody = document.getElementById('usersTableBody');
+            var empty = document.getElementById('usersEmpty');
+            if (!table || !tbody) return;
+            table.classList.remove('api-keys-table-deleting');
+            hideTableTooltip();
+            tbody.innerHTML = '';
+            var has = Array.isArray(users) && users.length > 0;
+            var prevTableVisible = !table.hidden;
+            table.hidden = !has;
+            if (empty) empty.hidden = has;
+            if (!has) {
+                if (empty) {
+                    if (prevTableVisible) {
+                        empty.classList.remove('api-key-empty-fade-in');
+                        void empty.offsetWidth;
+                        empty.classList.add('api-key-empty-fade-in');
+                    } else {
+                        empty.classList.remove('api-key-empty-fade-in');
+                    }
+                }
+                return;
+            }
+            users.slice().sort(function (a, b) { return String(a.username).localeCompare(String(b.username)); });
+            users.forEach(function (entry) {
+                tbody.appendChild(buildUserRow(entry));
+            });
+        }
+
+        function buildUserRow(entry) {
+            var tr = document.createElement('tr');
+            tr.dataset.username = entry.username;
+            var isSelf = String(entry.username).toLowerCase() === String(currentUsername).toLowerCase();
+
+            var nameTd = document.createElement('td');
+            nameTd.className = 'user-name-cell';
+            nameTd.textContent = entry.username;
+            tr.appendChild(nameTd);
+
+            var roleTd = document.createElement('td');
+            roleTd.className = 'network-access-policy-cell';
+            var seg = document.createElement('div');
+            seg.className = 'network-access-segmented';
+            [['false', 'Standard'], ['true', 'Admin']].forEach(function (part) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'network-access-segment' + (String(entry.admin) === part[0] ? ' selected' : '');
+                btn.dataset.action = 'admin';
+                btn.dataset.username = entry.username;
+                btn.dataset.value = part[0];
+                btn.textContent = part[1];
+                if (isSelf) btn.disabled = true;
+                seg.appendChild(btn);
+            });
+            roleTd.appendChild(seg);
+            tr.appendChild(roleTd);
+
+            var actionsTd = document.createElement('td');
+            actionsTd.className = 'api-key-actions-cell';
+            var actionsDiv = document.createElement('div');
+            actionsDiv.className = 'actions-cell';
+
+            var renameBtn = document.createElement('button');
+            renameBtn.type = 'button';
+            renameBtn.className = 'icon-btn';
+            renameBtn.dataset.action = 'rename';
+            renameBtn.dataset.username = entry.username;
+            renameBtn.dataset.tableTooltip = 'Edit Username';
+            renameBtn.innerHTML = ICONS.pen;
+            actionsDiv.appendChild(renameBtn);
+
+            var deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'icon-btn';
+            deleteBtn.dataset.action = 'delete';
+            deleteBtn.dataset.username = entry.username;
+            deleteBtn.dataset.tableTooltip = 'Delete User';
+            deleteBtn.innerHTML = ICONS.trash;
+            if (isSelf) deleteBtn.disabled = true;
+            actionsDiv.appendChild(deleteBtn);
+
+            actionsTd.appendChild(actionsDiv);
+            tr.appendChild(actionsTd);
+
+            return tr;
+        }
+
+        function selectUserAdmin(row, value) {
+            var seg = row.querySelector('.network-access-segmented');
+            if (!seg) return;
+            Array.prototype.forEach.call(seg.querySelectorAll('.network-access-segment'), function (btn) {
+                btn.classList.toggle('selected', btn.dataset.value === value);
+            });
+        }
+
+        function setUserAdmin(username, value, btn) {
+            fetchWithHandshake('/api/users/' + encodeURIComponent(username), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ admin: value === 'true' })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data || typeof data !== 'object') return;
+                    if (typeof data.username === 'string' && typeof data.admin === 'boolean') {
+                        var row = btn.closest('tr');
+                        if (row) selectUserAdmin(row, String(data.admin));
+                        usersList = usersList.map(function (u) {
+                            return String(u.username).toLowerCase() === String(username).toLowerCase()
+                                ? { username: data.username, admin: data.admin }
+                                : u;
+                        });
+                        rebuildRegisteredUsernames();
+                    }
+                })
+                .catch(function () {});
+        }
+
+        function deleteUser(username, btn) {
+            var row = btn.closest('tr');
+            var table = row.closest('table');
+            var wrap = row.closest('.api-keys-table-wrap');
+            var tbody = row.closest('tbody');
+            var isLast = tbody ? tbody.children.length === 1 : false;
+            var below = getRowsBelow(row);
+            var firstTops = below.map(function (e) { return e.getBoundingClientRect().top; });
+            var h1 = wrap ? wrap.offsetHeight : 0;
+            hideTableTooltip();
+            var rect = row.getBoundingClientRect();
+            var overlay = document.createElement('div');
+            overlay.className = 'api-key-row-overlay';
+            overlay.style.left = Math.round(rect.left) + 'px';
+            overlay.style.top = Math.round(rect.top) + 'px';
+            overlay.style.width = Math.round(rect.width) + 'px';
+            overlay.style.height = Math.round(rect.height) + 'px';
+            document.body.appendChild(overlay);
+            void overlay.offsetWidth;
+            overlay.classList.add('api-key-row-overlay-active');
+            row.classList.add('api-key-row-deleting');
+            if (isLast && table) table.classList.add('api-keys-table-deleting');
+            setTimeout(function () {
+                fetchWithHandshake('/api/users/' + encodeURIComponent(username), { method: 'DELETE' })
+                    .then(function (r) { return r.json(); })
+                    .catch(function () {});
+                overlay.remove();
+                usersList = usersList.filter(function (u) { return String(u.username).toLowerCase() !== String(username).toLowerCase(); });
+                rebuildRegisteredUsernames();
+                row.remove();
+                if (tbody && tbody.children.length === 0) {
+                    renderUsersTable([]);
+                } else if (wrap) {
+                    var h2 = wrap.offsetHeight;
+                    wrap.style.height = h1 + 'px';
+                    wrap.style.transition = 'height 0.4s ease';
+                    void wrap.offsetHeight;
+                    wrap.style.height = h2 + 'px';
+                    if (below.length) flipRows(below, firstTops);
+                    setTimeout(function () {
+                        wrap.style.height = '';
+                        wrap.style.transition = '';
+                    }, 400);
+                }
+            }, 1050);
+        }
+
+        function toggleUserRename(username, btn) {
+            var row = btn.closest('tr');
+            var nameTd = row.querySelector('.user-name-cell');
+            if (row.dataset.editing === '1') {
+                var input = nameTd.querySelector('input');
+                var newUsername = input ? input.value.trim() : '';
+                if (!newUsername || newUsername.length < 8) {
+                    if (input) {
+                        markUserRenameInvalidPersistent(input);
+                        showErrorTooltip(input, 'Username must be at least 8 characters long.');
+                    }
+                    return;
+                }
+                if (isUsernameTaken(newUsername, username)) {
+                    if (input) {
+                        markUserRenameInvalidPersistent(input);
+                        showErrorTooltip(input, 'That username is already registered.');
+                    }
+                    return;
+                }
+                fetchWithHandshake('/api/users/' + encodeURIComponent(username), {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ new_username: newUsername })
+                })
+                    .then(function (r) {
+                        return r.json().catch(function () { return {}; }).then(function (data) {
+                            return { ok: r.ok, data: data };
+                        });
+                    })
+                    .then(function (res) {
+                        if (!res.ok) {
+                            if (input && res.data && res.data.error) showErrorTooltip(input, res.data.error);
+                            return;
+                        }
+                        var data = res.data;
+                        var finalUsername = (data && typeof data.username === 'string') ? data.username : newUsername;
+                        var finalAdmin = (data && typeof data.admin === 'boolean') ? data.admin : false;
+                        usersList = usersList.map(function (u) {
+                            return String(u.username).toLowerCase() === String(username).toLowerCase()
+                                ? { username: finalUsername, admin: finalAdmin }
+                                : u;
+                        });
+                        if (legacyUsername && String(username).toLowerCase() === String(legacyUsername).toLowerCase()) {
+                            legacyUsername = finalUsername;
+                        }
+                        rebuildRegisteredUsernames();
+                        if (String(username).toLowerCase() === String(currentUsername).toLowerCase()) {
+                            currentUsername = finalUsername;
+                            var accountValue = document.getElementById('accountUsernameValue');
+                            if (accountValue) accountValue.textContent = finalUsername;
+                        }
+                        exitUserRename(row, btn, finalUsername);
+                    })
+                    .catch(function () {});
+            } else {
+                enterUserRename(row, btn);
+            }
+        }
+
+        function enterUserRename(row, btn) {
+            var nameTd = row.querySelector('.user-name-cell');
+            var current = row.dataset.username || '';
+            row.dataset.editing = '1';
+            btn.innerHTML = ICONS.save;
+            btn.dataset.tableTooltip = 'Save Changes';
+            nameTd.innerHTML = '';
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'api-key-name-input-edit';
+            input.value = current;
+            input.maxLength = 64;
+            input.dataset.excludeUsername = current;
+            nameTd.appendChild(input);
+            input.addEventListener('input', function () {
+                var before = this.value;
+                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
+                if (this.value !== before) flashUserRenameInvalid(this);
+                refreshUserRenameInvalid(this);
+            });
+            input.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') {
+                    toggleUserRename(row.dataset.username, btn);
+                } else if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
+                    event.preventDefault();
+                    flashUserRenameInvalid(this);
+                }
+            });
+            input.focus();
+            input.select();
+        }
+
+        function refreshUserRenameInvalid(input) {
+            var value = input.value.trim();
+            var invalid = value === '' || value.length < 8 || isUsernameTaken(value, input.dataset.excludeUsername);
+            if (!input._flashTimer) {
+                input.classList.toggle('api-key-input-invalid', invalid);
+            }
+            if (!invalid) {
+                hideErrorTooltip();
+            } else if (value.length < 8) {
+                showErrorTooltip(input, 'Username must be at least 8 characters long.');
+            } else {
+                showErrorTooltip(input, 'That username is already registered.');
+            }
+        }
+
+        function markUserRenameInvalidPersistent(input) {
+            if (input._flashTimer) { clearTimeout(input._flashTimer); input._flashTimer = null; }
+            input.classList.add('api-key-input-invalid');
+        }
+
+        function flashUserRenameInvalid(input) {
+            if (input.classList.contains('api-key-input-invalid')) return;
+            if (input._flashTimer) clearTimeout(input._flashTimer);
+            input.classList.remove('api-key-input-invalid');
+            void input.offsetWidth;
+            input.classList.add('api-key-input-invalid');
+            input._flashTimer = setTimeout(function () {
+                input._flashTimer = null;
+                refreshUserRenameInvalid(input);
+            }, 600);
+        }
+
+        function exitUserRename(row, btn, newUsername) {
+            var nameTd = row.querySelector('.user-name-cell');
+            var oldUsername = row.dataset.username;
+            row.dataset.editing = '0';
+            row.dataset.username = newUsername;
+            Array.prototype.forEach.call(row.querySelectorAll('[data-username]'), function (el) {
+                if (String(el.dataset.username || '').toLowerCase() === String(oldUsername).toLowerCase()) {
+                    el.dataset.username = newUsername;
+                }
+            });
+            btn.innerHTML = ICONS.pen;
+            btn.dataset.tableTooltip = 'Edit Username';
+            nameTd.textContent = newUsername;
+            hideTableTooltip();
+            hideErrorTooltip();
+            sortUserRows();
+        }
+
+        function sortUserRows() {
+            var tbody = document.getElementById('usersTableBody');
+            if (!tbody) return;
+            var rows = Array.prototype.slice.call(tbody.children);
+            rows.sort(function (a, b) {
+                return String(a.dataset.username || '').localeCompare(String(b.dataset.username || ''));
+            });
+            rows.forEach(function (row) { tbody.appendChild(row); });
+        }
+
+        function wireUsersTable() {
+            var table = document.getElementById('usersTable');
+            if (!table) return;
+            table.addEventListener('click', function (event) {
+                var btn = event.target.closest('[data-action]');
+                if (!btn) return;
+                if (btn.disabled) return;
+                var username = btn.dataset.username;
+                var action = btn.getAttribute('data-action');
+                if (action === 'admin') {
+                    setUserAdmin(username, btn.dataset.value, btn);
+                } else if (action === 'rename') {
+                    toggleUserRename(username, btn);
+                } else if (action === 'delete') {
+                    deleteUser(username, btn);
+                }
+            });
+            table.addEventListener('mouseover', function (event) {
+                var el = event.target.closest('[data-table-tooltip]');
+                if (!el) return;
+                if (el.disabled) return;
+                showTableTooltip(el.dataset.tableTooltip, el, el.dataset.tableTooltipSide || 'near');
+            });
+            table.addEventListener('mouseout', function (event) {
+                var el = event.target.closest('[data-table-tooltip]');
+                if (!el) return;
+                var to = event.relatedTarget;
+                if (to && el.contains(to)) return;
+                hideTableTooltip();
+            });
+        }
+
+        function loadUsers() {
+            if (!document.getElementById('usersTableBody')) return;
+            fetchWithHandshake('/api/users')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (!data || !Array.isArray(data.users)) return;
+                    usersList = data.users.slice();
+                    rebuildRegisteredUsernames();
+                    renderUsersTable(data.users);
                 })
                 .catch(function () {});
         }
@@ -1684,6 +2423,7 @@ wireSoundDropdowns();
                         flashNetworkAccessIpInputRed(this);
                     }
                     refreshNetworkAccessIpInputInvalid(this);
+                    refreshNetworkAccessInsertBtn();
                 });
             }
             var seg = document.getElementById('networkAccessInsertSegmented');
@@ -1700,6 +2440,7 @@ wireSoundDropdowns();
             if (insertBtn) {
                 insertBtn.addEventListener('click', insertNetworkAccessEntry);
             }
+            refreshNetworkAccessInsertBtn();
         }
 
         function updateAllowDiscovery(value, animate) {
@@ -1723,8 +2464,8 @@ wireSoundDropdowns();
             }
         }
 
-        function updateNetworkInteractions(value, animate) {
-            var toggle = document.getElementById('networkInteractionsToggle');
+        function updateExternalInteractions(value, animate) {
+            var toggle = document.getElementById('externalInteractionsToggle');
             if (toggle) {
                 toggle.classList.toggle('on', value);
                 toggle.setAttribute('aria-checked', value ? 'true' : 'false');
@@ -1791,14 +2532,8 @@ wireSoundDropdowns();
                     if (data && typeof data.allowDiscovery === 'boolean') {
                         updateAllowDiscovery(data.allowDiscovery, false);
                     }
-                    if (data && typeof data.apiKeysEnabled === 'boolean') {
-                        updateApiKeysEnabled(data.apiKeysEnabled, false);
-                    }
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
-                    }
-                    if (data && typeof data.networkInteractions === 'boolean') {
-                        updateNetworkInteractions(data.networkInteractions, false);
                     }
                     if (data && typeof data.networkAccessAllowNew === 'boolean') {
                         updateNetworkAccessAllowNew(data.networkAccessAllowNew);
@@ -1809,6 +2544,112 @@ wireSoundDropdowns();
 
             fetchPlayAudios();
             fetchSharedMemoryEnabled();
+            fetchApiKeysEnabled();
+            fetchExternalInteractionsEnabled();
+        }
+
+        function wireAccountSection() {
+            var currentInput = document.getElementById('currentPasswordInput');
+            var newInput = document.getElementById('newPasswordInput');
+            var confirmInput = document.getElementById('confirmPasswordInput');
+            var changeBtn = document.getElementById('changePasswordBtn');
+            if (!currentInput || !newInput || !confirmInput || !changeBtn) return;
+
+            var SALT = 'akupara-salt';
+            var PARAMS = { time: 2, mem: 65536, hashLen: 32, parallelism: 1, type: argon2.ArgonType.Argon2id };
+            var busy = false;
+
+            function hashPassword(password) {
+                var options = { pass: password, salt: SALT };
+                for (var key in PARAMS) options[key] = PARAMS[key];
+                return argon2.hash(options).then(function (result) {
+                    return result.encoded;
+                });
+            }
+
+            function markInvalid(input, invalid) {
+                input.classList.toggle('account-password-input-invalid', invalid);
+            }
+
+            function syncChaining() {
+                var currentHas = currentInput.value.length > 0;
+                var newHas = newInput.value.length > 0;
+                if (!currentHas) newInput.value = '';
+                newInput.disabled = busy || !currentHas;
+                if (!currentHas || !newHas) confirmInput.value = '';
+                confirmInput.disabled = busy || !currentHas || !newHas;
+                changeBtn.disabled = busy || !(currentHas && newHas && confirmInput.value.length > 0);
+            }
+
+            currentInput.addEventListener('input', function () {
+                newInput.value = '';
+                confirmInput.value = '';
+                markInvalid(currentInput, false);
+                markInvalid(newInput, false);
+                markInvalid(confirmInput, false);
+                hideErrorTooltip();
+                syncChaining();
+            });
+            newInput.addEventListener('input', function () {
+                markInvalid(newInput, false);
+                hideErrorTooltip();
+                syncChaining();
+            });
+            confirmInput.addEventListener('input', function () {
+                markInvalid(confirmInput, false);
+                hideErrorTooltip();
+                syncChaining();
+            });
+
+            changeBtn.addEventListener('click', function () {
+                if (busy) return;
+                markInvalid(currentInput, false);
+                markInvalid(confirmInput, false);
+                if (newInput.value !== confirmInput.value) {
+                    markInvalid(confirmInput, true);
+                    showErrorTooltip(confirmInput, 'Passwords do not match.');
+                    confirmInput.focus();
+                    return;
+                }
+                busy = true;
+                syncChaining();
+                Promise.all([hashPassword(currentInput.value), hashPassword(newInput.value)])
+                    .then(function (hashes) {
+                        return fetchWithHandshake('/api/change-password', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ current_password_hash: hashes[0], new_password_hash: hashes[1] })
+                        });
+                    })
+                    .then(function (r) {
+                        return r.json().catch(function () { return {}; }).then(function (data) {
+                            return { status: r.status, data: data };
+                        });
+                    })
+                    .then(function (res) {
+                        busy = false;
+                        if (res.status === 200) {
+                            currentInput.value = '';
+                            newInput.value = '';
+                            confirmInput.value = '';
+                            markInvalid(currentInput, false);
+                            markInvalid(newInput, false);
+                            markInvalid(confirmInput, false);
+                            hideErrorTooltip();
+                        } else if (res.status === 403) {
+                            markInvalid(currentInput, true);
+                            showErrorTooltip(currentInput, 'Current password is incorrect.');
+                            currentInput.focus();
+                        }
+                        syncChaining();
+                    })
+                    .catch(function () {
+                        busy = false;
+                        syncChaining();
+                    });
+            });
+
+            syncChaining();
         }
 
         function fetchPlayAudios() {
@@ -1905,6 +2746,28 @@ wireSoundDropdowns();
                 .catch(function () {});
         }
 
+        function fetchApiKeysEnabled() {
+            fetchWithHandshake('/api/api-keys-enabled')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (data && typeof data.apiKeysEnabled === 'boolean') {
+                        updateApiKeysEnabled(data.apiKeysEnabled);
+                    }
+                })
+                .catch(function () {});
+        }
+
+        function fetchExternalInteractionsEnabled() {
+            fetchWithHandshake('/api/external-interactions-enabled')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (data && typeof data.externalInteractions === 'boolean') {
+                        updateExternalInteractions(data.externalInteractions, false);
+                    }
+                })
+                .catch(function () {});
+        }
+
         var settingsPending = false;
 
         function sendSetting(payload, revert) {
@@ -1918,14 +2781,8 @@ wireSoundDropdowns();
                     if (data && typeof data.allowDiscovery === 'boolean') {
                         updateAllowDiscovery(data.allowDiscovery, true);
                     }
-                    if (data && typeof data.apiKeysEnabled === 'boolean') {
-                        updateApiKeysEnabled(data.apiKeysEnabled, true);
-                    }
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
-                    }
-                    if (data && typeof data.networkInteractions === 'boolean') {
-                        updateNetworkInteractions(data.networkInteractions, true);
                     }
                     if (data && typeof data.networkAccessAllowNew === 'boolean') {
                         updateNetworkAccessAllowNew(data.networkAccessAllowNew);
@@ -1954,16 +2811,33 @@ wireSoundDropdowns();
             });
         }
 
-        function toggleNetworkInteractions() {
-            var toggle = document.getElementById('networkInteractionsToggle');
+        function toggleExternalInteractions() {
+            var toggle = document.getElementById('externalInteractionsToggle');
             if (!toggle || settingsPending) return;
             settingsPending = true;
             var next = !toggle.classList.contains('on');
             var previous = !next;
-            updateNetworkInteractions(next, true);
-            sendSetting({ networkInteractions: next }, function () {
-                updateNetworkInteractions(previous, false);
-            });
+            updateExternalInteractions(next, true);
+            fetchWithHandshake('/api/external-interactions-enabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ externalInteractions: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.externalInteractions === 'boolean') {
+                        updateExternalInteractions(data.externalInteractions, true);
+                    }
+                })
+                .catch(function () {
+                    updateExternalInteractions(previous, false);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
         }
 
         function morphAllowNewIcons(value) {
@@ -2299,9 +3173,26 @@ wireSoundDropdowns();
             var next = !toggle.classList.contains('on');
             var previous = !next;
             updateApiKeysEnabled(next, true);
-            sendSetting({ apiKeysEnabled: next }, function () {
-                updateApiKeysEnabled(previous, false);
-            });
+            fetchWithHandshake('/api/api-keys-enabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKeysEnabled: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.apiKeysEnabled === 'boolean') {
+                        updateApiKeysEnabled(data.apiKeysEnabled, true);
+                    }
+                })
+                .catch(function () {
+                    updateApiKeysEnabled(previous, false);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
         }
 
         function toggleDisplayPromotion() {
@@ -2397,7 +3288,7 @@ wireSoundDropdowns();
         }
 
         function wireToggleTooltips() {
-            var toggles = document.querySelectorAll('.ios-toggle');
+            var toggles = document.querySelectorAll('.toggle');
             Array.prototype.forEach.call(toggles, function (toggle) {
                 if (toggle.getAttribute('data-tooltip-wired')) return;
                 toggle.setAttribute('data-tooltip-wired', '1');
@@ -2603,7 +3494,7 @@ wireSoundDropdowns();
                 }
                 return;
             }
-            var toggle = event.target.closest('.ios-toggle');
+            var toggle = event.target.closest('.toggle');
             if (toggle) {
                 if (toggle.id === 'apiKeysEnabledToggle') {
                     toggleApiKeysEnabled();
@@ -2613,8 +3504,8 @@ wireSoundDropdowns();
                     togglePlayAudios();
                 } else if (toggle.id === 'sharedMemoryEnabledToggle') {
                     toggleSharedMemoryEnabled();
-                } else if (toggle.id === 'networkInteractionsToggle') {
-                    toggleNetworkInteractions();
+                } else if (toggle.id === 'externalInteractionsToggle') {
+                    toggleExternalInteractions();
                 } else if (toggle.id === 'networkAccessAllowNewToggle') {
                     toggleNetworkAccessAllowNew();
                 } else {
@@ -2644,9 +3535,33 @@ wireSoundDropdowns();
                 .catch(function () {});
         }
 
+        function syncSession() {
+            if (currentPage !== 'settings') return;
+            fetchWithHandshake('/api/session')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (!data || typeof data.username !== 'string' || typeof data.admin !== 'boolean') return;
+                    var adminChanged = data.admin !== lastSessionAdmin;
+                    if (adminChanged) {
+                        lastSessionAdmin = data.admin;
+                        loadPage('settings');
+                        return;
+                    }
+                    if (data.username !== currentUsername) {
+                        currentUsername = data.username;
+                        var accountValue = document.getElementById('accountUsernameValue');
+                        if (accountValue) accountValue.textContent = data.username;
+                        rebuildRegisteredUsernames();
+                        loadUsers();
+                    }
+                })
+                .catch(function () {});
+        }
+
         loadPage('home');
         syncPromotion();
         setInterval(syncPromotion, 3000);
+        setInterval(syncSession, 3000);
     </script>
 </body>
 </html>
