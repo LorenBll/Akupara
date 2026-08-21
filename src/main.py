@@ -1946,7 +1946,7 @@ if __name__ == "__main__":
         _start_external_access_worker()
 
     try:
-        log_info("Akupara starting", {"bind": f"http://{SERVICE_HOST}:{SERVICE_PORT}", "mode": "private (local only)", "gui": GUI_ENABLED, "port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "allowDiscovery": ALLOW_DISCOVERY, "apiKeysEnabled": API_KEYS_ENABLED, "externalAccess": EXTERNAL_ACCESS})
+        log_info("Akupara starting", {"bind": f"http://{SERVICE_HOST}:{SERVICE_PORT}", "gui": GUI_ENABLED, "port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "allowDiscovery": ALLOW_DISCOVERY, "apiKeysEnabled": API_KEYS_ENABLED, "externalAccess": EXTERNAL_ACCESS})
 
         app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)
 
