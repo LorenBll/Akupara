@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import regex
 import ssl
 import subprocess
 import tempfile
@@ -340,6 +341,8 @@ def _load_plugins() -> list[dict]:
 
 _MAX_SEARCH_PATTERN_LENGTH = 100
 
+_REGEX_SEARCH_TIMEOUT = 1.0
+
 
 def _search_plugins(pattern: str) -> list[dict]:
     """Return plugins matching the regex ``pattern`` (logic layer, catalog research).
@@ -365,14 +368,20 @@ def _search_plugins(pattern: str) -> list[dict]:
     if pattern == "":
         return plugins
     try:
-        regex = re.compile(pattern, re.IGNORECASE)
-    except re.error:
+        compiled = regex.compile(pattern, regex.IGNORECASE)
+    except regex.error:
         raise ValueError("Invalid request.") from None
 
     def _regex_match(plugin: dict) -> bool:
         searchable_values = " ".join(str(v) for v in plugin.values() if isinstance(v, (str, int, float)))
         searchable_json = json.dumps(plugin, ensure_ascii=False)
-        return bool(regex.search(searchable_values) or regex.search(searchable_json))
+        try:
+            return bool(
+                compiled.search(searchable_values, timeout=_REGEX_SEARCH_TIMEOUT)
+                or compiled.search(searchable_json, timeout=_REGEX_SEARCH_TIMEOUT)
+            )
+        except regex.TimeoutError:
+            raise ValueError("Invalid request.") from None
 
     # Use reverse index to narrow candidates, but keep regex as final filter
     index = _load_reverse_index()

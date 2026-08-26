@@ -268,9 +268,14 @@ def _renew_session_cookie(response) -> None:
         if session is None:
             return
         session["last_refresh"] = time.time()
+        new_token = _generate_session_token()
+        # Keep the provided token valid so in-flight requests carrying it still
+        # authenticate; all tokens of a session share the same session dict and
+        # expire together. The value written to the cookie is always server-generated.
+        _SESSION_STORE[new_token] = session
     response.set_cookie(
         SESSION_COOKIE_NAME,
-        provided_token,
+        new_token,
         httponly=True,
         samesite="Lax",
         max_age=_SESSION_MAX_AGE,
@@ -1811,8 +1816,8 @@ def shared_memory() -> tuple:
     value_type = data.get("type")
     try:
         entry = _create_shared_variable(name, value, value_type)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "The internal interactions functionality is disabled."}), 403
     except DuplicateNameError:
         return jsonify({"error": "A shared variable with this name already exists."}), 409
     except ValueError:
