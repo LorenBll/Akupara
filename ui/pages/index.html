@@ -3202,7 +3202,7 @@
                 })
                 .catch(function () {
                     btn.style.minWidth = '';
-                    btn.innerHTML = prevText;
+                    btn.textContent = prevText;
                     btn.disabled = false;
                     if (btn.dataset.mode === 'update' && !isLocalhost()) {
                         btn.disabled = true;
