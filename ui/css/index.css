@@ -196,6 +196,30 @@ body {
     color: #dc2626;
 }
 
+.update-status-text {
+    color: #16a34a;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.update-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin: 0 auto;
+    border: 2px solid var(--border);
+    border-top-color: var(--ink);
+    border-radius: 50%;
+    animation: updateSpin 0.7s linear infinite;
+}
+
+@keyframes updateSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 @keyframes slideUpFadeIn {
     from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }

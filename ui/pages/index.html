@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Akupara</title>
-    <link rel="stylesheet" href="/ui/css/index.css?v=3">
+    <link rel="stylesheet" href="/ui/css/index.css?v=4">
 </head>
 <body>
     <header class="page-header">
@@ -224,7 +224,7 @@
                     }, 200);
                 })
                 .catch(function () {
-                    viewEl.innerHTML = '<p>Failed to load page: ' + page + '</p>';
+                    viewEl.textContent = 'Failed to load page: ' + page;
                 });
         }
 
@@ -304,7 +304,7 @@
             var btn = document.getElementById('generateApiKeyBtn');
             if (!input || !btn) return;
             var name = input.value.trim();
-            btn.disabled = name === '' || isApiKeyNameTaken(name);
+            btn.disabled = isApiKeyNameTaken(name);
         }
 
         function wireApiKeyGenerator() {
@@ -333,8 +333,7 @@
             if (!input) return;
             var name = input.value.trim();
             if (!name) {
-                flashApiKeyInputRed(input);
-                showErrorTooltip(input, 'Name cannot be empty.');
+                showTransientError(input, 'api-key-input-invalid', 'Name is required.');
                 return;
             }
             if (isApiKeyNameTaken(name)) {
@@ -407,8 +406,8 @@
         function censorKey(key) {
             if (!key) return '';
             var visible = Math.ceil(key.length * 2 / 6);
-            if (visible >= key.length) return '*'.repeat(key.length);
-            return key.slice(0, visible) + '*'.repeat(key.length - visible);
+            if (visible >= key.length) return '•'.repeat(key.length);
+            return key.slice(0, visible) + '•'.repeat(key.length - visible);
         }
 
         function copyTextToClipboard(text) {
@@ -435,41 +434,159 @@
 
         function showTableTooltip(text, target, side) {
             tableTooltip.textContent = text;
-            tableTooltip.hidden = false;
-            var t = tableTooltip.getBoundingClientRect();
-            var row = target.closest('tr');
-            var rowRect = row ? row.getBoundingClientRect() : target.getBoundingClientRect();
-            var r = target.getBoundingClientRect();
-            var top = Math.round(rowRect.top + rowRect.height / 2 - t.height / 2);
-            var left;
-            if (side === 'left') {
-                left = Math.round(r.left - t.width - 8);
-                if (left < 8) left = Math.round(r.right + 8);
-            } else {
-                left = Math.round(r.right + 8);
-            }
-            tableTooltip.style.left = left + 'px';
-            tableTooltip.style.top = top + 'px';
+            placeTooltip(registerTooltipAnchor(tableTooltip, target, 'table', side));
         }
 
         function hideTableTooltip() {
             tableTooltip.hidden = true;
+            unregisterTooltipAnchor(tableTooltip);
+        }
+
+        var tooltipAnchors = [];
+
+        function registerTooltipAnchor(el, target, kind, side) {
+            tooltipAnchors = tooltipAnchors.filter(function (a) { return a.el !== el; });
+            var anchor = { el: el, target: target, kind: kind, side: side };
+            tooltipAnchors.push(anchor);
+            return anchor;
+        }
+
+        function unregisterTooltipAnchor(el) {
+            tooltipAnchors = tooltipAnchors.filter(function (a) { return a.el !== el; });
+        }
+
+        function getTooltipPosition(a) {
+            var r = a.target.getBoundingClientRect();
+            var tr = a.el.getBoundingClientRect();
+            if (a.kind === 'error') {
+                return { left: r.left + r.width / 2 - tr.width / 2, top: r.top - tr.height - 8 };
+            }
+            if (a.kind === 'table') {
+                var row = a.target.closest('tr');
+                var rowRect = row ? row.getBoundingClientRect() : r;
+                var top = rowRect.top + rowRect.height / 2 - tr.height / 2;
+                var left;
+                if (a.side === 'left') {
+                    left = r.left - tr.width - 8;
+                    if (left < 8) left = r.right + 8;
+                } else {
+                    left = r.right + 8;
+                }
+                return { left: left, top: top };
+            }
+            if (a.kind === 'plugin-search') {
+                return { left: r.left - a.el.offsetWidth - 8, top: r.top + r.height / 2 - a.el.offsetHeight / 2 };
+            }
+            return { left: r.right + 8, top: r.top + r.height / 2 - tr.height / 2 };
+        }
+
+        function setTooltipVisible(el, visible, kind) {
+            if (kind === 'plugin-search') {
+                el.style.visibility = visible ? 'visible' : 'hidden';
+                el.style.opacity = visible ? '1' : '0';
+            } else {
+                el.hidden = !visible;
+            }
+        }
+
+        function placeTooltip(a) {
+            if (!a.el || a.el.isConnected === false) return;
+            if (!a.target || a.target.isConnected === false) return;
+            var viewEl = document.getElementById('view');
+            var confined = a.kind === 'error';
+            if (viewEl && confined) {
+                var targetRect = a.target.getBoundingClientRect();
+                var v = viewEl.getBoundingClientRect();
+                var inView = targetRect.right > v.left && targetRect.left < v.right && targetRect.bottom > v.top && targetRect.top < v.bottom;
+                if (!inView) {
+                    setTooltipVisible(a.el, false, a.kind);
+                    return;
+                }
+            }
+            setTooltipVisible(a.el, true, a.kind);
+            var pos = getTooltipPosition(a);
+            if (viewEl && confined) {
+                var v2 = viewEl.getBoundingClientRect();
+                var tooltipRect = a.el.getBoundingClientRect();
+                pos.left = Math.max(v2.left, Math.min(pos.left, v2.right - tooltipRect.width));
+                pos.top = Math.max(v2.top, Math.min(pos.top, v2.bottom - tooltipRect.height));
+            }
+            a.el.style.left = Math.round(pos.left) + 'px';
+            a.el.style.top = Math.round(pos.top) + 'px';
+        }
+
+        function repositionTooltips() {
+            var kept = [];
+            for (var i = 0; i < tooltipAnchors.length; i++) {
+                var a = tooltipAnchors[i];
+                if (!a.el || a.el.isConnected === false || !a.target || a.target.isConnected === false) continue;
+                placeTooltip(a);
+                kept.push(a);
+            }
+            tooltipAnchors = kept;
+        }
+
+        var repositionScheduled = false;
+
+        function scheduleReposition() {
+            if (repositionScheduled) return;
+            repositionScheduled = true;
+            requestAnimationFrame(function () {
+                repositionScheduled = false;
+                repositionTooltips();
+            });
+        }
+
+        (function () {
+            var viewEl = document.getElementById('view');
+            if (viewEl) viewEl.addEventListener('scroll', scheduleReposition);
+            window.addEventListener('resize', scheduleReposition);
+        })();
+
+        var pluginSearchTooltip = null;
+
+        function showPluginSearchTooltip(el) {
+            pluginSearchTooltip = document.getElementById('pluginSearchTooltip');
+            if (!pluginSearchTooltip || !el) return;
+            placeTooltip(registerTooltipAnchor(pluginSearchTooltip, el, 'plugin-search'));
+        }
+
+        function hidePluginSearchTooltip() {
+            if (!pluginSearchTooltip) return;
+            pluginSearchTooltip.style.opacity = '0';
+            pluginSearchTooltip.style.visibility = 'hidden';
+            unregisterTooltipAnchor(pluginSearchTooltip);
         }
 
         function showErrorTooltip(target, message) {
             var tooltip = document.getElementById('errorTooltip');
             if (!tooltip || !target || !message) return;
             tooltip.textContent = message;
-            tooltip.hidden = false;
-            var tooltipRect = tooltip.getBoundingClientRect();
-            var r = target.getBoundingClientRect();
-            tooltip.style.left = Math.round(r.left + r.width / 2 - tooltipRect.width / 2) + 'px';
-            tooltip.style.top = Math.round(r.top - tooltipRect.height - 8) + 'px';
+            placeTooltip(registerTooltipAnchor(tooltip, target, 'error'));
         }
 
         function hideErrorTooltip() {
             var tooltip = document.getElementById('errorTooltip');
-            if (tooltip) tooltip.hidden = true;
+            if (tooltip) {
+                tooltip.hidden = true;
+                unregisterTooltipAnchor(tooltip);
+            }
+        }
+
+        var transientErrorTimer = null;
+
+        function showTransientError(input, invalidClass, message) {
+            if (transientErrorTimer) {
+                clearTimeout(transientErrorTimer);
+                transientErrorTimer = null;
+            }
+            input.classList.add(invalidClass);
+            showErrorTooltip(input, message);
+            transientErrorTimer = setTimeout(function () {
+                transientErrorTimer = null;
+                input.classList.remove(invalidClass);
+                hideErrorTooltip();
+            }, 3000);
         }
 
         function loadApiKeys() {
@@ -537,23 +654,6 @@
             var boolean = getSoundDropdownValue(typeDropdown) === 'boolean';
             valueInput.hidden = boolean;
             booleanDropdown.hidden = !boolean;
-            var addBtn = document.getElementById('addSharedVariableBtn');
-            if (addBtn) addBtn.disabled = !isSharedVariableFormReady();
-        }
-
-        function isSharedVariableFormReady() {
-            var nameInput = document.getElementById('sharedVariableNameInput');
-            var typeDropdown = document.getElementById('sharedVariableTypeDropdown');
-            var valueInput = document.getElementById('sharedVariableValueInput');
-            var booleanDropdown = document.getElementById('sharedVariableBooleanDropdown');
-            if (!nameInput || !typeDropdown || !valueInput || !booleanDropdown) return false;
-            if (!isSharedVariableNameValid(nameInput.value)) return false;
-            if (isSharedVariableNameTaken(nameInput.value)) return false;
-            var type = getSoundDropdownValue(typeDropdown);
-            if (!type) return false;
-            if (type === 'boolean') return getSoundDropdownValue(booleanDropdown) !== '';
-            if (type === 'integer' || type === 'float') return valueInput.value.trim() !== '';
-            return true;
         }
 
         function isSharedValueCharAllowed(ch, type) {
@@ -626,6 +726,7 @@
                     this.value = filtered;
                     flashSharedVariableInvalid(this);
                 }
+                valueInput.classList.remove('api-key-input-invalid');
                 updateSharedVariableInputs();
                 hideErrorTooltip();
             });
@@ -644,7 +745,11 @@
             var name = nameInput.value.trim();
             var type = getSoundDropdownValue(typeDropdown);
 
-            if (!name || /[ ,;\\/:%]/.test(name)) {
+            if (!name) {
+                showTransientError(nameInput, 'api-key-input-invalid', 'Name is required.');
+                return;
+            }
+            if (/[ ,;\\/:%]/.test(name)) {
                 flashSharedVariableInvalid(nameInput);
                 showErrorTooltip(nameInput, 'Enter a valid name.');
                 return;
@@ -655,8 +760,7 @@
                 return;
             }
             if (!type) {
-                flashSharedVariableInvalid(getSoundDropdownButton(typeDropdown));
-                showErrorTooltip(getSoundDropdownButton(typeDropdown), 'Select a type.');
+                showTransientError(getSoundDropdownButton(typeDropdown), 'api-key-input-invalid', 'Type is required.');
                 return;
             }
 
@@ -664,8 +768,7 @@
             if (type === 'boolean') {
                 var booleanValue = getSoundDropdownValue(booleanDropdown);
                 if (booleanValue === '') {
-                    flashSharedVariableInvalid(getSoundDropdownButton(booleanDropdown));
-                    showErrorTooltip(getSoundDropdownButton(booleanDropdown), 'Select a value.');
+                    showTransientError(getSoundDropdownButton(booleanDropdown), 'api-key-input-invalid', 'Value is required.');
                     return;
                 }
                 value = booleanValue === 'true';
@@ -676,8 +779,7 @@
                     else if (type === 'list') value = [];
                     else if (type === 'dictionary') value = {};
                     else {
-                        flashSharedVariableInvalid(valueInput);
-                        showErrorTooltip(valueInput, 'A value is required for this type.');
+                        showTransientError(valueInput, 'api-key-input-invalid', 'Value is required.');
                         return;
                     }
                 } else {
@@ -1845,7 +1947,7 @@
             var btn = document.getElementById('insertNetworkAccessEntryBtn');
             if (!input || !btn) return;
             var ip = input.value.trim();
-            btn.disabled = ip === '' || !isValidIp(ip) || isNetworkAccessIpDuplicate(ip);
+            btn.disabled = isNetworkAccessIpDuplicate(ip);
         }
 
         function isValidIpv4(s) {
@@ -1930,7 +2032,11 @@
             var input = document.getElementById('networkAccessIpInput');
             if (!input) return;
             var ip = input.value.trim();
-            if (!ip || !isValidIp(ip)) {
+            if (!ip) {
+                showTransientError(input, 'api-key-input-invalid', 'IP address is required.');
+                return;
+            }
+            if (!isValidIp(ip)) {
                 flashNetworkAccessIpInputRed(input);
                 showErrorTooltip(input, 'Enter a valid IP address.');
                 return;
@@ -2038,8 +2144,7 @@
                 } else {
                     confirmInput.disabled = busy;
                 }
-                var confirmHas = confirmInput.value.length > 0;
-                registerBtn.disabled = busy || !(usernameHas && passwordHas && confirmHas);
+                registerBtn.disabled = busy;
             }
 
             var seg = document.getElementById('registerAdminSegmented');
@@ -2086,8 +2191,7 @@
                 var username = usernameInput.value.trim();
                 var password = passwordInput.value;
                 if (!username) {
-                    markPersistent(usernameInput);
-                    showErrorTooltip(usernameInput, 'Enter a username.');
+                    showTransientError(usernameInput, 'account-password-input-invalid', 'Username is required.');
                     usernameInput.focus();
                     return;
                 }
@@ -2101,6 +2205,16 @@
                     markPersistent(usernameInput);
                     showErrorTooltip(usernameInput, 'That username is already registered.');
                     usernameInput.focus();
+                    return;
+                }
+                if (!password) {
+                    showTransientError(passwordInput, 'account-password-input-invalid', 'Password is required.');
+                    passwordInput.focus();
+                    return;
+                }
+                if (!confirmInput.value) {
+                    showTransientError(confirmInput, 'account-password-input-invalid', 'Confirmation is required.');
+                    confirmInput.focus();
                     return;
                 }
                 if (password !== confirmInput.value) {
@@ -2709,7 +2823,7 @@
                 newInput.disabled = busy || !currentHas;
                 if (!currentHas || !newHas) confirmInput.value = '';
                 confirmInput.disabled = busy || !currentHas || !newHas;
-                changeBtn.disabled = busy || !(currentHas && newHas && confirmInput.value.length > 0);
+                changeBtn.disabled = busy;
             }
 
             currentInput.addEventListener('input', function () {
@@ -2735,7 +2849,23 @@
             changeBtn.addEventListener('click', function () {
                 if (busy) return;
                 markInvalid(currentInput, false);
+                markInvalid(newInput, false);
                 markInvalid(confirmInput, false);
+                if (!currentInput.value) {
+                    showTransientError(currentInput, 'account-password-input-invalid', 'Current password is required.');
+                    currentInput.focus();
+                    return;
+                }
+                if (!newInput.value) {
+                    showTransientError(newInput, 'account-password-input-invalid', 'New password is required.');
+                    newInput.focus();
+                    return;
+                }
+                if (!confirmInput.value) {
+                    showTransientError(confirmInput, 'account-password-input-invalid', 'Confirmation is required.');
+                    confirmInput.focus();
+                    return;
+                }
                 if (newInput.value !== confirmInput.value) {
                     markInvalid(confirmInput, true);
                     showErrorTooltip(confirmInput, 'Passwords do not match.');
@@ -3020,6 +3150,8 @@
             return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '::ffff:127.0.0.1';
         }
 
+        var updateStatusTimer = null;
+
         function setUpdateButtonState(isUpdateAvailable) {
             var btn = document.getElementById('checkForUpdatesBtn');
             if (!btn) return;
@@ -3044,21 +3176,33 @@
 
         function checkForUpdates() {
             var btn = document.getElementById('checkForUpdatesBtn');
+            var statusText = document.getElementById('updateStatusText');
             if (!btn) return;
+            if (statusText) {
+                statusText.hidden = true;
+                if (updateStatusTimer) { clearTimeout(updateStatusTimer); updateStatusTimer = null; }
+            }
             btn.disabled = true;
             var prevText = btn.textContent;
-            btn.textContent = 'Checking...';
+            btn.style.minWidth = btn.offsetWidth + 'px';
+            btn.innerHTML = '<span class="update-spinner" aria-hidden="true"></span>';
             fetchWithHandshake('/api/check-for-updates', { method: 'POST' })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
-                    if (data && data.updateAvailable === true) {
-                        setUpdateButtonState(true);
-                    } else {
-                        setUpdateButtonState(false);
+                    var found = !!(data && data.updateAvailable === true);
+                    setUpdateButtonState(found);
+                    btn.style.minWidth = '';
+                    if (!found && statusText) {
+                        statusText.hidden = false;
+                        updateStatusTimer = setTimeout(function () {
+                            statusText.hidden = true;
+                            updateStatusTimer = null;
+                        }, 3000);
                     }
                 })
                 .catch(function () {
-                    btn.textContent = prevText;
+                    btn.style.minWidth = '';
+                    btn.innerHTML = prevText;
                     btn.disabled = false;
                     if (btn.dataset.mode === 'update' && !isLocalhost()) {
                         btn.disabled = true;
@@ -3533,19 +3677,16 @@
 
         function showSliderTooltip(toggle) {
             hoveredToggle = toggle;
-            var rect = toggle.getBoundingClientRect();
             var onText = toggle.getAttribute('data-tooltip-on') || 'On';
             var offText = toggle.getAttribute('data-tooltip-off') || 'Off';
             sliderTooltip.textContent = 'Currently Set to: ' + (toggle.classList.contains('on') ? onText : offText);
-            sliderTooltip.hidden = false;
-            var tooltipRect = sliderTooltip.getBoundingClientRect();
-            sliderTooltip.style.left = Math.round(rect.right + 8) + 'px';
-            sliderTooltip.style.top = Math.round(rect.top + rect.height / 2 - tooltipRect.height / 2) + 'px';
+            placeTooltip(registerTooltipAnchor(sliderTooltip, toggle, 'side'));
         }
 
         function hideSliderTooltip() {
             hoveredToggle = null;
             sliderTooltip.hidden = true;
+            unregisterTooltipAnchor(sliderTooltip);
         }
 
         function wireToggleTooltips() {
@@ -3564,16 +3705,13 @@
             if (!sectionTooltip) return;
             var expanded = chevron.classList.contains('expanded');
             sectionTooltip.textContent = expanded ? 'Collapse' : 'Expand';
-            sectionTooltip.hidden = false;
-            var rect = chevron.getBoundingClientRect();
-            var tooltipRect = sectionTooltip.getBoundingClientRect();
-            sectionTooltip.style.left = Math.round(rect.right + 8) + 'px';
-            sectionTooltip.style.top = Math.round(rect.top + rect.height / 2 - tooltipRect.height / 2) + 'px';
+            placeTooltip(registerTooltipAnchor(sectionTooltip, chevron, 'side'));
         }
 
         function hideSectionTooltip() {
             if (!sectionTooltip) return;
             sectionTooltip.hidden = true;
+            unregisterTooltipAnchor(sectionTooltip);
         }
 
         function wireSoundDropdowns() {

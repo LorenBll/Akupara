@@ -33,6 +33,7 @@
                 <span class="data-indicator-label">Current Version</span>
             </div>
             <p class="data-indicator-description"><span id="currentVersionDisplay">{{ current_version }}</span> (<a href="https://github.com/LorenBll/Akupara/releases" target="_blank" rel="noopener">v3.0.0</a>)</p>
+            <span class="update-status-text" id="updateStatusText" hidden>Software Up to Date</span>
             <button type="button" class="generate-api-key-btn" id="checkForUpdatesBtn" data-update-available="{{ 'true' if update_available else 'false' }}">{{ 'Update Now' if update_available else 'Check for Updates' }}</button>
         </div>
         <div class="settings-row">
