@@ -1,7 +1,17 @@
 <section class="page-content">
     <h2 class="page-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg>Plugins</h2>
-    <div class="page-card">
-        <h3>Plugins</h3>
-        <p>Browse and install plugins here.</p>
+    <div class="page-card plugin-search-card">
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            Search Plugins
+        </h3>
+        <div class="plugin-search-row">
+            <div class="plugin-search-input-wrap">
+                <input type="text" id="pluginSearchInput" class="api-key-name-input" placeholder="Search plugins..." autocomplete="off" spellcheck="false" aria-label="Search plugins" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('pluginSearchBtn').click();}" onmouseenter="(function(el){var tip=document.getElementById('pluginSearchTooltip');tip.style.visibility='visible';tip.style.opacity='1';var r=el.getBoundingClientRect();tip.style.left=Math.round(r.left - tip.offsetWidth - 8)+'px';tip.style.top=Math.round(r.top + r.height/2 - tip.offsetHeight/2)+'px';})(this)" onmouseleave="(function(){var tip=document.getElementById('pluginSearchTooltip');tip.style.opacity='0';tip.style.visibility='hidden';})()">
+                <span class="plugin-search-tooltip" id="pluginSearchTooltip">Supports regex</span>
+            </div>
+            <button type="button" class="generate-api-key-btn" id="pluginSearchBtn" onclick="(function(btn){var input=document.getElementById('pluginSearchInput');var query=input.value;btn.disabled=true;fetchWithHandshake('/api/plugins/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:query})}).then(function(r){return r.json().catch(function(){return {};}).then(function(data){return {ok:r.ok,data:data};});}).then(function(res){btn.disabled=false;var container=document.getElementById('pluginSearchResults');container.hidden=false;container.innerHTML='';if(!res.ok){var e=document.createElement('p');e.className='plugin-search-empty';e.style.color='#b91c1c';e.textContent=res.data.error||'Search failed.';container.appendChild(e);return;}var plugins=res.data.plugins||[];if(!plugins.length){var e2=document.createElement('p');e2.className='plugin-search-empty';e2.textContent='No plugins found.';container.appendChild(e2);return;}plugins.forEach(function(p){var item=document.createElement('div');item.className='plugin-search-result-item';var n=document.createElement('div');n.className='plugin-search-result-name';n.textContent=p.name||JSON.stringify(p);var m=document.createElement('div');m.className='plugin-search-result-meta';var parts=[];if(p.description)parts.push(p.description);if(p.version)parts.push('v'+p.version);if(p.author)parts.push('by '+p.author);m.textContent=parts.join(' \u00b7 ');item.appendChild(n);if(m.textContent)item.appendChild(m);container.appendChild(item);});}).catch(function(){btn.disabled=false;var c=document.getElementById('pluginSearchResults');c.hidden=false;c.innerHTML='';var e=document.createElement('p');e.className='plugin-search-empty';e.style.color='#b91c1c';e.textContent='Search failed.';c.appendChild(e);});})(this)">Search</button>
+        </div>
+        <div id="pluginSearchResults" class="plugin-search-results" hidden></div>
     </div>
 </section>

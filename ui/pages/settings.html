@@ -13,7 +13,10 @@
             </div>
             <div class="account-summary-item">
                 <span class="pill-label">ROLE</span>
-                <span class="pill-value" id="accountRoleValue" data-admin="{{ 'true' if is_admin else 'false' }}">{{ 'Admin' if is_admin else 'Standard User' }}</span>
+                <span class="pill-value" id="accountRoleValue" data-admin="{{ 'true' if is_admin else 'false' }}" data-root="{{ 'true' if is_root else 'false' }}">{{ 'Root' if is_root else ('Admin' if is_admin else 'Standard User') }}</span>
+                <button type="button" class="icon-btn" id="logoutBtn" data-table-tooltip="Log Out" aria-label="Log Out">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>
+                </button>
             </div>
         </div>
         <div class="password-change-row">
@@ -22,6 +25,26 @@
             <input type="password" id="confirmPasswordInput" class="api-key-name-input account-password-input" placeholder="Confirm New Password" autocomplete="new-password" aria-label="Confirm new password" disabled>
             <button type="button" class="generate-api-key-btn" id="changePasswordBtn" disabled>Change Password</button>
         </div>
+        {% if is_admin %}
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Version</h4>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Current Version</span>
+            </div>
+            <p class="data-indicator-description"><span id="currentVersionDisplay">{{ current_version }}</span> (<a href="https://github.com/LorenBll/Akupara/releases" target="_blank" rel="noopener">v3.0.0</a>)</p>
+            <button type="button" class="generate-api-key-btn" id="checkForUpdatesBtn" data-update-available="{{ 'true' if update_available else 'false' }}">{{ 'Update Now' if update_available else 'Check for Updates' }}</button>
+        </div>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Automatic Update</span>
+            </div>
+            <p class="data-indicator-description">Controls whether Akupara automatically updates to the latest version.</p>
+            <button type="button" class="toggle{{ ' on' if automatic_update else '' }}" id="automaticUpdateToggle" role="switch" aria-checked="{{ 'true' if automatic_update else 'false' }}" aria-label="Enable automatic updates">
+                <span class="toggle-thumb"></span>
+            </button>
+        </div>
+        {% endif %}
         <hr class="card-section-separator">
         <h4 class="card-section-title">Functionalities</h4>
         <div class="settings-row">
@@ -35,10 +58,10 @@
         </div>
         <div class="settings-row">
             <div class="data-indicator">
-                <span class="data-indicator-label">Allow Discovery</span>
+                <span class="data-indicator-label">Internal Interactions</span>
             </div>
-            <p class="data-indicator-description">Controls whether plugins can discover one another.</p>
-            <button type="button" class="toggle{{ ' on' if allow_discovery else '' }}" id="allowDiscoveryToggle" role="switch" aria-checked="{{ 'true' if allow_discovery else 'false' }}" aria-label="Allow plugins to discover one another"{{ '' if is_admin else ' disabled' }}>
+            <p class="data-indicator-description">Controls whether internal interactions are enabled.</p>
+            <button type="button" class="toggle{{ ' on' if internal_interactions else '' }}" id="internalInteractionsToggle" role="switch" aria-checked="{{ 'true' if internal_interactions else 'false' }}" aria-label="Enable internal interactions"{{ '' if is_admin else ' disabled' }}>
                 <span class="toggle-thumb"></span>
             </button>
         </div>
@@ -52,35 +75,12 @@
             </button>
         </div>
     </div>
-    {% if is_admin %}
-    <div class="page-card" id="usersCard">
+    {% if is_admin or is_root %}
+    <div class="page-card" id="pluginsCard">
         <h3 class="card-title">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            Users
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg>
+            Plugins
         </h3>
-        <div class="password-change-row">
-            <input type="text" id="registerUsernameInput" class="api-key-name-input account-password-input" placeholder="Username" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="New username">
-            <input type="password" id="registerPasswordInput" class="api-key-name-input account-password-input" placeholder="Password" autocomplete="new-password" aria-label="New password">
-            <input type="password" id="registerConfirmInput" class="api-key-name-input account-password-input" placeholder="Confirm Password" autocomplete="new-password" aria-label="Confirm password" disabled>
-            <div class="network-access-segmented" id="registerAdminSegmented">
-                <button type="button" class="network-access-segment selected" data-value="false">Standard</button>
-                <button type="button" class="network-access-segment" data-value="true">Admin</button>
-            </div>
-            <button type="button" class="generate-api-key-btn" id="registerUserBtn" disabled>Register User</button>
-        </div>
-        <div class="api-keys-table-wrap">
-            <table class="api-keys-table" id="usersTable"{{ '' if has_users else ' hidden' }}>
-                <thead>
-                    <tr>
-                        <th>Username</th>
-                        <th></th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody id="usersTableBody" data-users="{{ users_json|e }}" data-current="{{ current_username|e }}" data-legacy="{{ legacy_username|e }}"></tbody>
-            </table>
-            <p class="api-keys-empty" id="usersEmpty"{{ '' if not has_users else ' hidden' }}>No users registered</p>
-        </div>
     </div>
     {% endif %}
     {% if is_admin %}
@@ -96,7 +96,7 @@
             </button>
             <button type="button" class="generate-api-key-btn" id="generateApiKeyBtn">Generate API Key</button>
         </div>
-        <div class="api-keys-table-wrap">
+        <div class="table-wrap">
             <table class="api-keys-table" id="apiKeysTable"{{ '' if has_api_keys else ' hidden' }}>
                 <thead>
                     <tr>
@@ -111,11 +111,12 @@
             <p class="api-keys-empty" id="apiKeysEmpty"{{ '' if not has_api_keys else ' hidden' }}>No API keys saved</p>
         </div>
     </div>
-    <div class="page-card" id="discoveryCard"{{ '' if allow_discovery else ' hidden' }}>
+    <div class="page-card" id="internalInteractionsCard"{{ '' if internal_interactions else ' hidden' }}>
         <h3 class="card-title">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
-            Shared Memory
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>
+            Internal Interactions
         </h3>
+        <h4 class="card-section-title">Shared Memory</h4>
         <div class="settings-row">
             <div class="data-indicator">
                 <span class="data-indicator-label">Shared Memory</span>
@@ -157,7 +158,7 @@
             </div>
             <button type="button" class="generate-api-key-btn" id="addSharedVariableBtn">Add Variable</button>
         </div>
-        <div class="api-keys-table-wrap">
+        <div class="table-wrap">
             <table class="api-keys-table" id="sharedMemoryTable"{{ '' if has_shared_memory else ' hidden' }}>
                 <thead>
                     <tr>
@@ -172,11 +173,13 @@
             <p class="api-keys-empty" id="sharedMemoryEmpty"{{ '' if not has_shared_memory else ' hidden' }}>No shared variables</p>
         </div>
         </div>
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Event Streaming</h4>
     </div>
-    <div class="page-card" id="networkInteractionsCard"{{ '' if external_interactions_enabled else ' hidden' }}>
+    <div class="page-card" id="externalInteractionsCard"{{ '' if external_interactions_enabled else ' hidden' }}>
         <h3 class="card-title">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
-            Network Interactions
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.247 7.761a6 6 0 0 1 0 8.478"/><path d="M19.075 4.933a10 10 0 0 1 0 14.134"/><path d="M4.925 19.067a10 10 0 0 1 0-14.134"/><path d="M7.753 16.239a6 6 0 0 1 0-8.478"/><circle cx="12" cy="12" r="2"/></svg>
+            External Interactions
         </h3>
         <div class="network-worker-bind">
             <div class="pill-item">
@@ -188,14 +191,6 @@
                 <span class="pill-value">{{ network_worker_bind.port }}</span>
             </div>
         </div>
-        <hr class="card-section-separator">
-        <div class="card-section-header" id="advancedSettingsHeader">
-            <h4 class="card-section-title">Advanced Settings</h4>
-            <button type="button" class="section-chevron-btn" id="advancedSettingsChevron" aria-expanded="false" aria-label="Expand">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </button>
-        </div>
-        <div class="advanced-settings-section" id="advancedSettingsSection" hidden>
             <div class="settings-row">
                 <div class="data-indicator">
                     <span class="data-indicator-label">Policy for New IPs</span>
@@ -210,6 +205,7 @@
             </div>
             <div class="network-access-insert-row">
                 <input type="text" id="networkAccessIpInput" class="api-key-name-input network-access-ip-input" placeholder="IP Address" maxlength="45" autocomplete="off" spellcheck="false" aria-label="IP address">
+                <input type="text" id="networkAccessNoteInput" class="api-key-name-input network-access-note-input" placeholder="Note" maxlength="256" autocomplete="off" spellcheck="false" aria-label="Note">
                 <div class="network-access-segmented" id="networkAccessInsertSegmented">
                     <button type="button" class="network-access-segment" data-value="allow">Allow</button>
                     <button type="button" class="network-access-segment selected" data-value="unknown">Policy</button>
@@ -217,11 +213,12 @@
                 </div>
                 <button type="button" class="generate-api-key-btn" id="insertNetworkAccessEntryBtn">Insert Entry</button>
             </div>
-            <div class="api-keys-table-wrap">
+            <div class="table-wrap">
                 <table class="api-keys-table" id="networkAccessTable"{{ '' if has_network_access_ips else ' hidden' }}>
                     <thead>
                         <tr>
                             <th>IP</th>
+                            <th>Note</th>
                             <th></th>
                             <th></th>
                         </tr>
@@ -230,6 +227,36 @@
                 </table>
                 <p class="api-keys-empty" id="networkAccessEmpty"{{ '' if not has_network_access_ips else ' hidden' }}>No IPs recorded</p>
             </div>
+    </div>
+    {% endif %}
+    {% if is_admin %}
+    <div class="page-card" id="usersCard">
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Users
+        </h3>
+        <div class="password-change-row">
+            <input type="text" id="registerUsernameInput" class="api-key-name-input account-password-input" placeholder="Username" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="New username">
+            <input type="password" id="registerPasswordInput" class="api-key-name-input account-password-input" placeholder="Password" autocomplete="new-password" aria-label="New password">
+            <input type="password" id="registerConfirmInput" class="api-key-name-input account-password-input" placeholder="Confirm Password" autocomplete="new-password" aria-label="Confirm password" disabled>
+            <div class="network-access-segmented" id="registerAdminSegmented">
+                <button type="button" class="network-access-segment selected" data-value="false">Standard</button>
+                <button type="button" class="network-access-segment" data-value="true">Admin</button>
+            </div>
+            <button type="button" class="generate-api-key-btn" id="registerUserBtn" disabled>Register User</button>
+        </div>
+        <div class="table-wrap">
+            <table class="api-keys-table" id="usersTable"{{ '' if has_users else ' hidden' }}>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody" data-users="{{ users_json|e }}" data-current="{{ current_username|e }}" data-legacy="{{ legacy_username|e }}"></tbody>
+            </table>
+            <p class="api-keys-empty" id="usersEmpty"{{ '' if not has_users else ' hidden' }}>No users registered</p>
         </div>
     </div>
     {% endif %}

@@ -1,0 +1,92 @@
+name: Project Hash
+
+on:
+  push:
+    paths-ignore:
+      - 'hash'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-hash:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate project hash
+        run: |
+          python << 'PY'
+          import hashlib
+          from pathlib import Path
+
+          ROOT = Path(".")
+          HASH_FILE = ROOT / "hash"
+
+          # Exclude these dirs/files from hashing (mirrors .gitignore + hash file itself)
+          EXCLUDE_DIRS = {".git", ".venv", "venv", "ENV", "env", ".vscode", ".idea", "logs", "__pycache__", ".pytest_cache", "htmlcov", "dist", "build", ".github/__pycache__"}
+          EXCLUDE_SUFFIXES = (".pyc", ".pyo")
+          EXCLUDE_FILES = {"hash"}
+
+          def should_exclude(path: Path) -> bool:
+              # Exclude hash file itself
+              if path.name == "hash" and path.parent == ROOT:
+                  return True
+              # Exclude dirs
+              for part in path.parts:
+                  if part in EXCLUDE_DIRS or part == "__pycache__":
+                      return True
+                  if part.endswith(".egg-info"):
+                      return True
+              if path.suffix in EXCLUDE_SUFFIXES:
+                  return True
+              if path.suffix == ".so":
+                  return True
+              return False
+
+          entries = []
+          for p in sorted(ROOT.rglob("*")):
+              if not p.is_file():
+                  continue
+              if should_exclude(p):
+                  continue
+              # Also skip .git internals
+              if ".git" in p.parts:
+                  continue
+              try:
+                  h = hashlib.sha256(p.read_bytes()).hexdigest()
+              except OSError:
+                  continue
+              # Use posix relative path for determinism
+              rel = p.relative_to(ROOT).as_posix()
+              entries.append((rel, h))
+
+          entries.sort(key=lambda x: x[0])
+          merged = "".join(h for _, h in entries)
+          final = hashlib.sha256(merged.encode("utf-8")).hexdigest()
+          HASH_FILE.write_text(final + "\n", encoding="utf-8")
+          print(f"Project hash: {final} ({len(entries)} files)")
+          PY
+
+      - name: Commit hash if changed
+        run: |
+          if [ -f hash ]; then
+            if git diff --quiet hash; then
+              echo "Hash unchanged"
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git add hash
+              git commit -m "Update project hash [skip ci]"
+              git push
+            fi
+          fi

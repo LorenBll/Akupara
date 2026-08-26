@@ -28,6 +28,8 @@ SOUND_ENV_VARS: dict[str, str] = {
 # Default audio file names, applied when the corresponding .env variable is absent.
 DEFAULT_SOUND_FILES: dict[str, str] = {
     "acknowledge": "acknowledge.wav",
+    "success": "success.wav",
+    "error": "error.wav",
 }
 
 

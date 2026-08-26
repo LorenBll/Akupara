@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Akupara</title>
-    <link rel="stylesheet" href="/ui/css/index.css">
+    <link rel="stylesheet" href="/ui/css/index.css?v=3">
 </head>
 <body>
     <header class="page-header">
@@ -16,7 +16,7 @@
                 <div class="pill-item"><span class="pill-label">PORT</span><span class="pill-value" data-field="port">--</span></div>
                 <div class="pill-item"><span class="pill-label">PID</span><span class="pill-value" data-field="pid">--</span></div>
                 <div class="pill-item"><span class="pill-label">STATUS</span><span class="pill-value pill-value-emphasis" data-field="status">--</span></div>
-                <div class="pill-item"><span class="pill-label">REGISTERED PLUGINS</span><span class="pill-value" data-field="registered_plugins">--</span></div>
+                <div class="pill-item"><span class="pill-label">RUNNING PLUGINS</span><span class="pill-value" data-field="registered_plugins">--</span></div>
             </div>
             <div class="separator"></div>
             <div class="pill-row pill-actions">
@@ -26,9 +26,11 @@
                     <button class="pill-action-btn" aria-label="Settings" data-page="settings" data-label="Settings">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
                     </button>
+                    {% if is_admin %}
                     <button class="pill-action-btn" aria-label="Plugins" data-page="plugins" data-label="Plugins">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg>
                     </button>
+                    {% endif %}
                 </div>
         </div>
     </header>
@@ -155,11 +157,12 @@
                     if (page === 'settings') {
                         fetchSettings();
                         wireToggleTooltips();
-                        wireAdvancedSettingsSection();
                         wireApiKeyGenerator();
                         wireApiKeysTable();
                         wireAccountSection();
-wireSoundDropdowns();
+                        wireLogout();
+                        wireUpdateButtons();
+ wireSoundDropdowns();
                         wireAudioSoundDropdowns();
                         wireSharedVariableGenerator();
                         wireSharedMemoryTable();
@@ -176,6 +179,7 @@ wireSoundDropdowns();
                         legacyUsername = (usersTbody && usersTbody.dataset.legacy) || '';
                         var roleEl = document.getElementById('accountRoleValue');
                         lastSessionAdmin = roleEl ? roleEl.dataset.admin === 'true' : false;
+                        currentSessionRoot = roleEl ? roleEl.dataset.root === 'true' : false;
                         rebuildRegisteredUsernames();
                         renderUsersTable(usersList);
                         wireUsersTable();
@@ -244,6 +248,7 @@ wireSoundDropdowns();
         var legacyUsername = '';
         var currentPage = '';
         var lastSessionAdmin = false;
+        var currentSessionRoot = false;
         var registeredUsernames = [];
 
         function rebuildRegisteredUsernames() {
@@ -1040,7 +1045,7 @@ wireSoundDropdowns();
         function deleteSharedVariable(name, btn) {
             var row = btn.closest('tr');
             var table = row.closest('table');
-            var wrap = row.closest('.api-keys-table-wrap');
+            var wrap = row.closest('.table-wrap');
             var tbody = row.closest('tbody');
             var isLast = tbody ? tbody.children.length === 1 : false;
             var below = getRowsBelow(row);
@@ -1408,7 +1413,7 @@ wireSoundDropdowns();
         function deleteApiKey(key, btn) {
             var row = btn.closest('tr');
             var table = row.closest('table');
-            var wrap = row.closest('.api-keys-table-wrap');
+            var wrap = row.closest('.table-wrap');
             var tbody = row.closest('tbody');
             var isLast = tbody ? tbody.children.length === 1 : false;
             var below = getRowsBelow(row);
@@ -1539,13 +1544,24 @@ wireSoundDropdowns();
         function buildNetworkAccessRow(entry) {
             var ip = Object.keys(entry)[0];
             var action = entry[ip];
+            var note = entry['Note'] || '';
             var tr = document.createElement('tr');
             tr.dataset.ip = ip;
+            tr.dataset.note = note;
+            tr.dataset.editing = '0';
 
             var ipTd = document.createElement('td');
             ipTd.className = 'network-access-ip-cell';
             ipTd.textContent = ip;
             tr.appendChild(ipTd);
+
+            var noteTd = document.createElement('td');
+            noteTd.className = 'network-access-note-cell';
+            var noteDisplay = document.createElement('span');
+            noteDisplay.className = 'network-access-note-display' + (note ? '' : ' is-empty');
+            noteDisplay.textContent = note;
+            noteTd.appendChild(noteDisplay);
+            tr.appendChild(noteTd);
 
             var policyTd = document.createElement('td');
             policyTd.className = 'network-access-policy-cell';
@@ -1568,6 +1584,14 @@ wireSoundDropdowns();
             actionsTd.className = 'api-key-actions-cell';
             var actionsDiv = document.createElement('div');
             actionsDiv.className = 'actions-cell';
+            var editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'icon-btn';
+            editBtn.dataset.action = 'editnote';
+            editBtn.dataset.ip = ip;
+            editBtn.dataset.tableTooltip = 'Edit Note';
+            editBtn.innerHTML = ICONS.pen;
+            actionsDiv.appendChild(editBtn);
             var deleteBtn = document.createElement('button');
             deleteBtn.type = 'button';
             deleteBtn.className = 'icon-btn';
@@ -1599,13 +1623,14 @@ wireSoundDropdowns();
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (!data || typeof data !== 'object') return;
-                    if (Object.keys(data).length === 1 && ip in data) {
+                    if (ip in data) {
                         var row = btn.closest('tr');
                         if (row) selectNetworkAccessPolicy(row, value);
                         networkAccessIpsList = networkAccessIpsList.map(function (entry) {
                             if (Object.keys(entry)[0] === ip) {
                                 var updated = {};
                                 updated[ip] = value;
+                                updated['Note'] = entry['Note'] || '';
                                 return updated;
                             }
                             return entry;
@@ -1615,10 +1640,89 @@ wireSoundDropdowns();
                 .catch(function () {});
         }
 
+        function toggleNetworkAccessNoteEdit(ip, btn) {
+            var row = btn.closest('tr');
+            if (!row) return;
+            if (row.dataset.editing === '1') {
+                finalizeNetworkAccessNote(ip, row, btn);
+            } else {
+                enterNetworkAccessNoteEdit(row, btn);
+            }
+        }
+
+        function enterNetworkAccessNoteEdit(row, btn) {
+            var noteTd = row.querySelector('.network-access-note-cell');
+            var current = row.dataset.note || '';
+            row.dataset.editing = '1';
+            btn.innerHTML = ICONS.save;
+            btn.dataset.tableTooltip = 'Save Note';
+            noteTd.innerHTML = '';
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'network-access-note-input';
+            input.value = current;
+            input.maxLength = 256;
+            input.autocomplete = 'off';
+            input.spellcheck = false;
+            noteTd.appendChild(input);
+            input.focus();
+            input.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') {
+                    finalizeNetworkAccessNote(row.dataset.ip, row, btn);
+                } else if (event.key === 'Escape') {
+                    exitNetworkAccessNoteEdit(row, btn, current);
+                }
+            });
+        }
+
+        function exitNetworkAccessNoteEdit(row, btn, note) {
+            var noteTd = row.querySelector('.network-access-note-cell');
+            row.dataset.editing = '0';
+            row.dataset.note = note;
+            btn.innerHTML = ICONS.pen;
+            btn.dataset.tableTooltip = 'Edit Note';
+            noteTd.innerHTML = '';
+            var display = document.createElement('span');
+            display.className = 'network-access-note-display' + (note ? '' : ' is-empty');
+            display.textContent = note;
+            noteTd.appendChild(display);
+            hideTableTooltip();
+            hideErrorTooltip();
+        }
+
+        function finalizeNetworkAccessNote(ip, row, btn) {
+            var input = row.querySelector('.network-access-note-input');
+            var note = input ? input.value : '';
+            var seg = row.querySelector('.network-access-segment.selected');
+            var action = seg ? seg.dataset.value : 'unknown';
+            fetchWithHandshake('/api/network-access-ips/' + encodeURIComponent(ip), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action, note: note })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data || typeof data !== 'object') return;
+                    if (ip in data) {
+                        networkAccessIpsList = networkAccessIpsList.map(function (entry) {
+                            if (Object.keys(entry)[0] === ip) {
+                                var updated = {};
+                                updated[ip] = entry[ip];
+                                updated['Note'] = note;
+                                return updated;
+                            }
+                            return entry;
+                        });
+                        exitNetworkAccessNoteEdit(row, btn, note);
+                    }
+                })
+                .catch(function () {});
+        }
+
         function deleteNetworkAccessIp(ip, btn) {
             var row = btn.closest('tr');
             var table = row.closest('table');
-            var wrap = row.closest('.api-keys-table-wrap');
+            var wrap = row.closest('.table-wrap');
             var tbody = row.closest('tbody');
             var isLast = tbody ? tbody.children.length === 1 : false;
             var below = getRowsBelow(row);
@@ -1671,6 +1775,8 @@ wireSoundDropdowns();
                 var action = btn.getAttribute('data-action');
                 if (action === 'policy') {
                     setNetworkAccessIpPolicy(ip, btn.dataset.value, btn);
+                } else if (action === 'editnote') {
+                    toggleNetworkAccessNoteEdit(ip, btn);
                 } else if (action === 'delete') {
                     deleteNetworkAccessIp(ip, btn);
                 }
@@ -1841,10 +1947,12 @@ wireSoundDropdowns();
             var seg = document.getElementById('networkAccessInsertSegmented');
             var selected = seg ? seg.querySelector('.network-access-segment.selected') : null;
             var action = selected ? selected.dataset.value : 'unknown';
+            var noteInput = document.getElementById('networkAccessNoteInput');
+            var note = noteInput ? noteInput.value : '';
             fetchWithHandshake('/api/network-access-ips', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ip: ip, action: action })
+                body: JSON.stringify({ ip: ip, action: action, note: note })
             })
                 .then(function (r) {
                     return r.json().then(function (data) { return { status: r.status, data: data }; });
@@ -1852,9 +1960,10 @@ wireSoundDropdowns();
                 .then(function (res) {
                     var data = res.data;
                     if (!data || typeof data !== 'object') return;
-                    if (Object.keys(data).length !== 1) return;
+                    if (!(ip in data)) return;
                     if (res.status === 201) {
                         input.value = '';
+                        if (noteInput) noteInput.value = '';
                         refreshNetworkAccessIpInputInvalid(input);
                         refreshNetworkAccessInsertBtn();
                         hideErrorTooltip();
@@ -2068,7 +2177,13 @@ wireSoundDropdowns();
                 }
                 return;
             }
-            users.slice().sort(function (a, b) { return String(a.username).localeCompare(String(b.username)); });
+            users.slice().sort(function (a, b) {
+                var ar = a.root ? 1 : 0, br = b.root ? 1 : 0;
+                if (ar !== br) return br - ar;
+                var aa = a.admin ? 1 : 0, ba = b.admin ? 1 : 0;
+                if (aa !== ba) return ba - aa;
+                return String(a.username).localeCompare(String(b.username));
+            });
             users.forEach(function (entry) {
                 tbody.appendChild(buildUserRow(entry));
             });
@@ -2077,7 +2192,11 @@ wireSoundDropdowns();
         function buildUserRow(entry) {
             var tr = document.createElement('tr');
             tr.dataset.username = entry.username;
+            tr.dataset.root = entry.root ? 'true' : 'false';
+            tr.dataset.admin = entry.admin ? 'true' : 'false';
             var isSelf = String(entry.username).toLowerCase() === String(currentUsername).toLowerCase();
+            var isRoot = !!entry.root;
+            if (isRoot) tr.classList.add('user-root');
 
             var nameTd = document.createElement('td');
             nameTd.className = 'user-name-cell';
@@ -2096,7 +2215,7 @@ wireSoundDropdowns();
                 btn.dataset.username = entry.username;
                 btn.dataset.value = part[0];
                 btn.textContent = part[1];
-                if (isSelf) btn.disabled = true;
+                if (isSelf || isRoot) btn.disabled = true;
                 seg.appendChild(btn);
             });
             roleTd.appendChild(seg);
@@ -2114,6 +2233,7 @@ wireSoundDropdowns();
             renameBtn.dataset.username = entry.username;
             renameBtn.dataset.tableTooltip = 'Edit Username';
             renameBtn.innerHTML = ICONS.pen;
+            if (isRoot && !currentSessionRoot) renameBtn.disabled = true;
             actionsDiv.appendChild(renameBtn);
 
             var deleteBtn = document.createElement('button');
@@ -2123,7 +2243,7 @@ wireSoundDropdowns();
             deleteBtn.dataset.username = entry.username;
             deleteBtn.dataset.tableTooltip = 'Delete User';
             deleteBtn.innerHTML = ICONS.trash;
-            if (isSelf) deleteBtn.disabled = true;
+            if (isSelf || isRoot) deleteBtn.disabled = true;
             actionsDiv.appendChild(deleteBtn);
 
             actionsTd.appendChild(actionsDiv);
@@ -2166,7 +2286,7 @@ wireSoundDropdowns();
         function deleteUser(username, btn) {
             var row = btn.closest('tr');
             var table = row.closest('table');
-            var wrap = row.closest('.api-keys-table-wrap');
+            var wrap = row.closest('.table-wrap');
             var tbody = row.closest('tbody');
             var isLast = tbody ? tbody.children.length === 1 : false;
             var below = getRowsBelow(row);
@@ -2357,6 +2477,10 @@ wireSoundDropdowns();
             if (!tbody) return;
             var rows = Array.prototype.slice.call(tbody.children);
             rows.sort(function (a, b) {
+                var ar = a.dataset.root === 'true' ? 1 : 0, br = b.dataset.root === 'true' ? 1 : 0;
+                if (ar !== br) return br - ar;
+                var aa = a.dataset.admin === 'true' ? 1 : 0, ba = b.dataset.admin === 'true' ? 1 : 0;
+                if (aa !== ba) return ba - aa;
                 return String(a.dataset.username || '').localeCompare(String(b.dataset.username || ''));
             });
             rows.forEach(function (row) { tbody.appendChild(row); });
@@ -2443,16 +2567,16 @@ wireSoundDropdowns();
             refreshNetworkAccessInsertBtn();
         }
 
-        function updateAllowDiscovery(value, animate) {
-            var toggle = document.getElementById('allowDiscoveryToggle');
+        function updateInternalInteractions(value, animate) {
+            var toggle = document.getElementById('internalInteractionsToggle');
             if (toggle) {
                 toggle.classList.toggle('on', value);
                 toggle.setAttribute('aria-checked', value ? 'true' : 'false');
             }
-            var card = document.getElementById('discoveryCard');
+            var card = document.getElementById('internalInteractionsCard');
             if (!card) return;
             if (value) {
-                var shouldAnimate = animate && (card.hidden || cardHideTimers['discoveryCard'] != null);
+                var shouldAnimate = animate && (card.hidden || cardHideTimers['internalInteractionsCard'] != null);
                 if (shouldAnimate) {
                     revealCard(card);
                     fetchSharedMemoryEnabled();
@@ -2470,10 +2594,10 @@ wireSoundDropdowns();
                 toggle.classList.toggle('on', value);
                 toggle.setAttribute('aria-checked', value ? 'true' : 'false');
             }
-            var card = document.getElementById('networkInteractionsCard');
+            var card = document.getElementById('externalInteractionsCard');
             if (!card) return;
             if (value) {
-                var shouldAnimate = animate && (card.hidden || cardHideTimers['networkInteractionsCard'] != null);
+                var shouldAnimate = animate && (card.hidden || cardHideTimers['externalInteractionsCard'] != null);
                 if (shouldAnimate) {
                     revealCard(card);
                 } else {
@@ -2482,6 +2606,13 @@ wireSoundDropdowns();
             } else {
                 hideCard(card);
             }
+        }
+
+        function updateAutomaticUpdate(value) {
+            var toggle = document.getElementById('automaticUpdateToggle');
+            if (!toggle) return;
+            toggle.classList.toggle('on', value);
+            toggle.setAttribute('aria-checked', value ? 'true' : 'false');
         }
 
         function updateDisplayPromotion(value) {
@@ -2518,7 +2649,7 @@ wireSoundDropdowns();
                 toggle.classList.toggle('on', value);
                 toggle.setAttribute('aria-checked', value ? 'true' : 'false');
             }
-            var content = document.querySelector('#discoveryCard .shared-memory-content');
+            var content = document.querySelector('#internalInteractionsCard .shared-memory-content');
             if (content) content.classList.toggle('shared-memory-disabled', !value);
         }
 
@@ -2529,8 +2660,8 @@ wireSoundDropdowns();
                     return r.json();
                 })
                 .then(function (data) {
-                    if (data && typeof data.allowDiscovery === 'boolean') {
-                        updateAllowDiscovery(data.allowDiscovery, false);
+                    if (data && typeof data.internalInteractions === 'boolean') {
+                        updateInternalInteractions(data.internalInteractions, false);
                     }
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
@@ -2650,6 +2781,21 @@ wireSoundDropdowns();
             });
 
             syncChaining();
+        }
+
+        function wireLogout() {
+            var btn = document.getElementById('logoutBtn');
+            if (!btn || btn.dataset.wired) return;
+            btn.dataset.wired = '1';
+            btn.addEventListener('click', function () {
+                fetchWithHandshake('/api/logout', { method: 'POST' })
+                    .then(function () { window.location.href = '/login'; })
+                    .catch(function () { window.location.href = '/login'; });
+            });
+            btn.addEventListener('mouseenter', function () {
+                if (btn.dataset.tableTooltip) showTableTooltip(btn.dataset.tableTooltip, btn);
+            });
+            btn.addEventListener('mouseleave', hideTableTooltip);
         }
 
         function fetchPlayAudios() {
@@ -2778,8 +2924,8 @@ wireSoundDropdowns();
             })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
-                    if (data && typeof data.allowDiscovery === 'boolean') {
-                        updateAllowDiscovery(data.allowDiscovery, true);
+                    if (data && typeof data.internalInteractions === 'boolean') {
+                        updateInternalInteractions(data.internalInteractions, true);
                     }
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
@@ -2799,15 +2945,15 @@ wireSoundDropdowns();
                 });
         }
 
-        function toggleAllowDiscovery() {
-            var toggle = document.getElementById('allowDiscoveryToggle');
+        function toggleInternalInteractions() {
+            var toggle = document.getElementById('internalInteractionsToggle');
             if (!toggle || settingsPending) return;
             settingsPending = true;
             var next = !toggle.classList.contains('on');
             var previous = !next;
-            updateAllowDiscovery(next, true);
-            sendSetting({ allowDiscovery: next }, function () {
-                updateAllowDiscovery(previous, false);
+            updateInternalInteractions(next, true);
+            sendSetting({ internalInteractions: next }, function () {
+                updateInternalInteractions(previous, false);
             });
         }
 
@@ -2838,6 +2984,121 @@ wireSoundDropdowns();
                         showSliderTooltip(hoveredToggle);
                     }
                 });
+        }
+
+        function toggleAutomaticUpdate() {
+            var toggle = document.getElementById('automaticUpdateToggle');
+            if (!toggle || settingsPending) return;
+            settingsPending = true;
+            var next = !toggle.classList.contains('on');
+            var previous = !next;
+            updateAutomaticUpdate(next);
+            fetchWithHandshake('/api/automatic-update-enabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ automaticUpdate: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.automaticUpdate === 'boolean') {
+                        updateAutomaticUpdate(data.automaticUpdate);
+                    }
+                })
+                .catch(function () {
+                    updateAutomaticUpdate(previous);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
+        }
+
+        function isLocalhost() {
+            var h = window.location.hostname;
+            return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '::ffff:127.0.0.1';
+        }
+
+        function setUpdateButtonState(isUpdateAvailable) {
+            var btn = document.getElementById('checkForUpdatesBtn');
+            if (!btn) return;
+            if (isUpdateAvailable) {
+                btn.textContent = 'Update Now';
+                btn.dataset.mode = 'update';
+                // Update Now is not network callable → disabled unless localhost
+                if (!isLocalhost()) {
+                    btn.disabled = true;
+                    btn.title = 'Available only from localhost';
+                } else {
+                    btn.disabled = false;
+                    btn.removeAttribute('title');
+                }
+            } else {
+                btn.textContent = 'Check for Updates';
+                btn.dataset.mode = 'check';
+                btn.disabled = false;
+                btn.removeAttribute('title');
+            }
+        }
+
+        function checkForUpdates() {
+            var btn = document.getElementById('checkForUpdatesBtn');
+            if (!btn) return;
+            btn.disabled = true;
+            var prevText = btn.textContent;
+            btn.textContent = 'Checking...';
+            fetchWithHandshake('/api/check-for-updates', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && data.updateAvailable === true) {
+                        setUpdateButtonState(true);
+                    } else {
+                        setUpdateButtonState(false);
+                    }
+                })
+                .catch(function () {
+                    btn.textContent = prevText;
+                    btn.disabled = false;
+                    if (btn.dataset.mode === 'update' && !isLocalhost()) {
+                        btn.disabled = true;
+                    }
+                });
+        }
+
+        function updateNow() {
+            var btn = document.getElementById('checkForUpdatesBtn');
+            if (!btn || !isLocalhost()) return;
+            btn.disabled = true;
+            btn.textContent = 'Updating...';
+            fetchWithHandshake('/api/update-now', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    btn.textContent = 'Restarting...';
+                })
+                .catch(function () {
+                    btn.textContent = 'Update Now';
+                    btn.disabled = !isLocalhost();
+                });
+        }
+
+        function wireUpdateButtons() {
+            var btn = document.getElementById('checkForUpdatesBtn');
+            if (!btn || btn.dataset.wiredUpdate) return;
+            btn.dataset.wiredUpdate = '1';
+            // Init state from server-rendered data-update-available
+            if (btn.dataset.updateAvailable === 'true') {
+                setUpdateButtonState(true);
+            } else {
+                setUpdateButtonState(false);
+            }
+            btn.addEventListener('click', function () {
+                if (btn.dataset.mode === 'update') {
+                    updateNow();
+                } else {
+                    checkForUpdates();
+                }
+            });
         }
 
         function morphAllowNewIcons(value) {
@@ -3315,69 +3576,6 @@ wireSoundDropdowns();
             sectionTooltip.hidden = true;
         }
 
-        function toggleAdvancedSettings(chevron, section, expanded) {
-            if (!chevron || !section) return;
-            chevron.classList.toggle('expanded', expanded);
-            chevron.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-            chevron.setAttribute('aria-label', expanded ? 'Collapse' : 'Expand');
-            section.style.transition = '';
-            section.style.height = '';
-            section.style.overflow = '';
-            if (section._expandEnd) {
-                section.removeEventListener('transitionend', section._expandEnd);
-                section._expandEnd = null;
-            }
-            if (expanded) {
-                section.hidden = false;
-                var target = section.scrollHeight;
-                section.style.height = '0px';
-                section.style.overflow = 'hidden';
-                void section.getBoundingClientRect();
-                section.style.transition = 'height 0.25s ease';
-                section.style.height = target + 'px';
-                section._expandEnd = function (event) {
-                    if (event.target !== section) return;
-                    section.removeEventListener('transitionend', section._expandEnd);
-                    section._expandEnd = null;
-                    section.style.height = '';
-                    section.style.overflow = '';
-                    section.style.transition = '';
-                };
-                section.addEventListener('transitionend', section._expandEnd);
-            } else {
-                var current = section.getBoundingClientRect().height;
-                section.style.height = current + 'px';
-                section.style.overflow = 'hidden';
-                void section.getBoundingClientRect();
-                section.style.transition = 'height 0.25s ease';
-                section.style.height = '0px';
-                section._expandEnd = function (event) {
-                    if (event.target !== section) return;
-                    section.removeEventListener('transitionend', section._expandEnd);
-                    section._expandEnd = null;
-                    section.hidden = true;
-                    section.style.height = '';
-                    section.style.overflow = '';
-                    section.style.transition = '';
-                };
-                section.addEventListener('transitionend', section._expandEnd);
-            }
-        }
-
-        function wireAdvancedSettingsSection() {
-            var header = document.getElementById('advancedSettingsHeader');
-            var chevron = document.getElementById('advancedSettingsChevron');
-            var section = document.getElementById('advancedSettingsSection');
-            if (!header || !chevron) return;
-            if (header.getAttribute('data-wired')) return;
-            header.setAttribute('data-wired', '1');
-            header.addEventListener('click', function () {
-                toggleAdvancedSettings(chevron, section, !chevron.classList.contains('expanded'));
-            });
-            chevron.addEventListener('mouseenter', function () { showSectionTooltip(chevron); });
-            chevron.addEventListener('mouseleave', hideSectionTooltip);
-        }
-
         function wireSoundDropdowns() {
             var dropdowns = document.querySelectorAll('.sound-dropdown');
             Array.prototype.forEach.call(dropdowns, function (dropdown) {
@@ -3508,8 +3706,10 @@ wireSoundDropdowns();
                     toggleExternalInteractions();
                 } else if (toggle.id === 'networkAccessAllowNewToggle') {
                     toggleNetworkAccessAllowNew();
-                } else {
-                    toggleAllowDiscovery();
+                } else if (toggle.id === 'internalInteractionsToggle') {
+                    toggleInternalInteractions();
+                } else if (toggle.id === 'automaticUpdateToggle') {
+                    toggleAutomaticUpdate();
                 }
             }
         });

@@ -48,6 +48,8 @@ import audio
 
 import network
 
+import plugin_bridge
+
 from logginglib import init_logging, log_debug, log_error, log_info, log_warn
 
 SERVICE_HOST = "127.0.0.1"
@@ -55,7 +57,7 @@ SERVICE_PORT = None
 
 GUI_ENABLED: bool = True
 
-ALLOW_DISCOVERY: bool = False
+INTERNAL_INTERACTIONS: bool = False
 
 API_KEYS_ENABLED: bool = False
 
@@ -68,6 +70,11 @@ SHARED_MEMORY_ENABLED: bool = True
 NETWORK_INTERACTIONS: bool = False
 
 EXTERNAL_ACCESS: bool = False
+
+AUTOMATIC_UPDATE: bool = False
+
+_UPDATE_AVAILABLE: bool = False
+_UPDATE_AVAILABLE_AT_STARTUP: bool = False
 
 _external_access_worker: network.ExternalAccessWorker | None = None
 
@@ -113,8 +120,8 @@ def _parse_bool(value: str | None, default: bool = False) -> bool:
 
 
 def _initialize_service_config() -> None:
-    global SERVICE_PORT, GUI_ENABLED, ALLOW_DISCOVERY, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, SHARED_MEMORY_ENABLED, NETWORK_INTERACTIONS, EXTERNAL_ACCESS, NETWORK_ACCESS_ALLOW_NEW
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    global SERVICE_PORT, GUI_ENABLED, INTERNAL_INTERACTIONS, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, SHARED_MEMORY_ENABLED, NETWORK_INTERACTIONS, EXTERNAL_ACCESS, NETWORK_ACCESS_ALLOW_NEW, AUTOMATIC_UPDATE
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
     config = _load_configuration()
 
     configured_port = config.get("port", 49150)
@@ -127,7 +134,7 @@ def _initialize_service_config() -> None:
 
     GUI_ENABLED = config.get("guiEnabled", True)
 
-    ALLOW_DISCOVERY = _parse_bool(os.getenv("ALLOW_DISCOVERY"), False)
+    INTERNAL_INTERACTIONS = _parse_bool(os.getenv("INTERNAL_INTERACTIONS"), False)
 
     API_KEYS_ENABLED = _parse_bool(os.getenv("API_KEYS_ENABLED"), False)
 
@@ -144,6 +151,8 @@ def _initialize_service_config() -> None:
 
     NETWORK_ACCESS_ALLOW_NEW = _parse_bool(os.getenv("NETWORK_ACCESS_ALLOW_NEW"), False)
 
+    AUTOMATIC_UPDATE = _parse_bool(os.getenv("AUTOMATIC_UPDATE"), False)
+
     for sound_event, env_name in audio.SOUND_ENV_VARS.items():
         if _read_env_var(env_name, None) is None:
             _write_env_var(env_name, audio.DEFAULT_SOUND_FILES.get(sound_event, ""))
@@ -153,7 +162,7 @@ def _initialize_service_config() -> None:
     if not _login_credentials_configured():
         log_warn("Login credentials not configured", {"hint": "set USERNAME and PASSWORD (or USERS) in .env"})
 
-    log_debug("Resolved config values", {"port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "allowDiscovery": ALLOW_DISCOVERY, "apiKeysEnabled": API_KEYS_ENABLED, "externalAccess": EXTERNAL_ACCESS})
+    log_debug("Resolved config values", {"port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "internalInteractions": INTERNAL_INTERACTIONS, "apiKeysEnabled": API_KEYS_ENABLED, "externalAccess": EXTERNAL_ACCESS, "automaticUpdate": AUTOMATIC_UPDATE})
     log_info("Service configuration initialized")
 
 
@@ -632,18 +641,27 @@ def _require_api_keys_enabled() -> None:
         raise FeatureDisabledError("The API keys functionality is disabled.")
 
 
-def _require_allow_discovery_enabled() -> None:
-    if not ALLOW_DISCOVERY:
-        raise FeatureDisabledError("The shared memory functionality is disabled.")
+def _require_internal_interactions_enabled() -> None:
+    if not INTERNAL_INTERACTIONS:
+        raise FeatureDisabledError("The internal interactions functionality is disabled.")
 
 
 def _effective_shared_memory_enabled() -> bool:
-    return ALLOW_DISCOVERY and SHARED_MEMORY_ENABLED
+    return INTERNAL_INTERACTIONS and SHARED_MEMORY_ENABLED
+
+
+def _effective_internal_interactions_enabled() -> bool:
+    return INTERNAL_INTERACTIONS and SHARED_MEMORY_ENABLED
 
 
 def _require_shared_memory_enabled() -> None:
     if not _effective_shared_memory_enabled():
-        raise FeatureDisabledError("The shared memory functionality is disabled.")
+        raise FeatureDisabledError("The internal interactions functionality is disabled.")
+
+
+# Plugins catalog (hash-range library) research lives in plugin_bridge.
+# main.py keeps only the endpoint (see search_plugins below); no handling
+# (download / load / start / stop) of installed plugins lives here.
 
 
 app = Flask(__name__)
@@ -792,10 +810,17 @@ def _read_env_bool(key: str, default: bool = False) -> bool:
 
 
 @audio.play_audio("acknowledge")
-def _set_allow_discovery(value: bool) -> None:
-    global ALLOW_DISCOVERY
-    ALLOW_DISCOVERY = value
-    _write_env_bool("ALLOW_DISCOVERY", value)
+def _set_internal_interactions(value: bool) -> None:
+    global INTERNAL_INTERACTIONS
+    INTERNAL_INTERACTIONS = value
+    _write_env_bool("INTERNAL_INTERACTIONS", value)
+
+
+@audio.play_audio("acknowledge")
+def _set_automatic_update(value: bool) -> None:
+    global AUTOMATIC_UPDATE
+    AUTOMATIC_UPDATE = value
+    _write_env_bool("AUTOMATIC_UPDATE", value)
 
 
 @audio.play_audio("acknowledge")
@@ -924,14 +949,19 @@ def _load_network_access_ips() -> list[dict]:
     for entry in data:
         if not isinstance(entry, dict):
             continue
+        note = entry.get("Note")
+        if not isinstance(note, str):
+            note = ""
         for ip, action in entry.items():
+            if ip == "Note":
+                continue
             if action not in _NETWORK_ACCESS_ACTIONS:
                 continue
             try:
                 canonical = _canonical_network_ip(ipaddress.ip_address(ip))
             except ValueError:
                 continue
-            entries.append({canonical: action})
+            entries.append({canonical: action, "Note": note})
     return entries
 
 
@@ -944,14 +974,18 @@ def _list_network_access_ips() -> list[dict]:
     return _load_network_access_ips()
 
 
-def _set_network_access_ip(ip: str, action: str) -> tuple[dict, bool]:
+def _set_network_access_ip(ip: str, action: str, note: str | None = None) -> tuple[dict, bool]:
     _require_network_interactions_enabled()
     if action not in _NETWORK_ACCESS_ACTIONS:
         raise ValueError("The value must be 'allow', 'unknown' or 'block'.")
+    if note is not None and not isinstance(note, str):
+        raise ValueError("The note must be a string.")
+    if note is None:
+        note = ""
     canonical = _maximize_network_ip(ip)
     entries = _load_network_access_ips()
     existing = next((entry for entry in entries if canonical in entry), None)
-    entry = {canonical: action}
+    entry = {canonical: action, "Note": note}
     remaining = [item for item in entries if canonical not in item]
     remaining.append(entry)
     _save_network_access_ips(remaining)
@@ -963,15 +997,20 @@ def _set_network_access_ip(ip: str, action: str) -> tuple[dict, bool]:
 
 
 @audio.play_audio("acknowledge")
-def _update_network_access_ip(ip: str, action: str) -> dict | None:
+def _update_network_access_ip(ip: str, action: str, note: str | None = None) -> dict | None:
     _require_network_interactions_enabled()
     if action not in _NETWORK_ACCESS_ACTIONS:
         raise ValueError("The value must be 'allow', 'unknown' or 'block'.")
+    if note is not None and not isinstance(note, str):
+        raise ValueError("The note must be a string.")
     canonical = _maximize_network_ip(ip)
     entries = _load_network_access_ips()
     if not any(canonical in entry for entry in entries):
         return None
-    entry = {canonical: action}
+    if note is None:
+        existing = next(entry for entry in entries if canonical in entry)
+        note = existing.get("Note", "")
+    entry = {canonical: action, "Note": note}
     remaining = [item for item in entries if canonical not in item]
     remaining.append(entry)
     _save_network_access_ips(remaining)
@@ -1002,7 +1041,7 @@ def _record_network_access_ip_automatic(canonical: str, action: str) -> None:
     entries = _load_network_access_ips()
     if any(canonical in entry for entry in entries):
         return
-    entries.append({canonical: action})
+    entries.append({canonical: action, "Note": ""})
     _save_network_access_ips(entries)
     audio.play_audio("acknowledge")()
 
@@ -1083,7 +1122,7 @@ def _play_sound_event(event_name: str) -> None:
 
 @audio.play_audio("acknowledge")
 def _set_shared_memory_enabled(value: bool) -> None:
-    _require_allow_discovery_enabled()
+    _require_internal_interactions_enabled()
     global SHARED_MEMORY_ENABLED
     SHARED_MEMORY_ENABLED = value
     _write_env_bool("SHARED_MEMORY_ENABLED", value)
@@ -1097,7 +1136,7 @@ def settings() -> tuple:
     if request.method == "GET":
         log_info("Settings read", {"client": request.remote_addr})
         return jsonify({
-            "allowDiscovery": _read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
+            "internalInteractions": _read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS),
             "displayPromotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
             "externalAccess": _read_env_bool("EXTERNAL_ACCESS", EXTERNAL_ACCESS),
             "networkAccessAllowNew": _read_env_bool("NETWORK_ACCESS_ALLOW_NEW", NETWORK_ACCESS_ALLOW_NEW),
@@ -1106,15 +1145,15 @@ def settings() -> tuple:
     if denied is not None:
         return denied
     data = request.get_json(silent=True) or {}
-    keys = [key for key in ("allowDiscovery", "displayPromotion", "externalAccess", "networkAccessAllowNew") if key in data]
+    keys = [key for key in ("internalInteractions", "displayPromotion", "externalAccess", "networkAccessAllowNew") if key in data]
     if not keys:
         return jsonify({"error": "No known setting provided."}), 400
     for key in keys:
         value = data[key]
         if not isinstance(value, bool):
             return jsonify({"error": f"{key} must be a boolean."}), 400
-        if key == "allowDiscovery":
-            _set_allow_discovery(value)
+        if key == "internalInteractions":
+            _set_internal_interactions(value)
         elif key == "externalAccess":
             try:
                 _set_external_access(value)
@@ -1127,9 +1166,9 @@ def settings() -> tuple:
                 return jsonify({"error": str(exc)}), 403
         else:
             _set_display_promotion(value)
-    log_info("Settings updated", {"client": request.remote_addr, "allowDiscovery": ALLOW_DISCOVERY, "displayPromotion": DISPLAY_PROMOTION, "externalAccess": EXTERNAL_ACCESS, "networkAccessAllowNew": NETWORK_ACCESS_ALLOW_NEW})
+    log_info("Settings updated", {"client": request.remote_addr, "internalInteractions": INTERNAL_INTERACTIONS, "displayPromotion": DISPLAY_PROMOTION, "externalAccess": EXTERNAL_ACCESS, "networkAccessAllowNew": NETWORK_ACCESS_ALLOW_NEW})
     return jsonify({
-        "allowDiscovery": ALLOW_DISCOVERY,
+        "internalInteractions": INTERNAL_INTERACTIONS,
         "displayPromotion": DISPLAY_PROMOTION,
         "externalAccess": EXTERNAL_ACCESS,
         "networkAccessAllowNew": NETWORK_ACCESS_ALLOW_NEW,
@@ -1254,6 +1293,137 @@ def external_interactions_enabled() -> tuple:
     _set_external_interactions(value)
     log_info("External interactions enabled set", {"client": request.remote_addr, "externalInteractions": value})
     return jsonify({"externalInteractions": _external_interactions_enabled()}), 200
+
+
+@app.route("/api/automatic-update-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.network_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def automatic_update_enabled() -> tuple:
+    if request.method == "GET":
+        log_info("Automatic update enabled setting read", {"client": request.remote_addr})
+        return jsonify({"automaticUpdate": AUTOMATIC_UPDATE}), 200
+
+    data = request.get_json(silent=True) or {}
+    if "automaticUpdate" not in data or not isinstance(data["automaticUpdate"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["automaticUpdate"]
+    _set_automatic_update(value)
+    log_info("Automatic update enabled set", {"client": request.remote_addr, "automaticUpdate": AUTOMATIC_UPDATE})
+    return jsonify({"automaticUpdate": AUTOMATIC_UPDATE}), 200
+
+
+def _get_current_project_version() -> str:
+    """Return current running version (short hash or git describe)."""
+    # Try root hash file first (project hash)
+    try:
+        p = Path(__file__).resolve().parent.parent / "hash"
+        if p.is_file():
+            v = p.read_text(encoding="utf-8").strip().split()[0]
+            if v and len(v) >= 7:
+                return v[:12]
+    except Exception:
+        pass
+    # Fallback to git
+    try:
+        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).resolve().parent.parent, stderr=subprocess.DEVNULL, timeout=3)
+        return out.decode().strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _get_local_project_hash() -> str | None:
+    try:
+        p = Path(__file__).resolve().parent.parent / "hash"
+        return p.read_text(encoding="utf-8").strip().split()[0]
+    except Exception:
+        return None
+
+
+def _fetch_remote_project_hash(timeout: int = 8) -> str | None:
+    import ssl
+    import urllib.request
+    urls = [
+        "https://raw.githubusercontent.com/LorenBll/Akupara/main/hash",
+        "https://raw.githubusercontent.com/LorenBll/ServiceHandler/main/hash",
+    ]
+    ctx = ssl.create_default_context()
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                data = resp.read().decode("utf-8", errors="replace").strip().split()[0]
+                if data:
+                    return data
+        except Exception:
+            continue
+    return None
+
+
+def _is_update_available() -> bool:
+    local = _get_local_project_hash()
+    remote = _fetch_remote_project_hash()
+    if not local or not remote:
+        return False
+    return local.strip().lower() != remote.strip().lower()
+
+
+def _perform_project_update() -> bool:
+    """Update local repo to latest released version without deleting stored data, then restart."""
+    try:
+        root = Path(__file__).resolve().parent.parent
+        # Use git to update — preserves untracked files (.env, logs, etc.) and ignored files
+        # Fetch latest
+        subprocess.run(["git", "fetch", "origin"], cwd=root, capture_output=True, timeout=30)
+        # Try pull --ff-only; fallback to reset if needed but preserve untracked
+        proc = subprocess.run(["git", "pull", "--ff-only"], cwd=root, capture_output=True, timeout=30)
+        if proc.returncode != 0:
+            # Fallback: checkout main and reset hard to origin/main but keep untracked (not deleting)
+            subprocess.run(["git", "checkout", "main"], cwd=root, capture_output=True, timeout=10)
+            subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=root, capture_output=True, timeout=30)
+        log_info("Project updated to latest version", {"remote_hash": _fetch_remote_project_hash()})
+        return True
+    except Exception as exc:
+        log_error("Project update failed", {"error": str(exc)})
+        return False
+
+
+@app.route("/api/check-for-updates", methods=["POST", "HEAD", "OPTIONS"])
+@network.network_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("POST", "HEAD", "OPTIONS")
+def check_for_updates() -> tuple:
+    global _UPDATE_AVAILABLE, _UPDATE_AVAILABLE_AT_STARTUP
+    available = _is_update_available()
+    # Cache the result so the server-rendered button stays consistent with the check
+    _UPDATE_AVAILABLE = available
+    _UPDATE_AVAILABLE_AT_STARTUP = available
+    log_info("Check for updates", {"client": request.remote_addr, "available": available, "current": _get_current_project_version()})
+    return jsonify({"updateAvailable": available, "currentVersion": _get_current_project_version()}), 200
+
+
+@app.route("/api/update-now", methods=["POST", "HEAD", "OPTIONS"])
+@log_change
+@admin_session_authenticated
+@standard_endpoint("POST", "HEAD", "OPTIONS")
+def update_now() -> tuple:
+    # Not network callable — only localhost can reach (no @network decorator)
+    # Extra localhost check: ensure request is from local device
+    if request.remote_addr not in _get_local_device_addresses():
+        log_warn("Update rejected: not localhost", {"client": request.remote_addr})
+        return jsonify({"error": "Local device access only."}), 403
+    if not _is_update_available():
+        return jsonify({"error": "No update available."}), 400
+    log_info("Update now requested", {"client": request.remote_addr, "current": _get_current_project_version()})
+    # Perform update in background then restart
+    def do_update():
+        if _perform_project_update():
+            _restart()
+    threading.Timer(0.5, do_update).start()
+    return jsonify({"status": "ok", "message": "Updating and restarting."}), 200
 
 
 _FORBIDDEN_KEY_NAME_CHARS = set(" ,;:\\/%")
@@ -1588,8 +1758,9 @@ def network_access_ips() -> tuple:
     data = request.get_json(silent=True) or {}
     ip = data.get("ip")
     action = data.get("action")
+    note = data.get("note")
     try:
-        entry, created = _set_network_access_ip(ip, action)
+        entry, created = _set_network_access_ip(ip, action, note)
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
     except ValueError:
@@ -1618,8 +1789,9 @@ def network_access_ip_item(ip: str) -> tuple:
 
     data = request.get_json(silent=True) or {}
     action = data.get("action")
+    note = data.get("note")
     try:
-        entry = _update_network_access_ip(ip, action)
+        entry = _update_network_access_ip(ip, action, note)
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
     except ValueError:
@@ -1630,6 +1802,32 @@ def network_access_ip_item(ip: str) -> tuple:
     return jsonify(entry), 200
 
 
+@app.route("/api/plugins/search", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.network_worker_callable
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def search_plugins() -> tuple:
+    if request.method == "GET":
+        pattern = request.args.get("q", request.args.get("query", request.args.get("pattern", "")))
+        if pattern is None:
+            pattern = ""
+        if not isinstance(pattern, str):
+            return jsonify({"error": "Invalid request."}), 400
+    else:
+        data = request.get_json(silent=True) or {}
+        pattern = data.get("query", data.get("pattern", data.get("q", "")))
+        if pattern is None:
+            pattern = ""
+        if not isinstance(pattern, str):
+            return jsonify({"error": "Invalid request."}), 400
+    try:
+        results = plugin_bridge._search_plugins(pattern)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    log_info("Plugins search", {"client": request.remote_addr, "pattern": pattern, "count": len(results)})
+    return jsonify({"plugins": results}), 200
+
+
 @network.network_worker_callable
 @session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
@@ -1637,9 +1835,11 @@ def index():
     log_info("Serving UI", {"client": request.remote_addr})
     web_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
     template = (web_dir / "index.html").read_text(encoding="utf-8")
+    session = _active_session()
     return render_template_string(
         template,
         display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
+        is_admin=bool(session and session["admin"]),
     )
 
 
@@ -1682,7 +1882,7 @@ def ui_settings_page():
         is_admin=bool(session and session["admin"]),
         is_root=bool(session and session.get("root", False)),
         account_username=session["username"] if session else "",
-        allow_discovery=_read_env_bool("ALLOW_DISCOVERY", ALLOW_DISCOVERY),
+        internal_interactions=_read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS),
         api_keys_enabled=_read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
         display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
         play_audios=_read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
@@ -1698,12 +1898,24 @@ def ui_settings_page():
         has_network_access_ips=bool(network_access_ips),
         network_access_ips_json=json.dumps(network_access_ips),
         external_interactions_enabled=_external_interactions_enabled(),
+        automatic_update=_read_env_bool("AUTOMATIC_UPDATE", AUTOMATIC_UPDATE),
+        current_version=_get_current_project_version(),
+        update_available=_UPDATE_AVAILABLE_AT_STARTUP,
         has_users=bool(users),
         users_json=json.dumps(users),
         current_username=session["username"] if session else "",
         legacy_username=legacy_username,
         network_worker_bind=_network_worker_bind_address(),
     )
+
+
+@network.network_worker_callable
+@admin_session_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_plugins_page():
+    pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
+    template = (pages_dir / "plugins.html").read_text(encoding="utf-8")
+    return render_template_string(template)
 
 
 @network.network_worker_callable
@@ -1752,6 +1964,24 @@ def login() -> tuple:
     log_warn("Login failed", {"client": request.remote_addr})
     audio.play_audio("error")()
     return jsonify({"error": "Invalid credentials."}), 401
+
+
+@app.route("/api/logout", methods=["POST", "OPTIONS"])
+@network.network_worker_callable
+@log_change
+@session_authenticated
+@standard_endpoint("POST", "OPTIONS")
+def logout() -> tuple:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    session = _active_session()
+    username = session["username"] if session else "unknown"
+    if token:
+        with _SESSION_LOCK:
+            _SESSION_STORE.pop(token, None)
+        log_info("Logout", {"username": username, "client": request.remote_addr})
+    response = jsonify({"status": "ok"})
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    return response, 200
 
 
 @app.route("/api/change-password", methods=["POST", "OPTIONS"])
@@ -1912,6 +2142,11 @@ def _register_ui_routes(app_instance: Flask) -> None:
         view_func=ui_settings_page,
     )
     app_instance.add_url_rule(
+        "/ui/pages/plugins.html",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=ui_plugins_page,
+    )
+    app_instance.add_url_rule(
         "/ui/css/<path:filename>",
         methods=["GET", "HEAD", "OPTIONS"],
         view_func=ui_css,
@@ -1942,11 +2177,35 @@ if __name__ == "__main__":
         log_error("Failed to load configuration", {"error": str(exc), "traceback": _format_exc()})
         exit(1)
 
+    # Plugin loader starts immediately — verifies plugins-lib integrity
+    try:
+        plugin_bridge.get_plugin_bridge().start()
+        if not plugin_bridge.get_plugin_bridge().is_started():
+            log_error("Plugin loader failed to start — check previous errors (illicit plugins-lib interaction?)")
+    except Exception as exc:
+        log_error("Plugin loader start failed", {"error": str(exc), "traceback": _format_exc()})
+
+    # Startup check for updates — runs every time Akupara starts
+    try:
+        _UPDATE_AVAILABLE = _is_update_available()
+        _UPDATE_AVAILABLE_AT_STARTUP = _UPDATE_AVAILABLE
+        current = _get_current_project_version()
+        if _UPDATE_AVAILABLE:
+            log_info("Update available at startup", {"current": current, "automaticUpdate": AUTOMATIC_UPDATE})
+            if AUTOMATIC_UPDATE:
+                log_info("Automatic update enabled — updating now and restarting", {"current": current})
+                if _perform_project_update():
+                    _restart()
+        else:
+            log_info("No update available at startup", {"current": current})
+    except Exception as exc:
+        log_warn("Startup update check failed", {"error": str(exc)})
+
     if EXTERNAL_ACCESS:
         _start_external_access_worker()
 
     try:
-        log_info("Akupara starting", {"bind": f"http://{SERVICE_HOST}:{SERVICE_PORT}", "gui": GUI_ENABLED, "port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "allowDiscovery": ALLOW_DISCOVERY, "apiKeysEnabled": API_KEYS_ENABLED, "externalAccess": EXTERNAL_ACCESS})
+        log_info("Akupara starting", {"bind": f"http://{SERVICE_HOST}:{SERVICE_PORT}", "gui": GUI_ENABLED, "port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "internalInteractions": INTERNAL_INTERACTIONS, "apiKeysEnabled": API_KEYS_ENABLED, "externalAccess": EXTERNAL_ACCESS})
 
         app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)
 
