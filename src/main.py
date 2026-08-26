@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import argparse
 import functools
-import hashlib
 import hmac
 import ipaddress
 import json
 import os
+import re
 import secrets
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -26,6 +27,7 @@ _missing_libraries: list[str] = []
 for _module, _package in {
     "flask": "Flask",
     "dotenv": "python-dotenv",
+    "cryptography": "cryptography",
 }.items():
     try:
         __import__(_module)
@@ -43,6 +45,8 @@ if _missing_libraries:
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, request, send_from_directory, render_template_string
+
+from cryptography.fernet import Fernet
 
 import audio
 
@@ -159,6 +163,8 @@ def _initialize_service_config() -> None:
 
     _SESSION_STORE.clear()
 
+    _refresh_api_key_store()
+
     if not _login_credentials_configured():
         log_warn("Login credentials not configured", {"hint": "set USERNAME and PASSWORD (or USERS) in .env"})
 
@@ -259,8 +265,9 @@ def _renew_session_cookie(response) -> None:
         return
     with _SESSION_LOCK:
         session = _SESSION_STORE.get(provided_token)
-        if session is not None:
-            session["last_refresh"] = time.time()
+        if session is None:
+            return
+        session["last_refresh"] = time.time()
     response.set_cookie(
         SESSION_COOKIE_NAME,
         provided_token,
@@ -298,8 +305,7 @@ def _is_valid_api_key() -> bool:
     provided_key = request.headers.get("X-Api-Key")
     if not provided_key:
         return False
-    keys = [entry["key"] for entry in _load_api_keys()]
-    return provided_key in keys
+    return any(hmac.compare_digest(provided_key, entry["key"]) for entry in _api_key_store)
 
 
 def api_key_or_admin_authenticated(func):
@@ -343,8 +349,8 @@ def _resolve_actor() -> tuple[str, str] | None:
     """
     provided_key = request.headers.get("X-Api-Key")
     if provided_key:
-        for entry in _load_api_keys():
-            if entry["key"] == provided_key:
+        for entry in _api_key_store:
+            if hmac.compare_digest(provided_key, entry["key"]):
                 return ("api-key", str(entry.get("id") or ""))
         return None
     session = _active_session()
@@ -770,7 +776,24 @@ def _write_env_var(key: str, value: str) -> None:
             break
     if not updated:
         lines.append(f"{key}={value}")
-    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    new_content = "\n".join(lines) + "\n"
+    try:
+        mode = env_path.stat().st_mode & 0o777
+    except OSError:
+        mode = None
+    fd, tmp_path = tempfile.mkstemp(dir=str(env_path.parent), prefix=".env.", suffix=".tmp", text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        if mode is not None:
+            os.chmod(tmp_path, mode)
+        os.replace(tmp_path, str(env_path))
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _write_env_bool(key: str, value: bool) -> None:
@@ -1315,23 +1338,31 @@ def automatic_update_enabled() -> tuple:
 
 
 def _get_current_project_version() -> str:
-    """Return current running version (short hash or git describe)."""
-    # Try root hash file first (project hash)
+    """Return the hash of the current stated version tag, or 'unknown'."""
+    root = Path(__file__).resolve().parent.parent
     try:
-        p = Path(__file__).resolve().parent.parent / "hash"
-        if p.is_file():
-            v = p.read_text(encoding="utf-8").strip().split()[0]
-            if v and len(v) >= 7:
-                return v[:12]
+        tag = subprocess.check_output(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        ).decode("utf-8", errors="replace").strip()
     except Exception:
-        pass
-    # Fallback to git
+        return "unknown"
+    if not tag:
+        return "unknown"
     try:
-        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).resolve().parent.parent, stderr=subprocess.DEVNULL, timeout=3)
-        return out.decode().strip()
+        v = subprocess.check_output(
+            ["git", "show", f"{tag}:hash"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        ).decode("utf-8", errors="replace").strip().split()[0]
     except Exception:
-        pass
-    return "unknown"
+        return "unknown"
+    if len(v) < 7:
+        return "unknown"
+    return v[:12]
 
 
 def _get_local_project_hash() -> str | None:
@@ -1342,23 +1373,55 @@ def _get_local_project_hash() -> str | None:
         return None
 
 
+def _get_latest_version_tag() -> str | None:
+    """Return the highest semantic-version tag on origin (e.g. 'v3.0.0'), or None."""
+    try:
+        root = Path(__file__).resolve().parent.parent
+        out = subprocess.check_output(
+            ["git", "ls-remote", "--tags", "origin"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+        ).decode("utf-8", errors="replace")
+    except Exception:
+        return None
+    versions: list[tuple[tuple[int, ...], str]] = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 2:
+            continue
+        ref = parts[1].strip()
+        if not ref.startswith("refs/tags/"):
+            continue
+        name = ref[len("refs/tags/"):].removesuffix("^{}")
+        m = re.match(r"^v(\d+(?:\.\d+)*)$", name)
+        if not m:
+            continue
+        key = tuple(int(part) for part in m.group(1).split("."))
+        versions.append((key, name))
+    if not versions:
+        return None
+    versions.sort(key=lambda item: item[0])
+    return versions[-1][1]
+
+
 def _fetch_remote_project_hash(timeout: int = 8) -> str | None:
     import ssl
     import urllib.request
-    urls = [
-        "https://raw.githubusercontent.com/LorenBll/Akupara/main/hash",
-        "https://raw.githubusercontent.com/LorenBll/ServiceHandler/main/hash",
-    ]
+    # Compare against the latest released version's hash, not the latest commit.
+    tag = _get_latest_version_tag()
+    if not tag:
+        return None
+    url = f"https://raw.githubusercontent.com/LorenBll/Akupara/{tag}/hash"
     ctx = ssl.create_default_context()
-    for url in urls:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-                data = resp.read().decode("utf-8", errors="replace").strip().split()[0]
-                if data:
-                    return data
-        except Exception:
-            continue
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            data = resp.read().decode("utf-8", errors="replace").strip().split()[0]
+            if data:
+                return data
+    except Exception:
+        return None
     return None
 
 
@@ -1433,13 +1496,49 @@ def _is_valid_key_name(name: str) -> bool:
     return bool(name) and not any(ch in name for ch in _FORBIDDEN_KEY_NAME_CHARS)
 
 
-def _api_key_id(key: str) -> str:
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+def _api_key_id() -> str:
+    return secrets.token_hex(16)
+
+
+def _api_key_cipher() -> Fernet:
+    key = _read_env_var("API_KEY_ENCRYPTION_KEY")
+    if not key:
+        raise ValueError("API key encryption key not configured.")
+    return Fernet(key.encode("utf-8"))
+
+
+def _api_key_encrypt(key: str) -> str:
+    return _api_key_cipher().encrypt(key.encode("utf-8")).decode("utf-8")
+
+
+def _api_key_decrypt(token: str) -> str:
+    try:
+        return _api_key_cipher().decrypt(token.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return ""
 
 
 def _load_api_keys() -> list[dict]:
     value = _read_env_var("API_KEYS")
     keys: list[dict] = []
+    if not value:
+        return keys
+    try:
+        data = json.loads(value)
+        if isinstance(data, list):
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("name") or "").strip()
+                key = str(entry.get("key") or "").strip()
+                if not name or not key:
+                    continue
+                key_id = str(entry.get("id") or "").strip() or _api_key_id()
+                keys.append({"name": name, "key": key, "id": key_id})
+            return keys
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
+    # Legacy comma-separated fallback ("name:key:id,...")
     for part in value.split(","):
         part = part.strip()
         if not part:
@@ -1451,14 +1550,36 @@ def _load_api_keys() -> list[dict]:
         key = fields[1].strip()
         if not name or not key:
             continue
-        key_id = fields[2].strip() if len(fields) > 2 and fields[2].strip() else _api_key_id(key)
+        key_id = fields[2].strip() if len(fields) > 2 and fields[2].strip() else _api_key_id()
         keys.append({"name": name, "key": key, "id": key_id})
     return keys
 
 
-def _save_api_keys(keys: list[dict]) -> None:
-    value = ",".join(f"{entry['name']}:{entry['key']}:{entry.get('id') or _api_key_id(entry['key'])}" for entry in keys)
-    _write_env_var("API_KEYS", value)
+# In-memory store of API keys in plaintext, loaded once at startup. The .env file
+# holds only the encrypted (Fernet) tokens; the cipher layer never reaches the UI.
+_api_key_store: list[dict] = []
+
+
+def _refresh_api_key_store() -> None:
+    """Load the API keys from .env and decrypt them into the in-memory plaintext store."""
+    global _api_key_store
+    _api_key_store = []
+    for entry in _load_api_keys():
+        plain = _api_key_decrypt(entry["key"])
+        if not plain:
+            continue
+        _api_key_store.append({"name": entry["name"], "key": plain, "id": entry["id"]})
+
+
+def _save_api_keys(entries: list[dict]) -> None:
+    """Persist plaintext API key entries by encrypting them into .env, then refresh the store."""
+    global _api_key_store
+    encrypted = [
+        {"name": e["name"], "key": _api_key_encrypt(e["key"]), "id": e.get("id") or _api_key_id()}
+        for e in entries
+    ]
+    _write_env_var("API_KEYS", json.dumps(encrypted, ensure_ascii=False))
+    _api_key_store = [{"name": e["name"], "key": e["key"], "id": e.get("id") or _api_key_id()} for e in entries]
 
 
 def _generate_api_key() -> str:
@@ -1467,7 +1588,7 @@ def _generate_api_key() -> str:
 
 def _list_api_keys() -> list[dict]:
     _require_api_keys_enabled()
-    return [{"name": entry["name"], "key": entry["key"]} for entry in _load_api_keys()]
+    return [{"name": entry["name"], "key": entry["key"]} for entry in _api_key_store]
 
 
 @audio.play_audio("success")
@@ -1476,20 +1597,17 @@ def _create_api_key(name: str) -> dict:
     if not isinstance(name, str) or not _is_valid_key_name(name):
         raise ValueError("Invalid API key name.")
     key = _generate_api_key()
-    keys = _load_api_keys()
-    if any(entry["name"].lower() == name.lower() for entry in keys):
+    if any(entry["name"].lower() == name.lower() for entry in _api_key_store):
         raise DuplicateNameError("An API key with this name already exists.")
-    entry = {"name": name, "key": key, "id": _api_key_id(key)}
-    keys.append(entry)
-    _save_api_keys(keys)
+    entry = {"name": name, "key": key, "id": _api_key_id()}
+    _save_api_keys(_api_key_store + [entry])
     return {"name": entry["name"], "key": entry["key"]}
 
 
 def _delete_api_key(key: str) -> bool:
     _require_api_keys_enabled()
-    keys = _load_api_keys()
-    remaining = [entry for entry in keys if entry["key"] != key]
-    if len(remaining) == len(keys):
+    remaining = [entry for entry in _api_key_store if entry["key"] != key]
+    if len(remaining) == len(_api_key_store):
         return False
     _save_api_keys(remaining)
     audio.play_audio("success")()
@@ -1501,14 +1619,13 @@ def _rename_api_key(key: str, name: str) -> dict | None:
     _require_api_keys_enabled()
     if not isinstance(name, str) or not _is_valid_key_name(name):
         raise ValueError("Invalid API key name.")
-    keys = _load_api_keys()
-    target = next((entry for entry in keys if entry["key"] == key), None)
+    target = next((entry for entry in _api_key_store if entry["key"] == key), None)
     if not target:
         return None
-    if any(entry["name"].lower() == name.lower() and entry is not target for entry in keys):
+    if any(entry["name"].lower() == name.lower() and entry is not target for entry in _api_key_store):
         raise DuplicateNameError("An API key with this name already exists.")
     target["name"] = name
-    _save_api_keys(keys)
+    _save_api_keys(_api_key_store)
     return {"name": target["name"], "key": target["key"]}
 
 
@@ -1696,8 +1813,8 @@ def shared_memory() -> tuple:
         entry = _create_shared_variable(name, value, value_type)
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
-    except DuplicateNameError as exc:
-        return jsonify({"error": str(exc)}), 409
+    except DuplicateNameError:
+        return jsonify({"error": "A shared variable with this name already exists."}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     log_info("Shared variable created", {"client": request.remote_addr, "name": name, "type": value_type})
@@ -1871,7 +1988,7 @@ def ui_page(filename: str):
 def ui_settings_page():
     pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
     template = (pages_dir / "settings.html").read_text(encoding="utf-8")
-    api_keys = sorted(_load_api_keys(), key=lambda k: (k.get("name") or "").lower())
+    api_keys = sorted(_api_key_store, key=lambda k: (k.get("name") or "").lower())
     shared_memory = _load_shared_memory()
     network_access_ips = _load_network_access_ips()
     legacy_username = _read_env_var("USERNAME")
@@ -1962,7 +2079,7 @@ def login() -> tuple:
         audio.play_audio("success")()
         return response, 200
     log_warn("Login failed", {"client": request.remote_addr})
-    audio.play_audio("error")()
+    audio.play_audio("warn")()
     return jsonify({"error": "Invalid credentials."}), 401
 
 
@@ -2013,7 +2130,7 @@ def change_password() -> tuple:
         return jsonify({"error": str(exc)}), 404
     except CurrentPasswordError as exc:
         log_warn("Password change rejected", {"client": request.remote_addr, "error": str(exc)})
-        audio.play_audio("error")()
+        audio.play_audio("warn")()
         return jsonify({"error": str(exc)}), 403
     audio.play_audio("success")()
     return jsonify({"status": "ok"}), 200

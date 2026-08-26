@@ -1,4 +1,4 @@
-"""Plugin bridge — mediates between ServiceHandler and plugins.
+"""Plugin bridge — mediates between Akupara and plugins.
 
 The ``resources/plugins-lib`` JSON catalog (hash-range files, full-space
 ``<lowest>-<highest>.json`` while small) is the authoritative library of
@@ -34,11 +34,7 @@ from logginglib import log_error, log_info, log_warn
 
 # Remote hash for integrity check — latest GitHub Akupara
 _REMOTE_HASH_URL = "https://raw.githubusercontent.com/LorenBll/Akupara/main/resources/plugins-lib/hash"
-# Also accept ServiceHandler alias (same project structure)
-_REMOTE_HASH_URLS = [
-    _REMOTE_HASH_URL,
-    "https://raw.githubusercontent.com/LorenBll/ServiceHandler/main/resources/plugins-lib/hash",
-]
+_REMOTE_HASH_URLS = [_REMOTE_HASH_URL]
 
 def _plugins_lib_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "resources" / "plugins-lib"
@@ -133,7 +129,7 @@ def _play_warn_sound():
         pass
 
 class PluginBridge:
-    """Bridge between ServiceHandler and installed plugins — loader + research.
+    """Bridge between Akupara and installed plugins — loader + research.
 
     Follows the worker naming standard (``start``/``stop`` idempotent).
     ``start`` immediately performs two integrity checks:
@@ -174,7 +170,7 @@ class PluginBridge:
             log_warn("Plugin loader: remote hash unavailable — skipping GitHub check (offline?)", {"remote_urls": _REMOTE_HASH_URLS, "local_hash": stored})
         elif stored.strip().lower() != remote.strip().lower():
             log_error("Plugin loader failed: local hash differs from GitHub latest", {"local_hash": stored, "remote_hash": remote, "remote_url": _REMOTE_HASH_URL})
-            _play_warn_sound()
+            _play_error_sound()
             return
 
         # --- Check 2: recomputed folder hash vs stored hash ---
@@ -342,6 +338,9 @@ def _load_plugins() -> list[dict]:
     return plugins
 
 
+_MAX_SEARCH_PATTERN_LENGTH = 100
+
+
 def _search_plugins(pattern: str) -> list[dict]:
     """Return plugins matching the regex ``pattern`` (logic layer, catalog research).
 
@@ -353,18 +352,22 @@ def _search_plugins(pattern: str) -> list[dict]:
     case-insensitive). When the reverse index yields no candidates (empty
     index, no token hit, or pattern with no word tokens) the search falls
     back to a full catalog regex scan, so arbitrary regexes (``.*``, ``foo|bar``,
-    etc.) remain supported. Raises ValueError for an invalid regex. No handling
-    of installed plugins is performed.
+    etc.) remain supported. Raises ValueError for a too-long or invalid regex;
+    the raised message is generic and never embeds the regex engine's error.
+    No handling of installed plugins is performed.
     """
     if not isinstance(pattern, str):
+        raise ValueError("Invalid request.")
+    pattern = pattern.strip()
+    if len(pattern) > _MAX_SEARCH_PATTERN_LENGTH:
         raise ValueError("Invalid request.")
     plugins = _load_plugins()
     if pattern == "":
         return plugins
     try:
         regex = re.compile(pattern, re.IGNORECASE)
-    except re.error as exc:
-        raise ValueError(f"Invalid regex: {exc}") from exc
+    except re.error:
+        raise ValueError("Invalid request.") from None
 
     def _regex_match(plugin: dict) -> bool:
         searchable_values = " ".join(str(v) for v in plugin.values() if isinstance(v, (str, int, float)))

@@ -19,7 +19,7 @@ _ALLOWED_TYPES = ("ERROR", "WARN", "INFO", "DEBUG")
 
 _RETENTION_DAYS = 14
 
-_name: str = "ServiceHandler"
+_name: str = "Akupara"
 _debug: bool = False
 _dir: Path = Path("logs")
 _file: Path | None = None
