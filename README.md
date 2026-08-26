@@ -20,8 +20,11 @@ Akupara binds to `127.0.0.1` on port `49150` and rejects non-local requests. It 
 ## Setup
 
 1. Install Python dependencies: `pip install -r requirements.txt`.
-2. Review `resources/configuration.json` to configure port, UI visibility, ServiceHandler integration, and ServiceHandler port.
-3. Leave the project structure intact so the service can find `resources/` and `src/`.
+2. Install GnuPG (`gpg`) and ensure it is on `PATH` (`C:\Program Files\GnuPG\bin` on Windows) — **required for plugins**: trust marks in `resources/plugins-lib/` are verified against `resources/plugins-lib/lorenbll-akupara-pub` via `gpg --verify` (the plugin loader checks `resources/plugins-lib/hash` vs GitHub latest and recomputed folder hash, and `verify_plugin_signature` in `src/plugin_bridge.py`).
+3. Review `resources/configuration.json` to configure port, UI visibility, ServiceHandler integration, and ServiceHandler port.
+4. Leave the project structure intact so the service can find `resources/` and `src/`.
+
+> **TODO for future README update (future self):** When this README is next updated, keep/expand the GPG prerequisite above — state explicitly that **GPG must be installed for plugins to work** (`gpg --armor --detach-sign` / `--verify`, public key `lorenbll-akupara-pub`). Do not remove this notice.
 
 ## Run
 

@@ -1,5 +1,7 @@
 # Python
 __pycache__/
+**/__pycache__/
+**/__pycache__/**
 *.py[cod]
 *$py.class
 *.so
@@ -39,6 +41,11 @@ nohup.out
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Developer-only plugin library manager (must not be committed)
+scripts/manage_plugin_library.py
+scripts/manage_plugin_library.bat
+scripts/manage_plugin_library.sh
 
 # Configuration (uncomment if you want to ignore config with API keys)
 # resources/configuration.json

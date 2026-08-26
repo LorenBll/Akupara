@@ -36,6 +36,7 @@ body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overflow-x: visible;
     scrollbar-width: none;
     width: 50vw;
     margin: 0 auto;
@@ -442,16 +443,20 @@ body {
 
 .account-summary {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 24px;
-    margin-bottom: 16px;
+    margin-bottom: 8px;
 }
 
 .account-summary-item {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 10px;
     white-space: nowrap;
+}
+
+.account-summary-item #logoutBtn {
+    margin-left: 14px;
 }
 
 .password-change-row {
@@ -603,8 +608,11 @@ body {
     background: #fee2e2;
 }
 
-.api-keys-table-wrap {
-    margin-top: 16px;
+.table-wrap {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
 }
 
 .api-keys-table {
@@ -657,15 +665,19 @@ body {
 }
 
 #networkAccessTable th:nth-child(1) {
-    width: auto;
+    width: 150px;
 }
 
 #networkAccessTable th:nth-child(2) {
-    width: 200px;
+    width: auto;
 }
 
 #networkAccessTable th:nth-child(3) {
-    width: 44px;
+    width: 206px;
+}
+
+#networkAccessTable th:nth-child(4) {
+    width: 64px;
 }
 
 #networkAccessTable td {
@@ -729,6 +741,11 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.user-root td {
+    background: #dbeafe;
+    color: #1e3a8a;
 }
 
 .api-key-actions-cell {
@@ -870,6 +887,8 @@ body {
 }
 
 .data-indicator {
+    display: flex;
+    align-items: center;
     flex-shrink: 0;
 }
 
@@ -924,18 +943,70 @@ body {
     text-overflow: ellipsis;
 }
 
+.network-access-note-cell {
+    width: auto;
+    min-width: 160px;
+}
+
+.network-access-note-display {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 2px 0;
+    color: var(--ink);
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.network-access-note-display.is-empty {
+    color: var(--muted);
+}
+
+.network-access-note-display.is-empty::before {
+    content: 'Note';
+    font-style: italic;
+}
+
+.network-access-note-input {
+    width: 100%;
+    min-width: 0;
+    height: 29px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 6px 14px;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--ink);
+    outline: none;
+}
+
+.network-access-note-input:focus {
+    border-color: var(--accent);
+}
+
+.network-access-insert-row .network-access-note-input {
+    flex: 1;
+    min-width: 0;
+}
+
 .network-access-policy-cell {
     white-space: nowrap;
-    text-align: center;
+    text-align: right;
+    padding-right: 2px;
 }
 
 .data-indicator-label {
     color: var(--ink);
     font-size: 0.85rem;
+    line-height: 1.4;
 }
 
 .data-indicator-description {
     flex: 1;
+    line-height: 1.4;
 }
 
 .toggle {
@@ -1232,4 +1303,82 @@ body {
 
 .page-action-btn.restart:hover {
     background: #fde047;
+}
+
+.plugin-search-card {
+    width: 100%;
+    overflow: visible;
+}
+
+.plugin-search-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.plugin-search-input-wrap {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-width: 240px;
+}
+
+.plugin-search-input-wrap .api-key-name-input {
+    width: 100%;
+}
+
+.plugin-search-tooltip {
+    position: fixed;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    font-family: 'Cascadia Code', monospace;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 6px;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.16s ease, visibility 0.16s ease;
+    z-index: 999999;
+}
+
+.plugin-search-results {
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+}
+
+.plugin-search-results[hidden] {
+    display: none;
+}
+
+.plugin-search-result-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+
+.plugin-search-result-item:last-child {
+    border-bottom: none;
+}
+
+.plugin-search-result-name {
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.plugin-search-result-meta {
+    color: var(--muted);
+    font-size: 0.75rem;
+    margin-top: 2px;
+}
+
+.plugin-search-empty {
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 12px 0;
 }
