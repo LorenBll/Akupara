@@ -44,6 +44,9 @@ jobs:
               # Exclude installation-specific configuration (port, GUI) from version identity
               if path.relative_to(ROOT).as_posix() == "resources/configuration.json":
                   return True
+              # Exclude the plugin library folder: an update to the library must not affect the project hash
+              if path.relative_to(ROOT).as_posix().startswith("resources/plugins-lib/"):
+                  return True
               # Exclude dirs
               for part in path.parts:
                   if part in EXCLUDE_DIRS or part == "__pycache__":
