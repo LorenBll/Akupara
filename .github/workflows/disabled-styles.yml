@@ -1,0 +1,42 @@
+name: Disabled Styles
+
+on:
+  push:
+    paths:
+      - 'ui/css/index.css'
+      - 'src/main.py'
+  pull_request:
+    paths:
+      - 'ui/css/index.css'
+      - 'src/main.py'
+  workflow_dispatch:
+
+jobs:
+  verify-disabled-styles:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify disabled interactive styles
+        run: |
+          python - << 'PY'
+          import re
+          from pathlib import Path
+          css = Path("ui/css/index.css").read_text(encoding="utf-8")
+          pattern = re.compile(r"([^{]+:disabled[^{]*)\{([^}]+)\}", re.MULTILINE)
+          missing = []
+          for selector, block in pattern.findall(css):
+              if "cursor" not in block or "not-allowed" not in block:
+                  if any(k in selector for k in ("button", "input", "select", "textarea", "toggle", "generate-api-key-btn", "api-key-name-input", "random-name-btn", "page-action-btn", "icon-btn", "external-interactions-segment", "sound-select", "pill-action-btn")):
+                      missing.append(selector.strip())
+          if missing:
+              print("Disabled styles check failed: missing cursor: not-allowed for:", missing)
+              raise SystemExit(1)
+          print(f"Disabled styles check passed ({len(pattern.findall(css))} :disabled rules)")
+          PY

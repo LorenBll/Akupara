@@ -24,6 +24,9 @@ _debug: bool = False
 _dir: Path = Path("logs")
 _file: Path | None = None
 _lock = threading.Lock()
+_play_audios: bool = True
+_play_log_sounds: bool = False
+_in_log_sound: bool = False
 
 
 def init_logging(
@@ -64,6 +67,35 @@ def _canonical_hash(timestamp: str, title: str, data) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def set_log_sounds_config(play_audios: bool, play_log_sounds: bool) -> None:
+    global _play_audios, _play_log_sounds
+    _play_audios = bool(play_audios)
+    _play_log_sounds = bool(play_log_sounds)
+
+
+def _play_log_sound(event_type: str, title: str | None = None) -> None:
+    global _in_log_sound
+    if _in_log_sound:
+        return
+    if not _play_audios or not _play_log_sounds:
+        return
+    if title == "Change recorded":
+        return
+    mapping = {"INFO": "acknowledge", "ERROR": "error", "WARN": "warn", "DEBUG": "acknowledge"}
+    sound = mapping.get(event_type)
+    if not sound:
+        return
+    _in_log_sound = True
+    try:
+        import audio as _audio
+
+        _audio.play_sound(sound, via_log=True)
+    except Exception:
+        pass
+    finally:
+        _in_log_sound = False
+
+
 def _write_event(event_type: str, title: str, data=None) -> None:
     if event_type == "DEBUG" and not _debug:
         return
@@ -87,6 +119,7 @@ def _write_event(event_type: str, title: str, data=None) -> None:
                 entries = []
         entries.append(event)
         path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+    _play_log_sound(event_type, title)
 
 
 def log_error(title: str, data=None) -> None:

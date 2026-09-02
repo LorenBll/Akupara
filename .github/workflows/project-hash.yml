@@ -4,6 +4,8 @@ on:
   push:
     paths-ignore:
       - 'hash'
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -84,6 +86,7 @@ jobs:
           PY
 
       - name: Commit hash if changed
+        if: github.event_name != 'release'
         run: |
           if [ -f hash ]; then
             if git diff --quiet hash; then
@@ -96,3 +99,11 @@ jobs:
               git push
             fi
           fi
+
+      - name: Upload hash as release asset
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" hash --clobber
+          echo "Uploaded hash asset to release ${{ github.event.release.tag_name }}"

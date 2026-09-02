@@ -1,4 +1,5 @@
 {
   "port": 49155,
-  "guiEnabled": true
+  "guiEnabled": true,
+  "development": true
 }
