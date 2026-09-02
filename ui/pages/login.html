@@ -133,9 +133,40 @@
             opacity: 0;
             transform: translateY(20px);
         }
+        .dev-stripe {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            width: 12.5vw;
+            width: calc((100vw - 50vw) / 4);
+            background: repeating-linear-gradient(45deg, #000 0 20px, #ffcc00 20px 40px);
+            z-index: 0;
+            pointer-events: auto;
+            cursor: pointer;
+            opacity: 1;
+            transition: opacity 0.5s ease;
+        }
+        .dev-stripe.faded {
+            opacity: 0;
+        }
+        .dev-stripe-left {
+            left: 0;
+        }
+        .dev-stripe-right {
+            right: 0;
+        }
+        .title,
+        .card {
+            position: relative;
+            z-index: 1;
+        }
     </style>
 </head>
 <body>
+    {% if development %}
+    <div class="dev-stripe dev-stripe-left" aria-hidden="true"></div>
+    <div class="dev-stripe dev-stripe-right" aria-hidden="true"></div>
+    {% endif %}
     <div class="title init-hidden"><a class="title-link" href="https://www.github.com/LorenBll/Akupara" target="_blank" rel="noopener"><img src="/ui/icons/akupara.svg" alt="" class="title-icon">Akupara</a></div>
     <div class="card init-hidden">
         <h2>Sign In</h2>
@@ -257,6 +288,18 @@
                         setBusy(false);
                     });
             });
+            (function() {
+                var stripes = document.querySelectorAll('.dev-stripe');
+                stripes.forEach(function(el) {
+                    el.addEventListener('click', function() {
+                        var shouldFade = !el.classList.contains('faded');
+                        stripes.forEach(function(s) {
+                            if (shouldFade) s.classList.add('faded');
+                            else s.classList.remove('faded');
+                        });
+                    });
+                });
+            })();
         })();
     </script>
 </body>

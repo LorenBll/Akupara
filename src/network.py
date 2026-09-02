@@ -9,25 +9,23 @@ from werkzeug.serving import make_server
 
 from logginglib import log_debug, log_info
 
-_MARKER = "_network_worker_callable"
+_MARKER = "_external_interactions_worker_callable"
 
 
-def network_worker_callable(func):
-    """Mark an endpoint or method as callable by the network worker.
+def external_interactions_worker_callable(func):
+    """Mark an endpoint or method as callable by the external interactions worker.
 
     The endpoints and methods marked with this decorator are, together, the only
-    ones the network worker is allowed to serve: any other request reaching the
-    network worker is answered with a 404 (byte-identical to a non-existent
-    endpoint), regardless of whether external access is enabled. Methods marked
-    this way act as a signal for callers that may invoke them on behalf of the
-    network worker.
+    ones the external interactions worker is allowed to serve: any other request reaching the
+    external interactions worker is answered with a 404 (byte-identical to a non-existent
+    endpoint)
     """
     setattr(func, _MARKER, True)
     return func
 
 
 def _guarded_app(app, ip_policy=None):
-    """Wrap ``app`` so only marked endpoints are served by the network worker.
+    """Wrap ``app`` so only marked endpoints are served by the external interactions worker.
 
     When ``ip_policy`` is given, it is a callable taking the remote address and
     returning whether the request may be served at all; refusals are answered
@@ -52,7 +50,7 @@ def _guarded_app(app, ip_policy=None):
     return wrapper
 
 
-class ExternalAccessWorker:
+class ExternalInteractionsWorker:
     """Serves the Akupara app on the device's IP, in parallel with the loopback worker.
 
     This worker has no sub-workers: it runs a single server in a single thread.
@@ -74,11 +72,11 @@ class ExternalAccessWorker:
         self._server = server
         self._thread = threading.Thread(
             target=server.serve_forever,
-            name="external-access-worker",
+            name="external-interactions-worker",
             daemon=True,
         )
         self._thread.start()
-        log_info("External access worker started", {"host": self._host, "port": self._port})
+        log_info("External interactions worker started", {"host": self._host, "port": self._port})
 
     def stop(self) -> None:
         """Stop serving the app and release the socket (idempotent)."""
@@ -90,7 +88,7 @@ class ExternalAccessWorker:
             try:
                 server.shutdown()
             except Exception as exc:  # noqa: BLE001
-                log_debug("External access worker shutdown error", {"error": str(exc)})
+                log_debug("External interactions worker shutdown error", {"error": str(exc)})
         if thread is not None:
             thread.join(timeout=5)
-        log_info("External access worker stopped")
+        log_info("External interactions worker stopped")

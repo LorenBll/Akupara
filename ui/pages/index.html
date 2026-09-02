@@ -7,6 +7,10 @@
     <link rel="stylesheet" href="/ui/css/index.css?v=4">
 </head>
 <body>
+    {% if development %}
+    <div class="dev-stripe dev-stripe-left" aria-hidden="true"></div>
+    <div class="dev-stripe dev-stripe-right" aria-hidden="true"></div>
+    {% endif %}
     <header class="page-header">
         <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/Akupara" target="_blank" rel="noopener" class="title-link"><img src="/ui/icons/akupara.svg" alt="" class="title-icon">Akupara</a></h1>
         <div class="pill init-hidden">
@@ -162,8 +166,10 @@
                         wireAccountSection();
                         wireLogout();
                         wireUpdateButtons();
+                        wirePluginUpdateButtons();
  wireSoundDropdowns();
                         wireAudioSoundDropdowns();
+                        fetchPlayLogSounds();
                         wireSharedVariableGenerator();
                         wireSharedMemoryTable();
                         wireUserRegistration();
@@ -176,7 +182,6 @@
                             }
                         }
                         currentUsername = (usersTbody && usersTbody.dataset.current) || '';
-                        legacyUsername = (usersTbody && usersTbody.dataset.legacy) || '';
                         var roleEl = document.getElementById('accountRoleValue');
                         lastSessionAdmin = roleEl ? roleEl.dataset.admin === 'true' : false;
                         currentSessionRoot = roleEl ? roleEl.dataset.root === 'true' : false;
@@ -208,16 +213,16 @@
                             } catch (e) {}
                         }
                         if (!rendered) loadApiKeys();
-                        var netTbody = document.getElementById('networkAccessTableBody');
-                        if (netTbody && netTbody.dataset.networkAccessIps) {
+                        var netTbody = document.getElementById('externalInteractionsTableBody');
+                        if (netTbody && netTbody.dataset.externalInteractionsIps) {
                             try {
-                                networkAccessIpsList = JSON.parse(netTbody.dataset.networkAccessIps);
-                                renderNetworkAccessTable(networkAccessIpsList);
+                                externalInteractionsIpsList = JSON.parse(netTbody.dataset.externalInteractionsIps);
+                                renderExternalInteractionsTable(externalInteractionsIpsList);
                             } catch (e) {}
                         }
-                        wireNetworkAccessTable();
-                        wireNetworkAccessInsert();
-                        loadNetworkAccessIps();
+                        wireExternalInteractionsTable();
+                        wireExtenralInteractionsInsert();
+                        loadExternalInteractionsIps();
                     }
                     buildCardIndicators();
                         animateCardIndicatorsIn(loadInDelay);
@@ -242,10 +247,9 @@
 
         var apiKeysList = [];
         var sharedVariablesList = [];
-        var networkAccessIpsList = [];
+        var externalInteractionsIpsList = [];
         var usersList = [];
         var currentUsername = '';
-        var legacyUsername = '';
         var currentPage = '';
         var lastSessionAdmin = false;
         var currentSessionRoot = false;
@@ -253,7 +257,6 @@
 
         function rebuildRegisteredUsernames() {
             var names = usersList.map(function (u) { return u.username; });
-            if (legacyUsername) names.push(legacyUsername);
             registeredUsernames = names;
         }
 
@@ -1608,10 +1611,10 @@
             return 0;
         }
 
-        function renderNetworkAccessTable(entries) {
-            var table = document.getElementById('networkAccessTable');
-            var tbody = document.getElementById('networkAccessTableBody');
-            var empty = document.getElementById('networkAccessEmpty');
+        function renderExternalInteractionsTable(entries) {
+            var table = document.getElementById('externalInteractionsTable');
+            var tbody = document.getElementById('externalInteractionsTableBody');
+            var empty = document.getElementById('externalInteractionsEmpty');
             if (!table || !tbody) return;
             table.classList.remove('api-keys-table-deleting');
             hideTableTooltip();
@@ -1639,11 +1642,11 @@
                 if (c !== 0) return c;
                 return String(a[ia]).localeCompare(String(b[ib]));
             }).forEach(function (entry) {
-                tbody.appendChild(buildNetworkAccessRow(entry));
+                tbody.appendChild(buildExternalInteractionsRow(entry));
             });
         }
 
-        function buildNetworkAccessRow(entry) {
+        function buildExternalInteractionsRow(entry) {
             var ip = Object.keys(entry)[0];
             var action = entry[ip];
             var note = entry['Note'] || '';
@@ -1653,26 +1656,26 @@
             tr.dataset.editing = '0';
 
             var ipTd = document.createElement('td');
-            ipTd.className = 'network-access-ip-cell';
+            ipTd.className = 'external-interactions-ip-cell';
             ipTd.textContent = ip;
             tr.appendChild(ipTd);
 
             var noteTd = document.createElement('td');
-            noteTd.className = 'network-access-note-cell';
+            noteTd.className = 'external-interactions-note-cell';
             var noteDisplay = document.createElement('span');
-            noteDisplay.className = 'network-access-note-display' + (note ? '' : ' is-empty');
+            noteDisplay.className = 'external-interactions-note-display' + (note ? '' : ' is-empty');
             noteDisplay.textContent = note;
             noteTd.appendChild(noteDisplay);
             tr.appendChild(noteTd);
 
             var policyTd = document.createElement('td');
-            policyTd.className = 'network-access-policy-cell';
+            policyTd.className = 'external-interactions-policy-cell';
             var seg = document.createElement('div');
-            seg.className = 'network-access-segmented';
+            seg.className = 'external-interactions-segmented';
             [['allow', 'Allow'], ['unknown', 'Policy'], ['block', 'Block']].forEach(function (part) {
                 var btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'network-access-segment' + (part[0] === action ? ' selected' : '');
+                btn.className = 'external-interactions-segment' + (part[0] === action ? ' selected' : '');
                 btn.dataset.action = 'policy';
                 btn.dataset.ip = ip;
                 btn.dataset.value = part[0];
@@ -1708,16 +1711,17 @@
             return tr;
         }
 
-        function selectNetworkAccessPolicy(row, value) {
-            var seg = row.querySelector('.network-access-segmented');
+
+        function selectExternalInteractionsPolicy(row, value) {
+            var seg = row.querySelector('.external-interactions-segmented');
             if (!seg) return;
-            Array.prototype.forEach.call(seg.querySelectorAll('.network-access-segment'), function (btn) {
+            Array.prototype.forEach.call(seg.querySelectorAll('.external-interactions-segment'), function (btn) {
                 btn.classList.toggle('selected', btn.dataset.value === value);
             });
         }
 
-        function setNetworkAccessIpPolicy(ip, value, btn) {
-            fetchWithHandshake('/api/network-access-ips/' + encodeURIComponent(ip), {
+        function setExternalInteractionsIpPolicy(ip, value, btn) {
+            fetchWithHandshake('/api/external-interactions-ips/' + encodeURIComponent(ip), {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: value })
@@ -1727,8 +1731,8 @@
                     if (!data || typeof data !== 'object') return;
                     if (ip in data) {
                         var row = btn.closest('tr');
-                        if (row) selectNetworkAccessPolicy(row, value);
-                        networkAccessIpsList = networkAccessIpsList.map(function (entry) {
+                        if (row) selectExternalInteractionsPolicy(row, value);
+                        externalInteractionsIpsList = externalInteractionsIpsList.map(function (entry) {
                             if (Object.keys(entry)[0] === ip) {
                                 var updated = {};
                                 updated[ip] = value;
@@ -1742,18 +1746,18 @@
                 .catch(function () {});
         }
 
-        function toggleNetworkAccessNoteEdit(ip, btn) {
+        function toggleExternalInteractionsNoteEdit(ip, btn) {
             var row = btn.closest('tr');
             if (!row) return;
             if (row.dataset.editing === '1') {
-                finalizeNetworkAccessNote(ip, row, btn);
+                finalizeExternalInteractionsNote(ip, row, btn);
             } else {
-                enterNetworkAccessNoteEdit(row, btn);
+                enterExternalInteractionsNoteEdit(row, btn);
             }
         }
 
-        function enterNetworkAccessNoteEdit(row, btn) {
-            var noteTd = row.querySelector('.network-access-note-cell');
+        function enterExternalInteractionsNoteEdit(row, btn) {
+            var noteTd = row.querySelector('.external-interactions-note-cell');
             var current = row.dataset.note || '';
             row.dataset.editing = '1';
             btn.innerHTML = ICONS.save;
@@ -1761,7 +1765,7 @@
             noteTd.innerHTML = '';
             var input = document.createElement('input');
             input.type = 'text';
-            input.className = 'network-access-note-input';
+            input.className = 'external-interactions-note-input';
             input.value = current;
             input.maxLength = 256;
             input.autocomplete = 'off';
@@ -1770,34 +1774,34 @@
             input.focus();
             input.addEventListener('keydown', function (event) {
                 if (event.key === 'Enter') {
-                    finalizeNetworkAccessNote(row.dataset.ip, row, btn);
+                    finalizeExternalInteractionsNote(row.dataset.ip, row, btn);
                 } else if (event.key === 'Escape') {
-                    exitNetworkAccessNoteEdit(row, btn, current);
+                    exitExternakAccessNoteEdit(row, btn, current);
                 }
             });
         }
 
-        function exitNetworkAccessNoteEdit(row, btn, note) {
-            var noteTd = row.querySelector('.network-access-note-cell');
+        function exitExternakAccessNoteEdit(row, btn, note) {
+            var noteTd = row.querySelector('.external-interactions-note-cell');
             row.dataset.editing = '0';
             row.dataset.note = note;
             btn.innerHTML = ICONS.pen;
             btn.dataset.tableTooltip = 'Edit Note';
             noteTd.innerHTML = '';
             var display = document.createElement('span');
-            display.className = 'network-access-note-display' + (note ? '' : ' is-empty');
+            display.className = 'external-interactions-note-display' + (note ? '' : ' is-empty');
             display.textContent = note;
             noteTd.appendChild(display);
             hideTableTooltip();
             hideErrorTooltip();
         }
 
-        function finalizeNetworkAccessNote(ip, row, btn) {
-            var input = row.querySelector('.network-access-note-input');
+        function finalizeExternalInteractionsNote(ip, row, btn) {
+            var input = row.querySelector('.external-interactions-note-input');
             var note = input ? input.value : '';
-            var seg = row.querySelector('.network-access-segment.selected');
+            var seg = row.querySelector('.external-interactions-segment.selected');
             var action = seg ? seg.dataset.value : 'unknown';
-            fetchWithHandshake('/api/network-access-ips/' + encodeURIComponent(ip), {
+            fetchWithHandshake('/api/external-interactions-ips/' + encodeURIComponent(ip), {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: action, note: note })
@@ -1806,7 +1810,7 @@
                 .then(function (data) {
                     if (!data || typeof data !== 'object') return;
                     if (ip in data) {
-                        networkAccessIpsList = networkAccessIpsList.map(function (entry) {
+                        externalInteractionsIpsList = externalInteractionsIpsList.map(function (entry) {
                             if (Object.keys(entry)[0] === ip) {
                                 var updated = {};
                                 updated[ip] = entry[ip];
@@ -1815,13 +1819,13 @@
                             }
                             return entry;
                         });
-                        exitNetworkAccessNoteEdit(row, btn, note);
+                        exitExternakAccessNoteEdit(row, btn, note);
                     }
                 })
                 .catch(function () {});
         }
 
-        function deleteNetworkAccessIp(ip, btn) {
+        function deleteExternalAccessIp(ip, btn) {
             var row = btn.closest('tr');
             var table = row.closest('table');
             var wrap = row.closest('.table-wrap');
@@ -1844,14 +1848,14 @@
             row.classList.add('api-key-row-deleting');
             if (isLast && table) table.classList.add('api-keys-table-deleting');
             setTimeout(function () {
-                fetchWithHandshake('/api/network-access-ips/' + encodeURIComponent(ip), { method: 'DELETE' })
+                fetchWithHandshake('/api/external-interactions-ips/' + encodeURIComponent(ip), { method: 'DELETE' })
                     .then(function (r) { return r.json(); })
                     .catch(function () {});
                 overlay.remove();
-                networkAccessIpsList = networkAccessIpsList.filter(function (entry) { return Object.keys(entry)[0] !== ip; });
+                externalInteractionsIpsList = externalInteractionsIpsList.filter(function (entry) { return Object.keys(entry)[0] !== ip; });
                 row.remove();
                 if (tbody && tbody.children.length === 0) {
-                    renderNetworkAccessTable([]);
+                    renderExternalInteractionsTable([]);
                 } else if (wrap) {
                     var h2 = wrap.offsetHeight;
                     wrap.style.height = h1 + 'px';
@@ -1867,8 +1871,8 @@
             }, 1050);
         }
 
-        function wireNetworkAccessTable() {
-            var table = document.getElementById('networkAccessTable');
+        function wireExternalInteractionsTable() {
+            var table = document.getElementById('externalInteractionsTable');
             if (!table) return;
             table.addEventListener('click', function (event) {
                 var btn = event.target.closest('[data-action]');
@@ -1876,11 +1880,11 @@
                 var ip = btn.dataset.ip;
                 var action = btn.getAttribute('data-action');
                 if (action === 'policy') {
-                    setNetworkAccessIpPolicy(ip, btn.dataset.value, btn);
+                    setExternalInteractionsIpPolicy(ip, btn.dataset.value, btn);
                 } else if (action === 'editnote') {
-                    toggleNetworkAccessNoteEdit(ip, btn);
+                    toggleExternalInteractionsNoteEdit(ip, btn);
                 } else if (action === 'delete') {
-                    deleteNetworkAccessIp(ip, btn);
+                    deleteExternalInteractionsIp(ip, btn);
                 }
             });
             table.addEventListener('mouseover', function (event) {
@@ -1898,28 +1902,28 @@
             });
         }
 
-        function loadNetworkAccessIps() {
-            if (!document.getElementById('networkAccessTableBody')) return;
-            fetchWithHandshake('/api/network-access-ips')
+        function loadExternalInteractionsIps() {
+            if (!document.getElementById('externalInteractionsTableBody')) return;
+            fetchWithHandshake('/api/external-interactions-ips')
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (data) {
-                    if (!data || !Array.isArray(data.networkAccessIps)) return;
-                    networkAccessIpsList = data.networkAccessIps.slice();
-                    renderNetworkAccessTable(data.networkAccessIps);
+                    if (!data || !Array.isArray(data.externalInteractionsIps)) return;
+                    externalInteractionsIpsList = data.externalInteractionsIps.slice();
+                    renderExternalInteractionsTable(data.externalInteractionsIps);
                 })
                 .catch(function () {});
         }
 
-        function isNetworkAccessIpDuplicate(value) {
+        function isExternalInteractionsIpDuplicate(value) {
             value = String(value || '').toLowerCase();
             if (!value) return false;
-            return networkAccessIpsList.some(function (entry) {
+            return externalInteractionsIpsList.some(function (entry) {
                 return Object.keys(entry)[0].toLowerCase() === value;
             });
         }
 
-        function refreshNetworkAccessIpInputInvalid(input) {
-            var dup = isNetworkAccessIpDuplicate(input.value);
+        function refreshExternalInteractionsIpInputInvalid(input) {
+            var dup = isExternalInteractionsIpDuplicate(input.value);
             if (!input._flashTimer) {
                 input.classList.toggle('api-key-input-invalid', dup);
             }
@@ -1930,7 +1934,7 @@
             }
         }
 
-        function flashNetworkAccessIpInputRed(input) {
+        function flashExternalInteractionsIpInputRed(input) {
             if (input.classList.contains('api-key-input-invalid')) return;
             if (input._flashTimer) clearTimeout(input._flashTimer);
             input.classList.remove('api-key-input-invalid');
@@ -1938,16 +1942,16 @@
             input.classList.add('api-key-input-invalid');
             input._flashTimer = setTimeout(function () {
                 input._flashTimer = null;
-                refreshNetworkAccessIpInputInvalid(input);
+                refreshExternalInteractionsIpInputInvalid(input);
             }, 600);
         }
 
-        function refreshNetworkAccessInsertBtn() {
-            var input = document.getElementById('networkAccessIpInput');
-            var btn = document.getElementById('insertNetworkAccessEntryBtn');
+        function refreshExternalInteractionsInsertBtn() {
+            var input = document.getElementById('externalInteractionsIpInput');
+            var btn = document.getElementById('insertExternalInteractionsEntryBtn');
             if (!input || !btn) return;
             var ip = input.value.trim();
-            btn.disabled = isNetworkAccessIpDuplicate(ip);
+            btn.disabled = isExternalInteractionsIpDuplicate(ip);
         }
 
         function isValidIpv4(s) {
@@ -2028,8 +2032,8 @@
             return full.concat(right).join(':');
         }
 
-        function insertNetworkAccessEntry() {
-            var input = document.getElementById('networkAccessIpInput');
+        function insertExternalInteractionsEntry() {
+            var input = document.getElementById('externalInteractionsIpInput');
             if (!input) return;
             var ip = input.value.trim();
             if (!ip) {
@@ -2037,7 +2041,7 @@
                 return;
             }
             if (!isValidIp(ip)) {
-                flashNetworkAccessIpInputRed(input);
+                flashExternalInteractionsIpInputRed(input);
                 showErrorTooltip(input, 'Enter a valid IP address.');
                 return;
             }
@@ -2045,17 +2049,17 @@
                 ip = maximizeIpv6(ip);
                 input.value = ip;
             }
-            if (isNetworkAccessIpDuplicate(ip)) {
-                flashNetworkAccessIpInputRed(input);
+            if (isExternalInteractionsIpDuplicate(ip)) {
+                flashExternalInteractionsIpInputRed(input);
                 showErrorTooltip(input, 'That IP is already in the list.');
                 return;
             }
-            var seg = document.getElementById('networkAccessInsertSegmented');
-            var selected = seg ? seg.querySelector('.network-access-segment.selected') : null;
+            var seg = document.getElementById('externalInteractionsInsertSegmented');
+            var selected = seg ? seg.querySelector('.external-interactions-segment.selected') : null;
             var action = selected ? selected.dataset.value : 'unknown';
-            var noteInput = document.getElementById('networkAccessNoteInput');
+            var noteInput = document.getElementById('externalInteractionsNoteInput');
             var note = noteInput ? noteInput.value : '';
-            fetchWithHandshake('/api/network-access-ips', {
+            fetchWithHandshake('/api/external-interactions-ips', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ip: ip, action: action, note: note })
@@ -2070,12 +2074,12 @@
                     if (res.status === 201) {
                         input.value = '';
                         if (noteInput) noteInput.value = '';
-                        refreshNetworkAccessIpInputInvalid(input);
-                        refreshNetworkAccessInsertBtn();
+                        refreshExternalInteractionsIpInputInvalid(input);
+                        refreshExternalInteractionsInsertBtn();
                         hideErrorTooltip();
-                        loadNetworkAccessIps();
+                        loadExternalInteractionsIps();
                     } else {
-                        flashNetworkAccessIpInputRed(input);
+                        flashExternalInteractionsIpInputRed(input);
                         showErrorTooltip(input, (res.data && res.data.error) || 'Failed to add the IP.');
                     }
                 })
@@ -2150,9 +2154,9 @@
             var seg = document.getElementById('registerAdminSegmented');
             if (seg) {
                 seg.addEventListener('click', function (event) {
-                    var btn = event.target.closest('.network-access-segment');
+                    var btn = event.target.closest('.external-interactions-segment');
                     if (!btn) return;
-                    Array.prototype.forEach.call(seg.querySelectorAll('.network-access-segment'), function (b) {
+                    Array.prototype.forEach.call(seg.querySelectorAll('.external-interactions-segment'), function (b) {
                         b.classList.toggle('selected', b === btn);
                     });
                 });
@@ -2223,7 +2227,7 @@
                     confirmInput.focus();
                     return;
                 }
-                var selected = seg ? seg.querySelector('.network-access-segment.selected') : null;
+                var selected = seg ? seg.querySelector('.external-interactions-segment.selected') : null;
                 var admin = selected ? selected.dataset.value === 'true' : false;
                 busy = true;
                 sync();
@@ -2318,13 +2322,13 @@
             tr.appendChild(nameTd);
 
             var roleTd = document.createElement('td');
-            roleTd.className = 'network-access-policy-cell';
+            roleTd.className = 'external-interactions-policy-cell';
             var seg = document.createElement('div');
-            seg.className = 'network-access-segmented';
+            seg.className = 'external-interactions-segmented';
             [['false', 'Standard'], ['true', 'Admin']].forEach(function (part) {
                 var btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'network-access-segment' + (String(entry.admin) === part[0] ? ' selected' : '');
+                btn.className = 'external-interactions-segment' + (String(entry.admin) === part[0] ? ' selected' : '');
                 btn.dataset.action = 'admin';
                 btn.dataset.username = entry.username;
                 btn.dataset.value = part[0];
@@ -2367,9 +2371,9 @@
         }
 
         function selectUserAdmin(row, value) {
-            var seg = row.querySelector('.network-access-segmented');
+            var seg = row.querySelector('.external-interactions-segmented');
             if (!seg) return;
-            Array.prototype.forEach.call(seg.querySelectorAll('.network-access-segment'), function (btn) {
+            Array.prototype.forEach.call(seg.querySelectorAll('.external-interactions-segment'), function (btn) {
                 btn.classList.toggle('selected', btn.dataset.value === value);
             });
         }
@@ -2487,9 +2491,6 @@
                                 ? { username: finalUsername, admin: finalAdmin }
                                 : u;
                         });
-                        if (legacyUsername && String(username).toLowerCase() === String(legacyUsername).toLowerCase()) {
-                            legacyUsername = finalUsername;
-                        }
                         rebuildRegisteredUsernames();
                         if (String(username).toLowerCase() === String(currentUsername).toLowerCase()) {
                             currentUsername = finalUsername;
@@ -2645,40 +2646,40 @@
                 .catch(function () {});
         }
 
-        function wireNetworkAccessInsert() {
-            var input = document.getElementById('networkAccessIpInput');
+        function wireExtenralInteractionsInsert() {
+            var input = document.getElementById('externalInteractionsIpInput');
             if (input) {
                 input.addEventListener('keydown', function (event) {
                     if (event.key.length === 1 && !/[0-9a-fA-F:.]/.test(event.key) && !event.ctrlKey && !event.metaKey) {
                         event.preventDefault();
-                        flashNetworkAccessIpInputRed(this);
+                        flashExternalInteractionsIpInputRed(this);
                     }
                 });
                 input.addEventListener('input', function () {
                     var before = this.value;
                     this.value = this.value.replace(/[^0-9a-fA-F:.]/g, '');
                     if (this.value !== before) {
-                        flashNetworkAccessIpInputRed(this);
+                        flashExternalInteractionsIpInputRed(this);
                     }
-                    refreshNetworkAccessIpInputInvalid(this);
-                    refreshNetworkAccessInsertBtn();
+                    refreshExternalInteractionsIpInputInvalid(this);
+                    refreshExternalInteractionsInsertBtn();
                 });
             }
-            var seg = document.getElementById('networkAccessInsertSegmented');
+            var seg = document.getElementById('externalInteractionsInsertSegmented');
             if (seg) {
                 seg.addEventListener('click', function (event) {
-                    var btn = event.target.closest('.network-access-segment');
+                    var btn = event.target.closest('.external-interactions-segment');
                     if (!btn) return;
-                    Array.prototype.forEach.call(seg.querySelectorAll('.network-access-segment'), function (b) {
+                    Array.prototype.forEach.call(seg.querySelectorAll('.external-interactions-segment'), function (b) {
                         b.classList.toggle('selected', b === btn);
                     });
                 });
             }
-            var insertBtn = document.getElementById('insertNetworkAccessEntryBtn');
+            var insertBtn = document.getElementById('insertExternalInteractionsEntryBtn');
             if (insertBtn) {
-                insertBtn.addEventListener('click', insertNetworkAccessEntry);
+                insertBtn.addEventListener('click', insertExternalInteractionsEntry);
             }
-            refreshNetworkAccessInsertBtn();
+            refreshExternalInteractionsInsertBtn();
         }
 
         function updateInternalInteractions(value, animate) {
@@ -2729,6 +2730,13 @@
             toggle.setAttribute('aria-checked', value ? 'true' : 'false');
         }
 
+        function updateAutomaticPluginLibraryUpdate(value) {
+            var toggle = document.getElementById('automaticPluginLibraryUpdateToggle');
+            if (!toggle) return;
+            toggle.classList.toggle('on', value);
+            toggle.setAttribute('aria-checked', value ? 'true' : 'false');
+        }
+
         function updateDisplayPromotion(value) {
             var toggle = document.getElementById('displayPromotionToggle');
             if (!toggle) return;
@@ -2755,6 +2763,18 @@
                     playBtn.classList.toggle('visible', value && !!current);
                 }
             });
+            var logRow = document.getElementById('playLogSoundsRow');
+            if (logRow) logRow.classList.toggle('sound-row-disabled', !value);
+            var logToggle = document.getElementById('playLogSoundsToggle');
+            if (logToggle) logToggle.disabled = !value;
+        }
+
+        function updatePlayLogSounds(value) {
+            var toggle = document.getElementById('playLogSoundsToggle');
+            if (toggle) {
+                toggle.classList.toggle('on', value);
+                toggle.setAttribute('aria-checked', value ? 'true' : 'false');
+            }
         }
 
         function updateSharedMemoryEnabled(value) {
@@ -2780,8 +2800,8 @@
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
                     }
-                    if (data && typeof data.networkAccessAllowNew === 'boolean') {
-                        updateNetworkAccessAllowNew(data.networkAccessAllowNew);
+                    if (data && typeof data.externalInteractionsAllowNew === 'boolean') {
+                        updateExternalInteractionsAllowNew(data.externalInteractionsAllowNew);
                     }
                     cardIndicatorSync();
                 })
@@ -2942,6 +2962,17 @@
                 .catch(function () {});
         }
 
+        function fetchPlayLogSounds() {
+            return fetchWithHandshake('/api/log-sounds-enabled')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (data && typeof data.playLogSounds === 'boolean') {
+                        updatePlayLogSounds(data.playLogSounds);
+                    }
+                })
+                .catch(function () {});
+        }
+
         function updateAudioSounds(sounds) {
             if (!sounds) return;
             var dropdowns = document.querySelectorAll('.sound-dropdown[data-event]');
@@ -3060,8 +3091,8 @@
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
                     }
-                    if (data && typeof data.networkAccessAllowNew === 'boolean') {
-                        updateNetworkAccessAllowNew(data.networkAccessAllowNew);
+                    if (data && typeof data.externalInteractionsAllowNew === 'boolean') {
+                        updateExternalInteractionsAllowNew(data.externalInteractionsAllowNew);
                     }
                 })
                 .catch(function () {
@@ -3136,6 +3167,35 @@
                 })
                 .catch(function () {
                     updateAutomaticUpdate(previous);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
+        }
+
+        function toggleAutomaticPluginLibraryUpdate() {
+            var toggle = document.getElementById('automaticPluginLibraryUpdateToggle');
+            if (!toggle || settingsPending) return;
+            settingsPending = true;
+            var next = !toggle.classList.contains('on');
+            var previous = !next;
+            updateAutomaticPluginLibraryUpdate(next);
+            fetchWithHandshake('/api/automatic-plugin-library-update-enabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ automaticPluginLibraryUpdate: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.automaticPluginLibraryUpdate === 'boolean') {
+                        updateAutomaticPluginLibraryUpdate(data.automaticPluginLibraryUpdate);
+                    }
+                })
+                .catch(function () {
+                    updateAutomaticPluginLibraryUpdate(previous);
                 })
                 .then(function () {
                     settingsPending = false;
@@ -3229,6 +3289,11 @@
         function wireUpdateButtons() {
             var btn = document.getElementById('checkForUpdatesBtn');
             if (!btn || btn.dataset.wiredUpdate) return;
+            if (btn.hasAttribute('data-integrity-disabled')) {
+                btn.disabled = true;
+                btn.dataset.wiredUpdate = '1';
+                return;
+            }
             btn.dataset.wiredUpdate = '1';
             // Init state from server-rendered data-update-available
             if (btn.dataset.updateAvailable === 'true') {
@@ -3237,6 +3302,7 @@
                 setUpdateButtonState(false);
             }
             btn.addEventListener('click', function () {
+                if (btn.hasAttribute('data-integrity-disabled')) return;
                 if (btn.dataset.mode === 'update') {
                     updateNow();
                 } else {
@@ -3245,8 +3311,103 @@
             });
         }
 
+        var pluginUpdateStatusTimer = null;
+
+        function setPluginUpdateButtonState(isUpdateAvailable) {
+            var btn = document.getElementById('checkForPluginUpdatesBtn');
+            if (!btn) return;
+            if (btn.hasAttribute('data-integrity-disabled')) return;
+            if (isUpdateAvailable) {
+                btn.textContent = 'Update Now';
+                btn.dataset.mode = 'update';
+                if (!isLocalhost()) {
+                    btn.disabled = true;
+                    btn.title = 'Available only from localhost';
+                } else {
+                    btn.disabled = false;
+                    btn.removeAttribute('title');
+                }
+            } else {
+                btn.textContent = 'Check for Updates';
+                btn.dataset.mode = 'check';
+                btn.disabled = false;
+                btn.removeAttribute('title');
+            }
+        }
+
+        function checkForPluginUpdates() {
+            var btn = document.getElementById('checkForPluginUpdatesBtn');
+            var statusText = document.getElementById('pluginUpdateStatusText');
+            if (!btn) return;
+            if (btn.hasAttribute('data-integrity-disabled')) return;
+            if (statusText) {
+                statusText.hidden = true;
+                if (pluginUpdateStatusTimer) { clearTimeout(pluginUpdateStatusTimer); pluginUpdateStatusTimer = null; }
+            }
+            btn.disabled = true;
+            var prevText = btn.textContent;
+            btn.style.minWidth = btn.offsetWidth + 'px';
+            btn.innerHTML = '<span class="update-spinner" aria-hidden="true"></span>';
+            fetchWithHandshake('/api/check-for-plugin-updates', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var found = !!(data && data.updateAvailable === true);
+                    setPluginUpdateButtonState(found);
+                    btn.style.minWidth = '';
+                    if (!found && statusText) {
+                        statusText.hidden = false;
+                        pluginUpdateStatusTimer = setTimeout(function () {
+                            statusText.hidden = true;
+                            pluginUpdateStatusTimer = null;
+                        }, 3000);
+                    }
+                })
+                .catch(function () {
+                    btn.style.minWidth = '';
+                    btn.textContent = prevText;
+                    btn.disabled = false;
+                    if (btn.dataset.mode === 'update' && !isLocalhost()) {
+                        btn.disabled = true;
+                    }
+                });
+        }
+
+        function updatePluginsNow() {
+            var btn = document.getElementById('checkForPluginUpdatesBtn');
+            if (!btn || !isLocalhost()) return;
+            btn.disabled = true;
+            btn.textContent = 'Updating...';
+            fetchWithHandshake('/api/update-plugins-now', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    btn.textContent = 'Restarting...';
+                })
+                .catch(function () {
+                    btn.textContent = 'Update Now';
+                    btn.disabled = !isLocalhost();
+                });
+        }
+
+        function wirePluginUpdateButtons() {
+            var btn = document.getElementById('checkForPluginUpdatesBtn');
+            if (!btn || btn.dataset.wiredPluginUpdate) return;
+            btn.dataset.wiredPluginUpdate = '1';
+            if (btn.dataset.updateAvailable === 'true') {
+                setPluginUpdateButtonState(true);
+            } else {
+                setPluginUpdateButtonState(false);
+            }
+            btn.addEventListener('click', function () {
+                if (btn.dataset.mode === 'update') {
+                    updatePluginsNow();
+                } else {
+                    checkForPluginUpdates();
+                }
+            });
+        }
+
         function morphAllowNewIcons(value) {
-            var toggle = document.getElementById('networkAccessAllowNewToggle');
+            var toggle = document.getElementById('externalInteractionsAllowNewToggle');
             if (!toggle) return;
             toggle.classList.toggle('on', value);
             toggle.setAttribute('aria-checked', value ? 'true' : 'false');
@@ -3272,22 +3433,22 @@
             open.animate([openFrom, openTo], opts);
         }
 
-        function updateNetworkAccessAllowNew(value) {
-            var toggle = document.getElementById('networkAccessAllowNewToggle');
+        function updateExternalInteractionsAllowNew(value) {
+            var toggle = document.getElementById('externalInteractionsAllowNewToggle');
             if (!toggle) return;
             if (toggle.classList.contains('on') === value) return;
             morphAllowNewIcons(value);
         }
 
-        function toggleNetworkAccessAllowNew() {
-            var toggle = document.getElementById('networkAccessAllowNewToggle');
+        function toggleExternalInteractionsAllowNew() {
+            var toggle = document.getElementById('externalInteractionsAllowNewToggle');
             if (!toggle || settingsPending) return;
             settingsPending = true;
             var next = !toggle.classList.contains('on');
             var previous = !next;
-            updateNetworkAccessAllowNew(next);
-            sendSetting({ networkAccessAllowNew: next }, function () {
-                updateNetworkAccessAllowNew(previous);
+            updateExternalInteractionsAllowNew(next);
+            sendSetting({ externalInteractionsAllowNew: next }, function () {
+                updateExternalInteractionsAllowNew(previous);
             });
         }
 
@@ -3567,7 +3728,8 @@
 
         function scrollToCard(card) {
             if (!card || !viewEl) return;
-            var target = card.getBoundingClientRect().top - viewEl.getBoundingClientRect().top + viewEl.scrollTop;
+            var target = card.getBoundingClientRect().top - viewEl.getBoundingClientRect().top + viewEl.scrollTop - 1;
+            if (target < 0) target = 0;
             viewEl.scrollTo({ top: target, behavior: 'smooth' });
         }
 
@@ -3631,9 +3793,41 @@
                     if (data && typeof data.playAudios === 'boolean') {
                         updatePlayAudios(data.playAudios);
                     }
+                    if (data && typeof data.playLogSounds === 'boolean') {
+                        updatePlayLogSounds(data.playLogSounds);
+                    }
                 })
                 .catch(function () {
                     updatePlayAudios(previous);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
+        }
+
+        function togglePlayLogSounds() {
+            var toggle = document.getElementById('playLogSoundsToggle');
+            if (!toggle || toggle.disabled || settingsPending) return;
+            settingsPending = true;
+            var next = !toggle.classList.contains('on');
+            var previous = !next;
+            updatePlayLogSounds(next);
+            fetchWithHandshake('/api/log-sounds-enabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ playLogSounds: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.playLogSounds === 'boolean') {
+                        updatePlayLogSounds(data.playLogSounds);
+                    }
+                })
+                .catch(function () {
+                    updatePlayLogSounds(previous);
                 })
                 .then(function () {
                     settingsPending = false;
@@ -3838,16 +4032,20 @@
                     toggleDisplayPromotion();
                 } else if (toggle.id === 'playAudiosToggle') {
                     togglePlayAudios();
+                } else if (toggle.id === 'playLogSoundsToggle') {
+                    togglePlayLogSounds();
                 } else if (toggle.id === 'sharedMemoryEnabledToggle') {
                     toggleSharedMemoryEnabled();
                 } else if (toggle.id === 'externalInteractionsToggle') {
                     toggleExternalInteractions();
-                } else if (toggle.id === 'networkAccessAllowNewToggle') {
-                    toggleNetworkAccessAllowNew();
+                } else if (toggle.id === 'externalInteractionsAllowNewToggle') {
+                    toggleExternalInteractionsAllowNew();
                 } else if (toggle.id === 'internalInteractionsToggle') {
                     toggleInternalInteractions();
                 } else if (toggle.id === 'automaticUpdateToggle') {
                     toggleAutomaticUpdate();
+                } else if (toggle.id === 'automaticPluginLibraryUpdateToggle') {
+                    toggleAutomaticPluginLibraryUpdate();
                 }
             }
         });
@@ -3900,6 +4098,20 @@
         syncPromotion();
         setInterval(syncPromotion, 3000);
         setInterval(syncSession, 3000);
+    </script>
+    <script>
+        (function() {
+            var stripes = document.querySelectorAll('.dev-stripe');
+            stripes.forEach(function(el) {
+                el.addEventListener('click', function() {
+                    var shouldFade = !el.classList.contains('faded');
+                    stripes.forEach(function(s) {
+                        if (shouldFade) s.classList.add('faded');
+                        else s.classList.remove('faded');
+                    });
+                });
+            });
+        })();
     </script>
 </body>
 </html>

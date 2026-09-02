@@ -276,8 +276,18 @@ def set_audio_worker_enabled(enabled: bool) -> None:
         _orchestrator.stop()
 
 
-def play_sound(event: str) -> None:
+_play_log_sounds_enabled: bool = False
+
+
+def set_play_log_sounds_enabled(enabled: bool) -> None:
+    global _play_log_sounds_enabled
+    _play_log_sounds_enabled = bool(enabled)
+
+
+def play_sound(event: str, via_log: bool = False) -> None:
     """Trigger playback of the audio configured for ``event`` (fire-and-forget)."""
+    if _play_log_sounds_enabled and not via_log and event not in ("success", "process"):
+        return
     file_name = _read_sound_file(event)
     if not file_name:
         log_debug("No audio is configured", {"event": event})

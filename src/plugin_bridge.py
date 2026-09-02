@@ -15,6 +15,15 @@ verification are exposed yet.
 
 Naming: this unit is called **plugin bridge**, not plugin loader / handler.
 It follows the worker naming standard (``start``/``stop`` idempotent).
+
+NOTE — hash-identified plugin loading order (trust before hash comparison):
+When a plugin is loaded by its ``hash`` (catalog ID), the bridge MUST first
+check that the plugin entry with that ``hash`` in ``resources/plugins-lib``
+has a valid trust mark (``verify_plugin_signature(entry) is True``) BEFORE
+comparing the local hash (``get_local_plugin_hash(hash)``) against the
+remote hash provided by the repository release (``get_remote_plugin_hash(hash)``).
+Only if the trust mark is valid should the hash comparison proceed; otherwise
+loading must be refused.
 """
 
 from __future__ import annotations
@@ -26,16 +35,16 @@ import regex
 import ssl
 import subprocess
 import tempfile
-import urllib.error
 import urllib.request
 from pathlib import Path
 
 from logginglib import log_error, log_info, log_warn
 
 
-# Remote hash for integrity check — latest GitHub Akupara
-_REMOTE_HASH_URL = "https://raw.githubusercontent.com/LorenBll/Akupara/main/resources/plugins-lib/hash"
-_REMOTE_HASH_URLS = [_REMOTE_HASH_URL]
+# Remote hash for integrity check — latest commit on the Akupara repository
+_REPO = "LorenBll/Akupara"
+_REMOTE_COMMITS_URL = f"https://api.github.com/repos/{_REPO}/commits/main"
+_REMOTE_HASH_URL = f"https://raw.githubusercontent.com/{_REPO}/{{commit}}/resources/plugins-lib/hash"
 
 def _plugins_lib_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "resources" / "plugins-lib"
@@ -85,27 +94,38 @@ def _read_stored_hash() -> str | None:
     except OSError:
         return None
 
-def _fetch_remote_hash(timeout: int = 8) -> str | None:
-    """Fetch hash file from latest GitHub Akupara (raw). Returns stripped text or None on failure."""
+def _fetch_latest_commit_sha(timeout: int = 8) -> str | None:
+    """Resolve the SHA of the latest commit on the Akupara repository (main)."""
     ctx = ssl.create_default_context()
-    for url in _REMOTE_HASH_URLS:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-                # Accept 2xx
-                data = resp.read().decode("utf-8", errors="replace").strip()
-                # Hash is single hex line; take first token
-                if data:
-                    return data.split()[0].strip()
-                return ""
-        except urllib.error.HTTPError as e:
-            # 404 means not found — try next URL
-            if e.code == 404:
-                continue
-            return None
-        except Exception:
-            continue
-    return None
+    try:
+        req = urllib.request.Request(
+            _REMOTE_COMMITS_URL,
+            headers={"User-Agent": "Akupara/1.0", "Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            sha = data.get("sha")
+            return sha.strip() if isinstance(sha, str) and sha.strip() else None
+    except Exception:
+        return None
+
+
+def _fetch_remote_hash(timeout: int = 8) -> str | None:
+    """Fetch the plugins-lib hash file from the latest commit on the Akupara repository."""
+    ctx = ssl.create_default_context()
+    commit = _fetch_latest_commit_sha(timeout)
+    if commit is None:
+        return None
+    url = _REMOTE_HASH_URL.format(commit=commit)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            data = resp.read().decode("utf-8", errors="replace").strip()
+            if data:
+                return data.split()[0].strip()
+            return ""
+    except Exception:
+        return None
 
 def _play_error_sound():
     try:
@@ -133,10 +153,11 @@ class PluginBridge:
     """Bridge between Akupara and installed plugins — loader + research.
 
     Follows the worker naming standard (``start``/``stop`` idempotent).
-    ``start`` immediately performs two integrity checks:
-      1) local ``hash`` file vs remote GitHub ``hash`` (latest Akupara) — mismatch plays **warn** sound
-      2) recomputed ``plugins-lib`` folder hash vs local ``hash`` file — mismatch plays **error** sound
-    On mismatch the loader stops and logs an error.
+    ``start`` immediately verifies plugins-lib integrity by comparing the
+    recomputed local folder hash against the ``hash`` file in the latest commit
+    on the Akupara repository — mismatch plays **error** sound and the loader
+    stays stopped. Offline (remote unavailable) falls back to comparing the
+    recomputed folder hash against the local ``hash`` file.
     This guards against illicit interaction with the ``plugins-lib`` folder.
     """
 
@@ -146,44 +167,44 @@ class PluginBridge:
     def start(self) -> None:
         """Start the bridge — immediately verifies plugins-lib integrity.
 
-        Idempotent. Checks:
-          1) stored ``hash`` == remote GitHub ``hash`` (latest Akupara) — mismatch → warn sound
-          2) recomputed folder hash == stored ``hash`` — mismatch → error sound
-        On mismatch: logs error, plays warn/error sound respectively, stays stopped.
+        Idempotent. Two mandatory validations, always enforced even in
+        development mode:
+          1) effective hash (computed folder hash) == indicated hash (stored ``hash`` file)
+          2) indicated hash == hash indicated in the latest commit on the Akupara repository
+        Mismatch on either → error sound and stays stopped; plugin card/page disabled.
+        These checks happen before any update check. Offline (remote unavailable)
+        skips the second check with a warning and falls back to the first.
         """
         if self._started:
             return
         # Ensure we start from stopped
         self._started = False
 
-        # --- Check 1: local hash vs remote GitHub hash ---
+        # --- Integrity 1: effective vs indicated (always mandatory) ---
+        computed = _compute_plugins_lib_hash()
         stored = _read_stored_hash()
         if stored is None or not stored:
             log_error("Plugin loader failed: local hash file missing", {"path": str(_hash_file_path())})
             _play_error_sound()
             return
-        remote = _fetch_remote_hash()
-        if remote is None:
-            # Network offline or fetch failed — cannot verify against GitHub latest.
-            # Log a warning and fall through to local integrity check (which guards illicit local tamper).
-            # Strict mode would require remote match, but offline should not brick the loader.
-            from logginglib import log_warn
-            log_warn("Plugin loader: remote hash unavailable — skipping GitHub check (offline?)", {"remote_urls": _REMOTE_HASH_URLS, "local_hash": stored})
-        elif stored.strip().lower() != remote.strip().lower():
-            log_error("Plugin loader failed: local hash differs from GitHub latest", {"local_hash": stored, "remote_hash": remote, "remote_url": _REMOTE_HASH_URL})
-            _play_error_sound()
-            return
-
-        # --- Check 2: recomputed folder hash vs stored hash ---
-        computed = _compute_plugins_lib_hash()
         if computed.strip().lower() != stored.strip().lower():
             log_error("Plugin loader failed: plugins-lib folder hash mismatch (illicit interaction?)", {"computed": computed, "stored": stored})
             _play_error_sound()
             return
 
+        # --- Integrity 2: indicated vs latest commit (always mandatory when online) ---
+        remote = _fetch_remote_hash()
+        if remote is None:
+            from logginglib import log_warn
+            log_warn("Plugin loader: remote hash unavailable — skipping authoritative check (offline?)", {"commits_url": _REMOTE_COMMITS_URL, "hash_url": _REMOTE_HASH_URL, "indicated": stored})
+        elif stored.strip().lower() != remote.strip().lower():
+            log_error("Plugin loader failed: indicated plugins-lib hash differs from latest commit", {"indicated": stored, "remote": remote, "commits_url": _REMOTE_COMMITS_URL})
+            _play_error_sound()
+            return
+
         # All checks passed — loader is started
         self._started = True
-        log_info("Plugin loader started", {"hash": stored})
+        log_info("Plugin loader started", {"hash": computed})
 
     def stop(self) -> None:
         """Stop the bridge (idempotent)."""
@@ -193,8 +214,140 @@ class PluginBridge:
         """Return whether the bridge has been started (integrity checks passed)."""
         return self._started
 
+    def discover_installed_plugins(self, development: bool = False) -> list[Path]:
+        """Discover installed plugin folders per execution tree step 6 (defined part only).
+
+        Lists ``plugins/`` subfolders:
+        - ``dev-*`` → loaded without checks only if ``development`` is True, else skipped.
+        - Other folders → read ``hash`` file inside, verify trust, compute folder hash
+          (hash each non-hash file, sorted, ``SHA256(concat)``) vs ``hash`` file,
+          then ``get_remote_plugin_hash`` vs ``get_local_plugin_hash``.
+        Returns list of ``Path`` that passed all defined checks.
+
+        NOTE: This is where the loading of the plugins should happen — actual
+        plugin execution (how plugins are implemented) is still to be defined,
+        so this method stops before loading and returns the verified paths.
+        """
+        plugins_dir = _plugins_dir()
+        if not plugins_dir.is_dir():
+            return []
+        verified: list[Path] = []
+        for entry in sorted(plugins_dir.iterdir(), key=lambda p: p.name):
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            # dev- folders: load without checks only if development
+            if name.startswith("dev-"):
+                if not development:
+                    log_info("Skipping dev plugin (development off)", {"folder": name})
+                    continue
+                log_info("Dev plugin (no checks, development on)", {"folder": name})
+                # NOTE: plugin loading should happen here for dev plugins (without checks)
+                verified.append(entry)
+                continue
+            # Regular plugins: hash-identified (hash file inside folder)
+            # Trust check BEFORE hash comparison (per module note)
+            hash_value = _read_plugin_hash_file(entry)
+            if hash_value is None:
+                log_warn("Plugin folder missing hash file, skipping", {"folder": name})
+                continue
+            # Find catalog entry for this hash to verify trust
+            catalog_entry = None
+            for e in _load_plugins():
+                if str(e.get("hash", "")).strip().lower() == hash_value.lower():
+                    catalog_entry = e
+                    break
+            if catalog_entry is None:
+                log_warn("Plugin hash not in library, skipping", {"folder": name, "hash": hash_value})
+                continue
+            if not verify_plugin_signature(catalog_entry):
+                log_warn("Plugin trust mark invalid, skipping", {"folder": name, "hash": hash_value})
+                continue
+            # Compute folder hash (hash each non-hash file, sorted, concat, hash)
+            computed = _compute_plugin_folder_hash(entry)
+            if computed is None:
+                log_warn("Failed to compute plugin folder hash, skipping", {"folder": name})
+                continue
+            stored_hash = _read_plugin_hash_file(entry)
+            if stored_hash is None or computed.lower() != stored_hash.lower():
+                log_warn("Plugin folder hash mismatch, skipping", {"folder": name, "computed": computed, "stored": stored_hash})
+                continue
+            # Remote vs local hash check — hash provided as attachment on GitHub release vs local hash file
+            plugin_name = str(catalog_entry.get("name", "")).strip()
+            plugin_version = str(catalog_entry.get("version", "")).strip()
+            try:
+                remote_hash = get_remote_plugin_hash(plugin_name, plugin_version)
+            except Exception as exc:
+                log_warn("Failed to fetch remote plugin hash", {"folder": name, "error": str(exc)})
+                continue
+            # Local is the hash file inside the folder (already read as stored_hash)
+            if remote_hash is None or stored_hash is None or remote_hash.lower() != stored_hash.lower():
+                log_warn("Plugin remote vs local hash mismatch, skipping", {"folder": name, "remote": remote_hash, "local": stored_hash})
+                continue
+            log_info("Plugin passed all checks", {"folder": name, "hash": hash_value})
+            # NOTE: This is where the loading of the plugins should happen
+            # Actual plugin execution is still to be defined (how plugins are implemented).
+            verified.append(entry)
+        return verified
+
 
 _REVERSE_INDEX_NAME = "reverse-index.json"
+
+
+def _read_plugin_hash_file(plugin_path: Path) -> str | None:
+    """Read the ``hash`` file inside a plugin folder (stripped first token)."""
+    for fname in ("hash", "hash.txt"):
+        p = plugin_path / fname
+        if p.is_file():
+            try:
+                txt = p.read_text(encoding="utf-8", errors="replace").strip()
+                if txt:
+                    return txt.split()[0].strip()
+            except OSError:
+                continue
+    # Fallback: any *.hash
+    for p in plugin_path.iterdir():
+        if p.is_file() and p.name.lower().endswith(".hash"):
+            try:
+                txt = p.read_text(encoding="utf-8", errors="replace").strip()
+                if txt:
+                    return txt.split()[0].strip()
+            except OSError:
+                continue
+    return None
+
+
+def _compute_plugin_folder_hash(plugin_path: Path) -> str | None:
+    """Hash a plugin folder (each non-hash file individually, sorted, concat, hash).
+
+    Excludes the ``hash`` file itself (hash/hash.txt/*.hash). Returns hex or None on error.
+    """
+    if not plugin_path.is_dir():
+        return None
+    per_file: list[tuple[str, str]] = []
+    for p in sorted(plugin_path.iterdir(), key=lambda x: x.name):
+        if not p.is_file():
+            continue
+        # Exclude hash file(s)
+        if p.name.lower() in ("hash", "hash.txt") or p.name.lower().endswith(".hash"):
+            continue
+        try:
+            h = _hash_file(p)
+        except OSError:
+            continue
+        per_file.append((p.name, h))
+    # If no files (only hash), hash of empty
+    if not per_file:
+        return _hash_bytes(b"")
+    per_file.sort(key=lambda x: x[0])
+    merged = "".join(h for _, h in per_file)
+    # Also sort by hash as secondary (already sorted by name, but spec said sorted hashes)
+    # Use sorted hashes for final merge as per previous folder hash pattern (sorted by file hash)
+    # For plugin folder, sort by file name is more intuitive; but we also sort hashes
+    # To match execution tree: "each hashed singularly, and then the hashes are hashed together" — implies sorted hashes
+    hashes_sorted = sorted(h for _, h in per_file)
+    merged_sorted = "".join(hashes_sorted)
+    return _hash_bytes(merged_sorted.encode("utf-8"))
 
 
 def _reverse_index_path() -> Path:
@@ -277,15 +430,18 @@ def _load_plugins() -> list[dict]:
 
     The ``resources/plugins-lib`` directory stores one JSON file per hash
     interval, named ``<low>-<high>.json``. Each file contains a list of
-    plugin objects with the keys: ``hash`` (non-secret ID that also
-    determines the file the plugin belongs to), ``name``, ``description``,
-    ``repo`` (GitHub URL) and ``trust_mark`` (secret trust mark — armored
-    detached GPG signature string, ``""`` when absent; legacy ``trust_hash``
-    is read with fallback). ``reverse_index_keys`` is **not** stored in the
-    hash-range file — it lives only in the apposite file
-    ``reverse-index.json`` (word -> [hash]) and is calculated every time via
-    ``_load_reverse_index``/``keys_for_hash``. While the catalog is small a
-    single file covering the full hash space is used (``<lowest>-<highest>.json``).
+    plugin objects with the keys: ``hash`` (non-secret per-version hash,
+    regenerated at every version change, determines file), ``name`` (plugin ID,
+    unique case-insensitive), ``description``, ``repo`` (GitHub URL),
+    ``version`` (plugin version string, e.g. ``"1.0.0"``, after ``repo``),
+    ``akupara_version`` (Akupara version the plugin is for, e.g. ``"1.0.0"``,
+    after ``version``) and ``trust_mark`` (armored detached GPG signature,
+    ``""`` when absent). Each version change adds a **new entry** with a new
+    ``hash``; division between files is still based on ``hash``.
+    ``reverse_index_keys`` is **not** stored in the hash-range file — it lives
+    only in ``reverse-index.json`` (word -> [hash]) and is calculated via
+    ``_load_reverse_index``/``keys_for_hash``. While small a single
+    full-space file is used.
     No plugin handling (download/start) is performed here — this is catalog research.
 
     ``reverse-index.json`` and ``lorenbll-akupara-pub`` are explicitly excluded
@@ -402,24 +558,19 @@ def _search_plugins(pattern: str) -> list[dict]:
 
 
 def _get_trust_signature(entry: dict) -> str:
-    """Extract armored signature string from plugin entry (handles legacy formats)."""
+    """Extract the armored trust_mark signature from a plugin entry."""
     if not isinstance(entry, dict):
         return ""
-    v = entry.get("trust_mark")
-    if isinstance(v, str) and v.strip():
-        return v.strip()
-    if isinstance(v, dict):
-        sig = v.get("signature")
-        if isinstance(sig, str) and sig.strip():
-            return sig.strip()
-        return ""
-    v2 = entry.get("trust_hash")
-    if isinstance(v2, str) and v2.strip():
-        return v2.strip()
-    if isinstance(v2, dict):
-        sig = v2.get("signature")
-        if isinstance(sig, str) and sig.strip():
-            return sig.strip()
+
+    value = entry.get("trust_mark")
+
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, dict):
+        signature = value.get("signature")
+        return signature.strip() if isinstance(signature, str) else ""
+
     return ""
 
 
@@ -431,13 +582,15 @@ def _keys_for_hash(plugin_hash: str) -> list[str]:
 
 
 def _build_trust_data(plugin: dict) -> dict:
-    """Build canonical trust data for a plugin (hash, name, description, repo, reverse_index_keys)."""
+    """Build canonical trust data for a plugin (hash, name, description, repo, version, akupara_version, reverse_index_keys)."""
     ph = str(plugin.get("hash", "")).strip()
     return {
         "hash": ph,
         "name": str(plugin.get("name", "")),
         "description": str(plugin.get("description", "")),
         "repo": str(plugin.get("repo", "") or plugin.get("link", "")),
+        "version": str(plugin.get("version", "")),
+        "akupara_version": str(plugin.get("akupara_version", "")),
         "reverse_index_keys": _keys_for_hash(ph),
     }
 
@@ -459,7 +612,7 @@ def _ensure_pubkey_imported() -> None:
 def verify_plugin_signature(plugin: dict) -> bool:
     """Verify whether a plugin's ``trust_mark`` signature is valid.
 
-    Rebuilds the canonical JSON ``{"hash","name","description","repo","reverse_index_keys"}``
+    Rebuilds the canonical JSON ``{"hash","name","description","repo","version","akupara_version","reverse_index_keys"}``
     (reverse keys computed live from ``reverse-index.json``), canonicalises with
     ``sort_keys=True, separators=(",", ":")``, then:
       * if signature is 64-char hex (fallback), compares SHA-256 hex
@@ -505,6 +658,333 @@ def verify_plugin_signature(plugin: dict) -> bool:
         except Exception:
             continue
     return False
+
+
+def _plugins_dir() -> Path:
+    """Return the local ``plugins/`` installation folder (project root)."""
+    return Path(__file__).resolve().parent.parent / "plugins"
+
+
+def _parse_github_repo(repo_url: str) -> tuple[str, str] | None:
+    """Parse a GitHub URL into ``(owner, repo)``.
+
+    Accepts versioned links like ``https://github.com/owner/repo/releases/tag/v1.0.0``
+    or ``https://github.com/owner/repo/tree/v1``. Only the ``owner`` and base
+    ``repo`` are extracted; ``.git`` suffix and query/fragment are stripped.
+    Returns ``None`` when the URL is not a GitHub repo URL.
+    """
+    if not isinstance(repo_url, str) or not repo_url.strip():
+        return None
+    m = re.search(r"github\.com/([^/]+)/([^/]+)", repo_url.strip(), re.IGNORECASE)
+    if not m:
+        return None
+    owner = m.group(1).strip()
+    repo = m.group(2).strip()
+    # Strip .git, query, fragment, trailing slash artefacts
+    repo = re.sub(r"\.git$", "", repo, flags=re.IGNORECASE)
+    repo = repo.split("?")[0].split("#")[0].strip().rstrip("/")
+    if not owner or not repo:
+        return None
+    # Validate characters (GitHub owner/repo allow alnum, -, _, .)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", owner) or not re.fullmatch(r"[A-Za-z0-9_.-]+", repo):
+        return None
+    return owner, repo
+
+
+def _fetch_github_latest_release(owner: str, repo: str, timeout: int = 10) -> dict | None:
+    """Fetch the latest GitHub release JSON for ``owner/repo``.
+
+    Uses ``GET https://api.github.com/repos/{owner}/{repo}/releases/latest``.
+    Returns the decoded JSON dict on success, ``None`` on network/error/404.
+    """
+    url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Akupara/1.0", "Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            if isinstance(data, dict):
+                return data
+    except Exception as exc:
+        log_warn("Failed to fetch latest GitHub release", {"owner": owner, "repo": repo, "error": str(exc)})
+        return None
+    return None
+
+
+def _fetch_url_text(url: str, timeout: int = 15) -> str | None:
+    """Download ``url`` and return its UTF-8 text (stripped), or ``None`` on failure."""
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            data = resp.read().decode("utf-8", errors="replace").strip()
+            return data
+    except Exception as exc:
+        log_warn("Failed to fetch hash asset", {"url": url, "error": str(exc)})
+        return None
+
+
+def _find_hash_asset(assets: list[dict]) -> dict | None:
+    """Find the hash attachment among GitHub release assets.
+
+    Convention: the hash of the plugin is provided as an attachment whose
+    name is ``hash``, ``hash.txt`` or ends with ``.hash`` (case-insensitive).
+    Returns the first matching asset dict, or ``None`` when none matches.
+    """
+    # Priority 1: exact "hash" / "hash.txt"
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = asset.get("name")
+        if isinstance(name, str) and name.strip().lower() in ("hash", "hash.txt"):
+            return asset
+    # Priority 2: ends with .hash
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = asset.get("name")
+        if isinstance(name, str) and name.strip().lower().endswith(".hash"):
+            return asset
+    return None
+
+
+def _hash_url_content(url: str, timeout: int = 15) -> str | None:
+    """Download ``url`` and return its SHA-256 hex, or ``None`` on failure (legacy)."""
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            data = resp.read()
+            return hashlib.sha256(data).hexdigest()
+    except Exception as exc:
+        log_warn("Failed to download asset", {"url": url, "error": str(exc)})
+        return None
+
+
+def _parse_version_tuple(v: str) -> tuple[int, ...]:
+    """Parse version string (e.g. \"1.2.3\", \"v1.2\") into tuple of ints for sorting."""
+    s = str(v).strip().lstrip("vV")
+    parts: list[int] = []
+    for p in re.split(r"[.\-+]", s):
+        if not p:
+            continue
+        # Take leading digits
+        m = re.match(r"(\d+)", p)
+        if m:
+            try:
+                parts.append(int(m.group(1)))
+            except ValueError:
+                parts.append(0)
+        else:
+            parts.append(0)
+    return tuple(parts) if parts else (0,)
+
+
+def get_plugin_data(identifier: str, version: str | None = None) -> dict | None:
+    """Retrieve the stored data for a plugin by its ``name`` (ID) or ``hash``.
+
+    Plugin ID is now ``name`` (case-insensitive); ``hash`` is per-version and
+    regenerated on each version change (each version is a new entry, division
+    still by ``hash``). For backward compatibility, if ``identifier`` is a
+    64-char hex and matches a ``hash``, that entry is returned.
+
+    Otherwise ``identifier`` is treated as ``name`` (case-insensitive). If
+    ``version`` is given, the entry with that exact ``version`` (and matching
+    name) is returned; otherwise the latest version (highest ``version`` tuple)
+    is returned. Returns ``dict`` with
+    ``{"hash","name","description","repo","version","akupara_version","trust_mark"}``
+    or ``None`` when not found. Raises ``ValueError`` for invalid identifier.
+    """
+    if not isinstance(identifier, str) or not identifier.strip():
+        raise ValueError("Invalid plugin identifier.")
+    ident = identifier.strip()
+    # Backward compat: hash lookup (64 hex)
+    if re.fullmatch(r"[0-9a-fA-F]{64}", ident):
+        for entry in _load_plugins():
+            if str(entry.get("hash", "")).strip().lower() == ident.lower():
+                return dict(entry)
+    # Name lookup (case-insensitive)
+    candidates = [
+        e for e in _load_plugins()
+        if str(e.get("name", "")).strip().casefold() == ident.casefold()
+    ]
+    if not candidates:
+        return None
+    if version is not None:
+        if not isinstance(version, str) or not version.strip():
+            raise ValueError("Invalid version.")
+        v = version.strip()
+        for e in candidates:
+            if str(e.get("version", "")).strip() == v:
+                return dict(e)
+        return None
+    # No version specified → return latest version (highest version tuple, then hash)
+    candidates.sort(key=lambda e: (_parse_version_tuple(str(e.get("version", ""))), str(e.get("hash", ""))))
+    return dict(candidates[-1])
+
+
+# Alias for backwards compatibility / spec wording
+def get_plugin(identifier: str, version: str | None = None) -> dict | None:
+    """Alias for :func:`get_plugin_data` (now name as ID, hash per-version)."""
+    return get_plugin_data(identifier, version)
+
+
+# NOTE: When loading a plugin by name (ID, hash per-version), the caller MUST
+# verify the catalog entry's trust mark (verify_plugin_signature) BEFORE
+# comparing get_local_plugin_hash() vs get_remote_plugin_hash(). See module docstring.
+def get_remote_plugin_hash(identifier: str, version: str | None = None, timeout: int = 15) -> str | None:
+    """Retrieve the hash of the plugin from its latest GitHub release (remote).
+
+    Given a plugin ``name`` (ID, case-insensitive, hash per-version) or legacy
+    ``hash``, looks up its ``repo`` URL, resolves the GitHub ``owner/repo``,
+    fetches ``GET /repos/{owner}/{repo}/releases/latest``, finds the hash
+    attachment (asset named ``hash``/``hash.txt`` or ``*.hash``), downloads it
+    and returns its stripped UTF-8 content. If ``version`` is given, the
+    specific version entry is used; otherwise the latest version is used.
+
+    The hash is assumed to have been published as an attachment of the release
+    (e.g. a file containing the ``SHA-256`` hex of the plugin). This replaces
+    the former generation ``hash(concat(sorted(file_hashes)))`` — now it is a
+    pure retrieval.
+
+    Returns the hash string on success, ``None`` when the release/assets cannot
+    be fetched or no hash asset is present. Raises ``ValueError`` when the
+    identifier is invalid or the plugin is not found/has no repo.
+    """
+    if not isinstance(identifier, str) or not identifier.strip():
+        raise ValueError("Invalid plugin identifier.")
+    ident = identifier.strip()
+    plugin = get_plugin_data(ident, version)
+    if plugin is None:
+        raise ValueError("Plugin not found.")
+    repo_url = str(plugin.get("repo", "") or plugin.get("link", "")).strip()
+    if not repo_url:
+        raise ValueError("Plugin has no repo URL.")
+    parsed = _parse_github_repo(repo_url)
+    if parsed is None:
+        raise ValueError("Invalid GitHub repo URL.")
+    owner, repo = parsed
+    release = _fetch_github_latest_release(owner, repo, timeout=timeout)
+    if release is None:
+        return None
+    assets = release.get("assets", [])
+    if not isinstance(assets, list):
+        assets = []
+    hash_asset = _find_hash_asset(assets)
+    if hash_asset is None:
+        log_warn("No hash attachment found in latest release", {"plugin": ph, "owner": owner, "repo": repo})
+        return None
+    url = hash_asset.get("browser_download_url") or hash_asset.get("url")
+    if not isinstance(url, str) or not url.strip():
+        return None
+    text = _fetch_url_text(url.strip(), timeout=timeout)
+    if text is None or not text:
+        return None
+    # Return first token (hash is first word, e.g. "abc123  filename" or plain hex)
+    return text.split()[0].strip()
+
+
+# NOTE: When loading a plugin by name (ID, hash per-version), the caller MUST
+# verify the catalog entry's trust mark (verify_plugin_signature) BEFORE
+# comparing get_local_plugin_hash() vs get_remote_plugin_hash(). See module docstring.
+def get_local_plugin_hash(identifier: str, version: str | None = None, timeout: int = 10) -> str | None:
+    """Retrieve the hash of the plugin from the local ``plugins/`` folder.
+
+    Given a plugin ``name`` (ID) or legacy ``hash``, fetches the latest GitHub
+    release to discover the hash attachment name (``hash``/``hash.txt``/``*.hash``),
+    then finds that file in the local ``plugins/`` folder (``_plugins_dir()``,
+    fallback ``resources/plugins/``) and returns its stripped UTF-8 content.
+    If ``version`` is given, that specific version is used; otherwise the
+    latest version is used.
+
+    This is the local counterpart to :func:`get_remote_plugin_hash` and
+    together they allow an external caller to compare remote vs local hashes
+    without the bridge itself implementing the comparison (per spec).
+
+    Returns the hash string on success, ``None`` when the release cannot be
+    fetched, no hash asset exists, or the local file is missing/unreadable.
+    Raises ``ValueError`` when the identifier is invalid or not found.
+    """
+    if not isinstance(identifier, str) or not identifier.strip():
+        raise ValueError("Invalid plugin identifier.")
+    ident = identifier.strip()
+    plugin = get_plugin_data(ident, version)
+    if plugin is None:
+        raise ValueError("Plugin not found.")
+    repo_url = str(plugin.get("repo", "") or plugin.get("link", "")).strip()
+    if not repo_url:
+        raise ValueError("Plugin has no repo URL.")
+    parsed = _parse_github_repo(repo_url)
+    if parsed is None:
+        raise ValueError("Invalid GitHub repo URL.")
+    owner, repo = parsed
+    release = _fetch_github_latest_release(owner, repo, timeout=timeout)
+    if release is None:
+        return None
+    assets = release.get("assets", [])
+    if not isinstance(assets, list):
+        assets = []
+    hash_asset = _find_hash_asset(assets)
+    if hash_asset is None:
+        log_warn("No hash attachment found in latest release for local lookup", {"plugin": ident})
+        return None
+    name = hash_asset.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    name = name.strip()
+    if "/" in name or "\\" in name or name in (".", ".."):
+        log_warn("Invalid hash asset name for local lookup", {"name": name, "plugin": ident})
+        return None
+    path = _plugins_dir() / name
+    if not path.is_file():
+        alt = Path(__file__).resolve().parent.parent / "resources" / "plugins" / name
+        if alt.is_file():
+            path = alt
+        else:
+            log_warn("Local hash file missing", {"plugin": ident, "name": name, "path": str(path)})
+            return None
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+        if not text:
+            return None
+        return text.split()[0].strip()
+    except OSError as exc:
+        log_warn("Failed to read local hash file", {"path": str(path), "error": str(exc)})
+        return None
+
+
+# --- Legacy aliases (now hash retrieval, not generation; name as ID, hash per-version) ---
+def hash_remote_plugin_release(identifier: str, version: str | None = None, timeout: int = 15) -> str | None:
+    """Legacy alias for :func:`get_remote_plugin_hash` (now name as ID)."""
+    return get_remote_plugin_hash(identifier, version, timeout)
+
+
+def get_plugin_remote_assets_hash(identifier: str, version: str | None = None, timeout: int = 15) -> str | None:
+    """Legacy alias for :func:`get_remote_plugin_hash`."""
+    return get_remote_plugin_hash(identifier, version, timeout)
+
+
+def hash_remote_release_assets(identifier: str, version: str | None = None, timeout: int = 15) -> str | None:
+    """Legacy alias for :func:`get_remote_plugin_hash`."""
+    return get_remote_plugin_hash(identifier, version, timeout)
+
+
+def hash_local_plugin_release(identifier: str, version: str | None = None, timeout: int = 10) -> str | None:
+    """Legacy alias for :func:`get_local_plugin_hash` (now name as ID)."""
+    return get_local_plugin_hash(identifier, version, timeout)
+
+
+def get_plugin_local_assets_hash(identifier: str, version: str | None = None, timeout: int = 10) -> str | None:
+    """Legacy alias for :func:`get_local_plugin_hash`."""
+    return get_local_plugin_hash(identifier, version, timeout)
+
+
+def hash_local_release_assets(identifier: str, version: str | None = None, timeout: int = 10) -> str | None:
+    """Legacy alias for :func:`get_local_plugin_hash`."""
+    return get_local_plugin_hash(identifier, version, timeout)
 
 
 _bridge = PluginBridge()
