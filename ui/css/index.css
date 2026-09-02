@@ -142,13 +142,14 @@ body {
 
 .pill-action-btn:disabled:hover::after {
     content: none;
+    cursor: not-allowed;
 }
 
 .pill-action-btn:disabled {
     color: var(--accent);
     background: var(--border);
     box-shadow: 0 0 0 5px var(--border);
-    cursor: default;
+    cursor: not-allowed;
 }
 
 .pill-action-btn svg {
@@ -472,6 +473,7 @@ body {
 
 .generate-api-key-btn:disabled:hover {
     background: var(--border);
+    cursor: not-allowed;
 }
 
 .api-key-name-input:disabled,
@@ -979,6 +981,7 @@ body {
 .external-interactions-segment:disabled:hover {
     background: transparent;
     color: var(--muted);
+    cursor: not-allowed;
 }
 
 .external-interactions-ip-cell {
