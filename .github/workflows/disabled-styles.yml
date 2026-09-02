@@ -11,6 +11,9 @@ on:
       - 'src/main.py'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   verify-disabled-styles:
     runs-on: ubuntu-latest
