@@ -215,13 +215,18 @@ class PluginBridge:
         return self._started
 
     def discover_installed_plugins(self, development: bool = False) -> list[Path]:
-        """Discover installed plugin folders per execution tree step 6 (defined part only).
+        """Discover installed plugin folders per execution tree steps 6 (defined part only).
 
-        Lists ``plugins/`` subfolders:
+        Lists ``plugins/`` subfolders (folder name is the ``hash``):
         - ``dev-*`` → loaded without checks only if ``development`` is True, else skipped.
-        - Other folders → read ``hash`` file inside, verify trust, compute folder hash
-          (hash each non-hash file, sorted, ``SHA256(concat)``) vs ``hash`` file,
-          then ``get_remote_plugin_hash`` vs ``get_local_plugin_hash``.
+        - Other folders → ``hash`` is folder name (identifies library entry via ``hash``),
+          version from that entry indicates which GitHub release to check. Checks:
+          1) trust (before any hash), 2) computed folder hash vs ``hash`` file,
+          3) hash from version-specific GitHub release vs local,
+          4) local hash vs latest release hash (deduplicated if same release),
+             then manifest ``akupara_version`` vs local Akupara hash,
+             then latest hash vs local → upgrade available.
+
         Returns list of ``Path`` that passed all defined checks.
 
         NOTE: This is where the loading of the plugins should happen — actual
@@ -232,61 +237,206 @@ class PluginBridge:
         if not plugins_dir.is_dir():
             return []
         verified: list[Path] = []
+        # Cache local Akupara version hash for upgrade checks
+        local_akupara_version = _get_local_akupara_version()
         for entry in sorted(plugins_dir.iterdir(), key=lambda p: p.name):
             if not entry.is_dir():
                 continue
-            name = entry.name
+            folder_name = entry.name
             # dev- folders: load without checks only if development
-            if name.startswith("dev-"):
+            if folder_name.startswith("dev-"):
                 if not development:
-                    log_info("Skipping dev plugin (development off)", {"folder": name})
+                    log_info("Skipping dev plugin (development off)", {"folder": folder_name})
                     continue
-                log_info("Dev plugin (no checks, development on)", {"folder": name})
+                log_info("Dev plugin (no checks, development on)", {"folder": folder_name})
                 # NOTE: plugin loading should happen here for dev plugins (without checks)
                 verified.append(entry)
                 continue
-            # Regular plugins: hash-identified (hash file inside folder)
-            # Trust check BEFORE hash comparison (per module note)
-            hash_value = _read_plugin_hash_file(entry)
-            if hash_value is None:
-                log_warn("Plugin folder missing hash file, skipping", {"folder": name})
-                continue
-            # Find catalog entry for this hash to verify trust
+            # Regular plugins: folder name IS the hash (identifies library entry)
+            hash_value = folder_name.strip()
+            # Validate hash format (64 hex)
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", hash_value):
+                # Fallback: try reading hash file inside (legacy)
+                alt = _read_plugin_hash_file(entry)
+                if alt and re.fullmatch(r"[0-9a-fA-F]{64}", alt.strip()):
+                    hash_value = alt.strip()
+                else:
+                    log_warn("Plugin folder name not a valid hash and no hash file, skipping", {"folder": folder_name})
+                    continue
+            # Find catalog entry for this hash to verify trust and get version/repo
             catalog_entry = None
             for e in _load_plugins():
                 if str(e.get("hash", "")).strip().lower() == hash_value.lower():
                     catalog_entry = e
                     break
             if catalog_entry is None:
-                log_warn("Plugin hash not in library, skipping", {"folder": name, "hash": hash_value})
+                log_warn("Plugin hash not in library, skipping", {"folder": folder_name, "hash": hash_value})
                 continue
             if not verify_plugin_signature(catalog_entry):
-                log_warn("Plugin trust mark invalid, skipping", {"folder": name, "hash": hash_value})
+                log_warn("Plugin trust mark invalid, skipping", {"folder": folder_name, "hash": hash_value})
                 continue
-            # Compute folder hash (hash each non-hash file, sorted, concat, hash)
+            # Compute folder hash (hash each non-hash file, sorted, concat, hash) vs hash file
             computed = _compute_plugin_folder_hash(entry)
             if computed is None:
-                log_warn("Failed to compute plugin folder hash, skipping", {"folder": name})
+                log_warn("Failed to compute plugin folder hash, skipping", {"folder": folder_name})
                 continue
             stored_hash = _read_plugin_hash_file(entry)
-            if stored_hash is None or computed.lower() != stored_hash.lower():
-                log_warn("Plugin folder hash mismatch, skipping", {"folder": name, "computed": computed, "stored": stored_hash})
+            # If no hash file, use folder name as stored_hash for comparison
+            if stored_hash is None:
+                stored_hash = hash_value
+            if computed.lower() != stored_hash.lower():
+                log_warn("Plugin folder hash mismatch, skipping", {"folder": folder_name, "computed": computed, "stored": stored_hash})
                 continue
-            # Remote vs local hash check — hash provided as attachment on GitHub release vs local hash file
+            # --- Check 1: version-specific GitHub release hash vs local ---
             plugin_name = str(catalog_entry.get("name", "")).strip()
             plugin_version = str(catalog_entry.get("version", "")).strip()
-            try:
-                remote_hash = get_remote_plugin_hash(plugin_name, plugin_version)
-            except Exception as exc:
-                log_warn("Failed to fetch remote plugin hash", {"folder": name, "error": str(exc)})
+            repo_url = str(catalog_entry.get("repo", "")).strip()
+            parsed = _parse_github_repo(repo_url)
+            if parsed is None:
+                log_warn("Invalid repo URL for plugin, skipping", {"folder": folder_name, "repo": repo_url})
                 continue
-            # Local is the hash file inside the folder (already read as stored_hash)
-            if remote_hash is None or stored_hash is None or remote_hash.lower() != stored_hash.lower():
-                log_warn("Plugin remote vs local hash mismatch, skipping", {"folder": name, "remote": remote_hash, "local": stored_hash})
+            owner, repo = parsed
+            # Fetch version-specific release (e.g. tag v{version} or {version})
+            version_release = _fetch_github_release_by_tag(owner, repo, plugin_version)
+            if version_release is None:
+                # Fallback to latest if tag not found (for backward compat)
+                version_release = _fetch_github_latest_release(owner, repo)
+                if version_release is None:
+                    log_warn("Failed to fetch version-specific release and latest, skipping", {"folder": folder_name, "version": plugin_version})
+                    continue
+            # Find hash attachment in that version release
+            version_assets = version_release.get("assets", []) if isinstance(version_release.get("assets"), list) else []
+            version_hash_asset = _find_hash_asset(version_assets)
+            if version_hash_asset is None:
+                log_warn("No hash attachment in version release, skipping", {"folder": folder_name, "version": plugin_version})
                 continue
-            log_info("Plugin passed all checks", {"folder": name, "hash": hash_value})
-            # NOTE: This is where the loading of the plugins should happen
-            # Actual plugin execution is still to be defined (how plugins are implemented).
+            version_hash_url = version_hash_asset.get("browser_download_url") or version_hash_asset.get("url")
+            if not isinstance(version_hash_url, str) or not version_hash_url.strip():
+                log_warn("Hash attachment has no URL, skipping", {"folder": folder_name})
+                continue
+            version_remote_hash = _fetch_url_text(version_hash_url.strip())
+            if not version_remote_hash:
+                log_warn("Failed to fetch version hash attachment or empty, skipping", {"folder": folder_name})
+                continue
+            version_remote_hash = version_remote_hash.split()[0].strip()
+            # Compare version release hash vs local (stored_hash/computed)
+            if version_remote_hash.lower() != stored_hash.lower():
+                log_warn("Plugin version hash mismatch (remote vs local), skipping", {"folder": folder_name, "remote": version_remote_hash, "local": stored_hash})
+                continue
+            # --- Check 2: latest release hash vs local (deduplicated if same release) ---
+            latest_release = _fetch_github_latest_release(owner, repo)
+            if latest_release is None:
+                log_warn("Failed to fetch latest release, skipping upgrade check but plugin passed", {"folder": folder_name})
+                log_info("Plugin passed all checks", {"folder": folder_name, "hash": hash_value})
+                verified.append(entry)
+                continue
+            # Check if latest release is same as version release (by tag or id)
+            version_tag = version_release.get("tag_name", "") or version_release.get("tag", "")
+            latest_tag = latest_release.get("tag_name", "") or latest_release.get("tag", "")
+            if version_tag and latest_tag and str(version_tag).strip().lower() == str(latest_tag).strip().lower():
+                # Same release, already checked, don't repeat
+                log_info("Plugin is up to date (latest is same as installed version)", {"folder": folder_name, "version": plugin_version})
+                verified.append(entry)
+                continue
+            # Also check if latest hash is same as version hash (defensive)
+            latest_assets = latest_release.get("assets", []) if isinstance(latest_release.get("assets"), list) else []
+            latest_hash_asset = _find_hash_asset(latest_assets)
+            if latest_hash_asset is None:
+                log_warn("Latest release has no hash attachment, skipping upgrade check but plugin passed", {"folder": folder_name})
+                verified.append(entry)
+                continue
+            latest_hash_url = latest_hash_asset.get("browser_download_url") or latest_hash_asset.get("url")
+            if not isinstance(latest_hash_url, str) or not latest_hash_url.strip():
+                log_warn("Latest hash attachment has no URL", {"folder": folder_name})
+                verified.append(entry)
+                continue
+            latest_hash = _fetch_url_text(latest_hash_url.strip())
+            if not latest_hash:
+                log_warn("Failed to fetch latest hash attachment", {"folder": folder_name})
+                verified.append(entry)
+                continue
+            latest_hash = latest_hash.split()[0].strip()
+            # If latest hash is same as version hash and we already passed, don't repeat (already handled by tag check)
+            if latest_hash.lower() == version_remote_hash.lower():
+                log_info("Plugin is up to date (latest hash same as installed)", {"folder": folder_name})
+                verified.append(entry)
+                continue
+            # Now check manifest akupara_version
+            manifest_akupara = _fetch_manifest_akupara_version(owner, repo, latest_release)
+            if manifest_akupara is None:
+                log_warn("Latest release has no manifest.json or no akupara_version, skipping upgrade check", {"folder": folder_name})
+                verified.append(entry)
+                continue
+            if local_akupara_version is None or manifest_akupara.strip().lower() != local_akupara_version.strip().lower():
+                log_info("Akupara version mismatch, not upgradeable (manifest vs local)", {"folder": folder_name, "manifest": manifest_akupara, "local": local_akupara_version})
+                verified.append(entry)
+                continue
+            # Akupara versions match, now check local plugin hash (computed) vs latest hash
+            if computed.lower() == latest_hash.lower():
+                log_info("Plugin is up to date (local hash equals latest)", {"folder": folder_name})
+                verified.append(entry)
+                continue
+            # Upgrade available!
+            log_info("Plugin has available upgrade", {"folder": folder_name, "installed": plugin_version, "latest_hash": latest_hash, "latest_tag": latest_tag})
+            if _is_automatic_plugin_upgrade_enabled():
+                log_info("Automatic plugin upgrade enabled — upgrading", {"folder": folder_name, "old_hash": hash_value, "new_hash": latest_hash, "latest_tag": latest_tag})
+                # Automatic upgrade: delete old folder and create new one named as new hash with new version's files
+                try:
+                    # Find the new catalog entry for the latest version to get its hash (should be latest_hash)
+                    # The latest_hash is the hash of the new version's files (as per release)
+                    # Download all non-hash, non-manifest assets from latest release
+                    new_folder = _plugins_dir() / latest_hash
+                    if new_folder.exists():
+                        log_warn("New plugin folder already exists, skipping upgrade", {"folder": str(new_folder)})
+                    else:
+                        # Collect assets to download (exclude hash and manifest)
+                        assets_to_download = []
+                        for a in latest_assets:
+                            if not isinstance(a, dict):
+                                continue
+                            n = a.get("name")
+                            if not isinstance(n, str) or not n.strip():
+                                continue
+                            low = n.strip().lower()
+                            if low in ("hash", "hash.txt") or low.endswith(".hash") or low == "manifest.json":
+                                continue
+                            url = a.get("browser_download_url") or a.get("url")
+                            if isinstance(url, str) and url.strip():
+                                assets_to_download.append((n.strip(), url.strip()))
+                        # Create new folder
+                        new_folder.mkdir(parents=True, exist_ok=True)
+                        # Download each asset
+                        for fname, url in assets_to_download:
+                            # Sanitize filename
+                            if "/" in fname or "\\" in fname or fname in (".", ".."):
+                                log_warn("Invalid asset filename, skipping", {"fname": fname})
+                                continue
+                            data = _fetch_url_bytes(url)
+                            if data is None:
+                                log_warn("Failed to download asset for upgrade, skipping file", {"fname": fname, "url": url})
+                                continue
+                            (new_folder / fname).write_bytes(data)
+                        # Create hash file inside new folder
+                        # Use "hash" as filename (consistent with _read_plugin_hash_file)
+                        (new_folder / "hash").write_text(latest_hash + "\n", encoding="utf-8")
+                        log_info("Plugin upgraded: old folder kept for now, new folder created", {"old": str(entry), "new": str(new_folder)})
+                        # Delete old folder
+                        import shutil
+                        try:
+                            shutil.rmtree(entry)
+                            log_info("Deleted old plugin folder after upgrade", {"old": str(entry)})
+                        except Exception as exc:
+                            log_warn("Failed to delete old plugin folder after upgrade", {"old": str(entry), "error": str(exc)})
+                        # Verified is now the new folder (which will be discovered on next run, but also add it now)
+                        verified.append(new_folder)
+                        continue  # Skip adding old entry, new one will be verified next time
+                except Exception as exc:
+                    log_warn("Automatic plugin upgrade failed", {"folder": folder_name, "error": str(exc)})
+                    # Fall back to keeping old
+                    import traceback
+                    log_warn("Upgrade exception", {"trace": traceback.format_exc()})
+            else:
+                log_info("Automatic plugin upgrade disabled — not upgrading", {"folder": folder_name})
             verified.append(entry)
         return verified
 
@@ -714,6 +864,110 @@ def _fetch_github_latest_release(owner: str, repo: str, timeout: int = 10) -> di
     return None
 
 
+def _fetch_github_release_by_tag(owner: str, repo: str, tag: str, timeout: int = 10) -> dict | None:
+    """Fetch a specific GitHub release by tag ``tag`` for ``owner/repo``.
+
+    Tries ``GET /repos/{owner}/{repo}/releases/tags/{tag}`` and fallback
+    ``/releases/tags/v{tag}``. Returns dict or None.
+    """
+    ctx = ssl.create_default_context()
+    for t in (tag, f"v{tag}", tag.lstrip("vV")):
+        if not t:
+            continue
+        url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{t}"
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Akupara/1.0", "Accept": "application/vnd.github+json"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                if isinstance(data, dict) and not data.get("message"):
+                    return data
+        except Exception:
+            continue
+    return None
+
+
+def _get_local_akupara_version() -> str | None:
+    """Return the local Akupara version hash (project hash)."""
+    # Try stored hash file first (project root hash)
+    try:
+        p = Path(__file__).resolve().parent.parent / "hash"
+        txt = p.read_text(encoding="utf-8", errors="replace").strip()
+        if txt:
+            return txt.split()[0].strip()
+    except OSError:
+        pass
+    # Fallback: compute
+    try:
+        # Import here to avoid circular
+        from main import _compute_local_project_hash, _get_local_project_hash
+        h = _compute_local_project_hash()
+        if h:
+            return h
+        return _get_local_project_hash()
+    except Exception:
+        return None
+
+
+def _is_automatic_plugin_upgrade_enabled() -> bool:
+    """Check if automatic plugin upgrades are enabled via .env."""
+    # Try reading .env directly (to avoid circular import)
+    try:
+        env_path = Path(__file__).resolve().parent.parent / ".env"
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            if k.strip() == "AUTOMATIC_PLUGIN_UPGRADE":
+                return v.strip().lower() in {"1", "true", "yes", "on"}
+    except OSError:
+        pass
+    # Fallback to env var
+    import os
+    return os.getenv("AUTOMATIC_PLUGIN_UPGRADE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _fetch_manifest_akupara_version(owner: str, repo: str, release: dict, timeout: int = 10) -> str | None:
+    """Fetch manifest.json from a release and return its akupara_version field."""
+    assets = release.get("assets", [])
+    if not isinstance(assets, list):
+        return None
+    manifest_asset = None
+    for a in assets:
+        if not isinstance(a, dict):
+            continue
+        n = a.get("name")
+        if isinstance(n, str) and n.strip().lower() == "manifest.json":
+            manifest_asset = a
+            break
+    if manifest_asset is None:
+        return None
+    url = manifest_asset.get("browser_download_url") or manifest_asset.get("url")
+    if not isinstance(url, str) or not url.strip():
+        return None
+    txt = _fetch_url_text(url.strip(), timeout=timeout)
+    if not txt:
+        return None
+    try:
+        data = json.loads(txt)
+        if isinstance(data, dict):
+            # Try common keys
+            for k in ("akupara_version", "akuparaVersion", "akupara", "version"):
+                v = data.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            # Fallback: first string value that looks like hash
+            for v in data.values():
+                if isinstance(v, str) and re.fullmatch(r"[0-9a-fA-F]{40,64}", v.strip()):
+                    return v.strip()
+    except Exception:
+        return None
+    return None
+
+
 def _fetch_url_text(url: str, timeout: int = 15) -> str | None:
     """Download ``url`` and return its UTF-8 text (stripped), or ``None`` on failure."""
     ctx = ssl.create_default_context()
@@ -724,6 +978,18 @@ def _fetch_url_text(url: str, timeout: int = 15) -> str | None:
             return data
     except Exception as exc:
         log_warn("Failed to fetch hash asset", {"url": url, "error": str(exc)})
+        return None
+
+
+def _fetch_url_bytes(url: str, timeout: int = 15) -> bytes | None:
+    """Download ``url`` and return bytes, or ``None`` on failure."""
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return resp.read()
+    except Exception as exc:
+        log_warn("Failed to download asset", {"url": url, "error": str(exc)})
         return None
 
 
