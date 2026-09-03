@@ -79,6 +79,7 @@ EXTERNAL_INTERACTIONS: bool = False
 
 AUTOMATIC_UPDATE: bool = False
 AUTOMATIC_PLUGIN_LIBRARY_UPDATE: bool = False
+AUTOMATIC_PLUGIN_UPGRADE: bool = False
 
 _UPDATE_AVAILABLE: bool = False
 _UPDATE_AVAILABLE_AT_STARTUP: bool = False
@@ -131,7 +132,7 @@ def _parse_bool(value: str | None, default: bool = False) -> bool:
 
 
 def _initialize_service_config() -> None:
-    global SERVICE_PORT, GUI_ENABLED, DEVELOPMENT, INTERNAL_INTERACTIONS, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, PLAY_LOG_SOUNDS, SHARED_MEMORY_ENABLED, EXTERNAL_INTERACTIONS, EXTERNAL_INTERACTIONS_ALLOW_NEW, AUTOMATIC_UPDATE, AUTOMATIC_PLUGIN_LIBRARY_UPDATE
+    global SERVICE_PORT, GUI_ENABLED, DEVELOPMENT, INTERNAL_INTERACTIONS, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, PLAY_LOG_SOUNDS, SHARED_MEMORY_ENABLED, EXTERNAL_INTERACTIONS, EXTERNAL_INTERACTIONS_ALLOW_NEW, AUTOMATIC_UPDATE, AUTOMATIC_PLUGIN_LIBRARY_UPDATE, AUTOMATIC_PLUGIN_UPGRADE
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
     config = _load_configuration()
 
@@ -180,6 +181,7 @@ def _initialize_service_config() -> None:
 
     AUTOMATIC_UPDATE = _parse_bool(os.getenv("AUTOMATIC_UPDATE"), False)
     AUTOMATIC_PLUGIN_LIBRARY_UPDATE = _parse_bool(os.getenv("AUTOMATIC_PLUGIN_LIBRARY_UPDATE"), False)
+    AUTOMATIC_PLUGIN_UPGRADE = _parse_bool(os.getenv("AUTOMATIC_PLUGIN_UPGRADE"), False)
 
     for sound_event, env_name in audio.SOUND_ENV_VARS.items():
         if _read_env_var(env_name, None) is None:
@@ -207,7 +209,7 @@ def _initialize_service_config() -> None:
     if not _login_credentials_configured():
         log_warn("Login credentials not configured", {"hint": "set USERNAME and PASSWORD (or USERS) in .env"})
 
-    log_debug("Resolved config values", {"port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "internalInteractions": INTERNAL_INTERACTIONS, "apiKeysEnabled": API_KEYS_ENABLED, "externalInteractions": EXTERNAL_INTERACTIONS, "automaticUpdate": AUTOMATIC_UPDATE, "automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE})
+    log_debug("Resolved config values", {"port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "internalInteractions": INTERNAL_INTERACTIONS, "apiKeysEnabled": API_KEYS_ENABLED, "externalInteractions": EXTERNAL_INTERACTIONS, "automaticUpdate": AUTOMATIC_UPDATE, "automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE, "automaticPluginUpgrade": AUTOMATIC_PLUGIN_UPGRADE})
     log_info("Service configuration initialized")
 
 
@@ -896,6 +898,13 @@ def _set_automatic_plugin_library_update(value: bool) -> None:
 
 
 @audio.play_audio("acknowledge")
+def _set_automatic_plugin_upgrade(value: bool) -> None:
+    global AUTOMATIC_PLUGIN_UPGRADE
+    AUTOMATIC_PLUGIN_UPGRADE = value
+    _write_env_bool("AUTOMATIC_PLUGIN_UPGRADE", value)
+
+
+@audio.play_audio("acknowledge")
 def _set_api_keys_enabled(value: bool) -> None:
     global API_KEYS_ENABLED
     API_KEYS_ENABLED = value
@@ -1453,6 +1462,25 @@ def automatic_plugin_library_update_enabled() -> tuple:
     _set_automatic_plugin_library_update(value)
     log_info("Automatic plugin library update enabled set", {"client": request.remote_addr, "automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE})
     return jsonify({"automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE}), 200
+
+
+@app.route("/api/automatic-plugin-upgrade-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def automatic_plugin_upgrade_enabled() -> tuple:
+    if request.method == "GET":
+        log_info("Automatic plugin upgrade enabled setting read", {"client": request.remote_addr})
+        return jsonify({"automaticPluginUpgrade": AUTOMATIC_PLUGIN_UPGRADE}), 200
+
+    data = request.get_json(silent=True) or {}
+    if "automaticPluginUpgrade" not in data or not isinstance(data["automaticPluginUpgrade"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["automaticPluginUpgrade"]
+    _set_automatic_plugin_upgrade(value)
+    log_info("Automatic plugin upgrade enabled set", {"client": request.remote_addr, "automaticPluginUpgrade": AUTOMATIC_PLUGIN_UPGRADE})
+    return jsonify({"automaticPluginUpgrade": AUTOMATIC_PLUGIN_UPGRADE}), 200
 
 
 def _get_current_project_version() -> str:
@@ -2565,6 +2593,7 @@ def ui_settings_page():
         development=DEVELOPMENT,
         project_update_disabled= (not _PROJECT_INTEGRITY_OK and DEVELOPMENT),
         automatic_plugin_library_update=_read_env_bool("AUTOMATIC_PLUGIN_LIBRARY_UPDATE", AUTOMATIC_PLUGIN_LIBRARY_UPDATE),
+        automatic_plugin_upgrade=_read_env_bool("AUTOMATIC_PLUGIN_UPGRADE", AUTOMATIC_PLUGIN_UPGRADE),
         current_plugins_lib_version=_get_current_plugins_lib_version(),
         effective_plugins_lib_version=_get_effective_plugins_lib_version(),
         indicated_plugins_lib_version=_get_indicated_plugins_lib_version(),

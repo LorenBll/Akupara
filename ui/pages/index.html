@@ -2737,6 +2737,13 @@
             toggle.setAttribute('aria-checked', value ? 'true' : 'false');
         }
 
+        function updateAutomaticPluginUpgrade(value) {
+            var toggle = document.getElementById('automaticPluginUpgradeToggle');
+            if (!toggle) return;
+            toggle.classList.toggle('on', value);
+            toggle.setAttribute('aria-checked', value ? 'true' : 'false');
+        }
+
         function updateDisplayPromotion(value) {
             var toggle = document.getElementById('displayPromotionToggle');
             if (!toggle) return;
@@ -3196,6 +3203,35 @@
                 })
                 .catch(function () {
                     updateAutomaticPluginLibraryUpdate(previous);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
+        }
+
+        function toggleAutomaticPluginUpgrade() {
+            var toggle = document.getElementById('automaticPluginUpgradeToggle');
+            if (!toggle || settingsPending) return;
+            settingsPending = true;
+            var next = !toggle.classList.contains('on');
+            var previous = !next;
+            updateAutomaticPluginUpgrade(next);
+            fetchWithHandshake('/api/automatic-plugin-upgrade-enabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ automaticPluginUpgrade: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.automaticPluginUpgrade === 'boolean') {
+                        updateAutomaticPluginUpgrade(data.automaticPluginUpgrade);
+                    }
+                })
+                .catch(function () {
+                    updateAutomaticPluginUpgrade(previous);
                 })
                 .then(function () {
                     settingsPending = false;
@@ -4046,6 +4082,8 @@
                     toggleAutomaticUpdate();
                 } else if (toggle.id === 'automaticPluginLibraryUpdateToggle') {
                     toggleAutomaticPluginLibraryUpdate();
+                } else if (toggle.id === 'automaticPluginUpgradeToggle') {
+                    toggleAutomaticPluginUpgrade();
                 }
             }
         });

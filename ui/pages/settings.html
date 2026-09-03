@@ -86,6 +86,15 @@
         {% endif %}
         </div>
         <hr class="card-section-separator">
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Automatic Plugin Upgrade</span>
+            </div>
+            <p class="data-indicator-description">Controls whether plugins with available upgrades are automatically upgraded.</p>
+            <button type="button" class="toggle{{ ' on' if automatic_plugin_upgrade else '' }}" id="automaticPluginUpgradeToggle" role="switch" aria-checked="{{ 'true' if automatic_plugin_upgrade else 'false' }}" aria-label="Enable automatic plugin upgrades">
+                <span class="toggle-thumb"></span>
+            </button>
+        </div>
         {% endif %}
     </div>
     {% endif %}
