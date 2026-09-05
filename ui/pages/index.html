@@ -5,12 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Akupara</title>
     <link rel="stylesheet" href="/ui/css/index.css?v=4">
+    <script>
+        try {
+            if (localStorage.getItem('akupara-dev-stripes-hidden') === 'true') {
+                document.documentElement.classList.add('dev-stripes-prehidden');
+            }
+        } catch (e) {}
+    </script>
+    <style>
+        .dev-stripes-prehidden .dev-stripe { opacity: 0 !important; transition: none !important; }
+    </style>
 </head>
 <body>
     {% if development %}
     <div class="dev-stripe dev-stripe-left" aria-hidden="true"></div>
     <div class="dev-stripe dev-stripe-right" aria-hidden="true"></div>
     {% endif %}
+    <script>
+        try {
+            if (localStorage.getItem('akupara-dev-stripes-hidden') === 'true') {
+                document.querySelectorAll('.dev-stripe').forEach(function(s){ s.classList.add('faded'); });
+            }
+            // Re-enable transition after initial paint
+            requestAnimationFrame(function(){
+                document.documentElement.classList.remove('dev-stripes-prehidden');
+            });
+        } catch (e) {}
+    </script>
     <header class="page-header">
         <h1 class="title init-hidden"><a href="https://www.github.com/LorenBll/Akupara" target="_blank" rel="noopener" class="title-link"><img src="/ui/icons/akupara.svg" alt="" class="title-icon">Akupara</a></h1>
         <div class="pill init-hidden">
@@ -170,8 +191,12 @@
  wireSoundDropdowns();
                         wireAudioSoundDropdowns();
                         fetchPlayLogSounds();
+                        fetchPlayStartupSound();
                         wireSharedVariableGenerator();
                         wireSharedMemoryTable();
+                        wireEventStreamingGenerator();
+                        wireEventStreamingTable();
+                        loadPluginEvents();
                         wireUserRegistration();
                         var usersTbody = document.getElementById('usersTableBody');
                         if (usersTbody && usersTbody.dataset.users) {
@@ -254,6 +279,10 @@
         var lastSessionAdmin = false;
         var currentSessionRoot = false;
         var registeredUsernames = [];
+        var PLAINTEXT_PROHIBITED_RE = /[ ,;\/\\:%"']/g;
+        var PLAINTEXT_PROHIBITED_TEST_RE = /[ ,;\/\\:%"']/;
+        var JSON_IMPORT_PROHIBITED_RE = /[ ;\/\\%]/g;
+        var JSON_IMPORT_PROHIBITED_TEST_RE = /[ ;\/\\%]/;
 
         function rebuildRegisteredUsernames() {
             var names = usersList.map(function (u) { return u.username; });
@@ -314,14 +343,14 @@
             var input = document.getElementById('apiKeyNameInput');
             if (!input) return;
             input.addEventListener('keydown', function (event) {
-                if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
+                if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
                     event.preventDefault();
                     flashApiKeyInputRed(this);
                 }
             });
             input.addEventListener('input', function () {
                 var before = this.value;
-                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
+                this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
                 if (this.value !== before) {
                     flashApiKeyInputRed(this);
                 }
@@ -625,7 +654,7 @@
         }
 
         function isSharedVariableNameValid(n) {
-            return typeof n === 'string' && n.trim() !== '' && !/[ ,;\\/:%]/.test(n);
+            return typeof n === 'string' && n.trim() !== '' && !PLAINTEXT_PROHIBITED_TEST_RE.test(n);
         }
 
         function flashSharedVariableInvalid(el) {
@@ -662,6 +691,7 @@
         function isSharedValueCharAllowed(ch, type) {
             if (type === 'integer') return /[0-9-]/.test(ch);
             if (type === 'float') return /[0-9.-]/.test(ch);
+            if (type === 'string') return !PLAINTEXT_PROHIBITED_TEST_RE.test(ch);
             return true;
         }
 
@@ -674,14 +704,14 @@
             if (!nameInput || !typeDropdown || !valueInput || !booleanDropdown || !addBtn) return;
 
             nameInput.addEventListener('keydown', function (event) {
-                if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
+                if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
                     event.preventDefault();
                     flashSharedVariableInvalid(this);
                 }
             });
             nameInput.addEventListener('input', function () {
                 var before = this.value;
-                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
+                this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
                 if (this.value !== before) {
                     flashSharedVariableInvalid(this);
                 }
@@ -752,7 +782,7 @@
                 showTransientError(nameInput, 'api-key-input-invalid', 'Name is required.');
                 return;
             }
-            if (/[ ,;\\/:%]/.test(name)) {
+            if (PLAINTEXT_PROHIBITED_TEST_RE.test(name)) {
                 flashSharedVariableInvalid(nameInput);
                 showErrorTooltip(nameInput, 'Enter a valid name.');
                 return;
@@ -805,6 +835,13 @@
                         showErrorTooltip(valueInput, 'Invalid value for this type.');
                         return;
                     }
+                }
+                try {
+                    validatePlaintextSharedValue(value);
+                } catch (e) {
+                    flashSharedVariableInvalid(valueInput);
+                    showErrorTooltip(valueInput, 'Invalid character in value.');
+                    return;
                 }
             }
 
@@ -859,6 +896,23 @@
             throw new Error('Unknown type.');
         }
 
+        function validatePlaintextSharedValue(value) {
+            if (typeof value === 'string') {
+                if (PLAINTEXT_PROHIBITED_TEST_RE.test(value)) throw new Error('Invalid character in value.');
+                return;
+            }
+            if (Array.isArray(value)) {
+                value.forEach(validatePlaintextSharedValue);
+                return;
+            }
+            if (value && typeof value === 'object') {
+                Object.keys(value).forEach(function (key) {
+                    if (PLAINTEXT_PROHIBITED_TEST_RE.test(key)) throw new Error('Invalid character in value.');
+                    validatePlaintextSharedValue(value[key]);
+                });
+            }
+        }
+
         function sharedMemoryPatchHeaders() {
             var headers = { 'Content-Type': 'application/json' };
             if (apiKeysList.length > 0) {
@@ -872,7 +926,7 @@
             var tbody = document.getElementById('sharedMemoryTableBody');
             var empty = document.getElementById('sharedMemoryEmpty');
             if (!table || !tbody) return;
-            table.classList.remove('api-keys-table-deleting');
+            table.classList.remove('data-table-deleting');
             hideTableTooltip();
             tbody.innerHTML = '';
             var has = Array.isArray(variables) && variables.length > 0;
@@ -882,11 +936,11 @@
             if (!has) {
                 if (empty) {
                     if (prevTableVisible) {
-                        empty.classList.remove('api-key-empty-fade-in');
+                        empty.classList.remove('table-empty-fade-in');
                         void empty.offsetWidth;
-                        empty.classList.add('api-key-empty-fade-in');
+                        empty.classList.add('table-empty-fade-in');
                     } else {
-                        empty.classList.remove('api-key-empty-fade-in');
+                        empty.classList.remove('table-empty-fade-in');
                     }
                 }
                 return;
@@ -924,7 +978,7 @@
             tr.appendChild(valueTd);
 
             var actionsTd = document.createElement('td');
-            actionsTd.className = 'api-key-actions-cell';
+            actionsTd.className = 'table-actions-cell';
             var actionsDiv = document.createElement('div');
             actionsDiv.className = 'actions-cell';
 
@@ -1105,6 +1159,7 @@
                 var rawValue = input ? input.value : '';
                 try {
                     value = parseSharedValueInput(rawValue, type);
+                    validatePlaintextSharedValue(value);
                 } catch (e) {
                     if (input) {
                         flashSharedVariableInvalid(input);
@@ -1159,16 +1214,16 @@
             hideTableTooltip();
             var rect = row.getBoundingClientRect();
             var overlay = document.createElement('div');
-            overlay.className = 'api-key-row-overlay';
+            overlay.className = 'table-row-overlay';
             overlay.style.left = Math.round(rect.left) + 'px';
             overlay.style.top = Math.round(rect.top) + 'px';
             overlay.style.width = Math.round(rect.width) + 'px';
             overlay.style.height = Math.round(rect.height) + 'px';
             document.body.appendChild(overlay);
             void overlay.offsetWidth;
-            overlay.classList.add('api-key-row-overlay-active');
-            row.classList.add('api-key-row-deleting');
-            if (isLast && table) table.classList.add('api-keys-table-deleting');
+            overlay.classList.add('table-row-overlay-active');
+            row.classList.add('table-row-deleting');
+            if (isLast && table) table.classList.add('data-table-deleting');
             setTimeout(function () {
                 fetchWithHandshake('/api/shared-memory/' + encodeURIComponent(name), { method: 'DELETE' })
                     .then(function (r) { return r.json(); })
@@ -1238,14 +1293,649 @@
             });
         }
 
+        var pluginEvents = {};
+        var pluginEventsRequestId = 0;
+
+        function isEventNameTaken(name) {
+            if (!name) return false;
+            var lower = String(name).trim().toLowerCase();
+            return Object.keys(pluginEvents).some(function (k) { return k.toLowerCase() === lower; });
+        }
+
+        function isEventNameValid(name) {
+            return typeof name === 'string' && name.trim() !== '' && !PLAINTEXT_PROHIBITED_TEST_RE.test(name);
+        }
+
+        function isPluginNameForEventValid(name) {
+            return typeof name === 'string' && name.trim() !== '' && !PLAINTEXT_PROHIBITED_TEST_RE.test(name);
+        }
+
+        function flashEventStreamingInvalid(el) {
+            if (el._flashTimer) clearTimeout(el._flashTimer);
+            el.classList.remove('api-key-input-invalid');
+            void el.offsetWidth;
+            el.classList.add('api-key-input-invalid');
+            el._flashTimer = setTimeout(function () {
+                el._flashTimer = null;
+                el.classList.remove('api-key-input-invalid');
+            }, 600);
+        }
+
+        function getEventStreamingSelectedEvent() {
+            var input = document.getElementById('eventStreamingEventInput');
+            return input ? input.value.trim() : '';
+        }
+
+        function updateEventStreamingInputs() {
+            var eventInput = document.getElementById('eventStreamingEventInput');
+            var pluginInput = document.getElementById('eventStreamingPluginInput');
+            var jsonInput = document.getElementById('eventStreamingJsonInput');
+            var btn = document.getElementById('addEventStreamingBtn');
+            if (!eventInput || !pluginInput || !btn) return;
+
+            var isJsonMode = jsonInput && jsonInput.style.display !== 'none' && jsonInput.style.display !== '';
+            if (isJsonMode) {
+                btn.textContent = 'Import';
+                return;
+            }
+
+            var eventValue = getEventStreamingSelectedEvent();
+            var isNewEvent = !!eventValue && !isEventNameTaken(eventValue);
+            var isExistingEvent = !!eventValue && isEventNameTaken(eventValue);
+            var eventValid = isEventNameValid(eventValue);
+
+            // Second input (plugin ID) as wide as event name input (both 1fr, button auto 84.4x29)
+            // Plugin ID input enabled logic: disabled as long as no event value or (if textual, no valid event)
+            var pluginShouldBeEnabled = !!eventValue && eventValid;
+            // Also check if event is new, need valid new event name, if existing, just need event selected
+            if (!eventValue) {
+                pluginShouldBeEnabled = false;
+            } else if (!eventValid) {
+                pluginShouldBeEnabled = false;
+            }
+            pluginInput.disabled = !pluginShouldBeEnabled;
+            if (!pluginShouldBeEnabled) {
+                // Don't clear plugin value, just disable
+            }
+
+            // Button text: Add Event if new event, Update Event if existing
+            if (!eventValue) {
+                btn.textContent = 'Add Event';
+            } else if (isNewEvent) {
+                btn.textContent = 'Add Event';
+            } else if (isExistingEvent) {
+                btn.textContent = 'Update Event';
+            } else {
+                btn.textContent = 'Add Event';
+            }
+            btn.disabled = false;
+
+            // Visual invalid for event input
+            var taken = isEventNameTaken(eventValue);
+            // For new event, if event name is taken, it's actually not new, it's existing, so we handle via button text
+            // But for validation, if the event name is taken and we are in new event mode, it's not valid for Add Event
+            // However, with permanent textual input, we don't have insert vs existing mode, we just have the event name value
+            // The event name is valid if it matches prohibited chars check and not empty
+            // For the purpose of enabling plugin input, we need eventValid
+            if (eventValue && (!eventValid || (isNewEvent && taken))) {
+                // For new event, if taken, it's invalid (duplicate)
+                // For existing, taken is expected, so not invalid for the event input itself
+                // But we should show invalid if the event name is invalid
+                if (!eventValid) {
+                    eventInput.classList.add('api-key-input-invalid');
+                } else if (isNewEvent && taken) {
+                    eventInput.classList.add('api-key-input-invalid');
+                } else {
+                    eventInput.classList.remove('api-key-input-invalid');
+                }
+            } else {
+                // For existing event, the event name is valid even if taken (since it's existing)
+                if (eventValue && !eventValid) {
+                    eventInput.classList.add('api-key-input-invalid');
+                } else {
+                    eventInput.classList.remove('api-key-input-invalid');
+                }
+            }
+
+            // Plugin input invalid - only visual for invalid chars, button not disabled
+            var pluginValue = pluginInput.value.trim();
+            var pluginValid = isPluginNameForEventValid(pluginValue);
+            if (pluginValue && !pluginValid) {
+                pluginInput.classList.add('api-key-input-invalid');
+            } else {
+                if (eventValue && pluginValue && pluginValid) {
+                    var plugins = pluginEvents[eventValue] || [];
+                    var duplicate = plugins.some(function (p) { return p.toLowerCase() === pluginValue.toLowerCase(); });
+                    if (duplicate) {
+                        pluginInput.classList.add('api-key-input-invalid');
+                    } else {
+                        pluginInput.classList.remove('api-key-input-invalid');
+                    }
+                } else {
+                    if (!pluginValue || pluginValid) {
+                        pluginInput.classList.remove('api-key-input-invalid');
+                    }
+                }
+            }
+
+            // Internal interactions check: disable if not enabled
+            var internalInteractionsEnabled = true;
+            try {
+                var toggle = document.getElementById('internalInteractionsToggle');
+                if (toggle) {
+                    internalInteractionsEnabled = toggle.classList.contains('on');
+                } else {
+                    // Fallback to check card hidden
+                    var card = document.getElementById('internalInteractionsCard');
+                    if (card && card.hidden) internalInteractionsEnabled = false;
+                }
+            } catch (e) {}
+            var randomBtn2 = document.getElementById('eventStreamingRandomBtn');
+            if (!internalInteractionsEnabled) {
+                eventInput.disabled = true;
+                pluginInput.disabled = true;
+                btn.disabled = true;
+                if (randomBtn2) randomBtn2.disabled = true;
+            } else {
+                eventInput.disabled = false;
+                if (randomBtn2) randomBtn2.disabled = false;
+                // pluginInput disabled already handled above
+            }
+        }
+
+        function wireEventStreamingGenerator() {
+            var eventInput = document.getElementById('eventStreamingEventInput');
+            var pluginInput = document.getElementById('eventStreamingPluginInput');
+            var jsonInput = document.getElementById('eventStreamingJsonInput');
+            var btn = document.getElementById('addEventStreamingBtn');
+            var importBtn = document.getElementById('eventStreamingImportBtn');
+            if (!eventInput || !pluginInput || !btn || !jsonInput || !importBtn) return;
+
+            var isJsonMode = false;
+            var importIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>';
+            var xIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+            importBtn.addEventListener('click', function () {
+                isJsonMode = !isJsonMode;
+                if (isJsonMode) {
+                    eventInput.style.display = 'none';
+                    pluginInput.style.display = 'none';
+                    jsonInput.style.display = 'block';
+                    jsonInput.value = '';
+                    jsonInput.classList.remove('api-key-input-invalid');
+                    hideErrorTooltip();
+                    btn.textContent = 'Import';
+                    importBtn.innerHTML = xIconSvg;
+                    importBtn.setAttribute('data-tooltip', 'Go Back');
+                    importBtn.setAttribute('aria-label', 'Go Back');
+                    importBtn.classList.add('x-active');
+                    jsonInput.focus();
+                } else {
+                    eventInput.style.display = 'block';
+                    pluginInput.style.display = 'block';
+                    jsonInput.style.display = 'none';
+                    jsonInput.value = '';
+                    jsonInput.classList.remove('api-key-input-invalid');
+                    hideErrorTooltip();
+                    // Restore button text based on current event
+                    updateEventStreamingInputs();
+                    importBtn.innerHTML = importIconSvg;
+                    importBtn.setAttribute('data-tooltip', 'Import Events and Subscriptions');
+                    importBtn.setAttribute('aria-label', 'Import Events and Subscriptions');
+                    importBtn.classList.remove('x-active');
+                }
+                updateEventStreamingInputs();
+            });
+
+            eventInput.addEventListener('keydown', function (event) {
+                if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
+                    event.preventDefault();
+                    flashEventStreamingInvalid(this);
+                }
+            });
+            eventInput.addEventListener('input', function () {
+                var before = this.value;
+                var hadProhibited = PLAINTEXT_PROHIBITED_TEST_RE.test(before);
+                this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
+                if (this.value !== before) {
+                    // Prohibited char was present - flash red effect only (no tooltip, tooltip only on button press)
+                    flashEventStreamingInvalid(this);
+                }
+                var taken = isEventNameTaken(this.value);
+                if (taken) {
+                    this.classList.add('api-key-input-invalid');
+                } else {
+                    this.classList.remove('api-key-input-invalid');
+                    hideErrorTooltip();
+                }
+                updateEventStreamingInputs();
+            });
+
+            jsonInput.addEventListener('keydown', function (event) {
+                if (event.key.length === 1 && JSON_IMPORT_PROHIBITED_TEST_RE.test(event.key)) {
+                    event.preventDefault();
+                    flashEventStreamingInvalid(this);
+                }
+            });
+            jsonInput.addEventListener('input', function () {
+                var before = this.value;
+                var hadProhibited = JSON_IMPORT_PROHIBITED_TEST_RE.test(before);
+                this.value = this.value.replace(JSON_IMPORT_PROHIBITED_RE, '');
+                if (this.value !== before) {
+                    flashEventStreamingInvalid(this);
+                }
+                // Don't show tooltip here, only on Import press
+                updateEventStreamingInputs();
+            });
+
+            pluginInput.addEventListener('keydown', function (event) {
+                if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
+                    event.preventDefault();
+                    flashEventStreamingInvalid(this);
+                }
+            });
+            pluginInput.addEventListener('input', function () {
+                var before = this.value;
+                var hadProhibited = PLAINTEXT_PROHIBITED_TEST_RE.test(before);
+                this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
+                if (this.value !== before) {
+                    flashEventStreamingInvalid(this);
+                }
+                var valid = isPluginNameForEventValid(this.value);
+                this.classList.toggle('api-key-input-invalid', !valid && !!this.value);
+                if (!valid && !!this.value) {
+                    showErrorTooltip(this, 'Invalid plugin name.');
+                } else {
+                    var eventValue = getEventStreamingSelectedEvent();
+                    var plugins = pluginEvents[eventValue] || [];
+                    var duplicate = plugins.some(function (p) { return p.toLowerCase() === this.value.trim().toLowerCase(); }.bind(this));
+                    if (duplicate) {
+                        showErrorTooltip(this, 'Plugin already in this event.');
+                    } else {
+                        hideErrorTooltip();
+                    }
+                }
+                updateEventStreamingInputs();
+            });
+
+            btn.addEventListener('click', addOrUpdateEventStreaming);
+            updateEventStreamingInputs();
+        }
+
+        function addOrUpdateEventStreaming() {
+            var jsonInput = document.getElementById('eventStreamingJsonInput');
+            var isJsonMode = jsonInput && jsonInput.style.display !== 'none' && jsonInput.style.display !== '';
+            if (isJsonMode) {
+                var jsonValue = jsonInput ? jsonInput.value.trim() : '';
+                if (!jsonValue) {
+                    showTransientError(jsonInput, 'api-key-input-invalid', 'No input was provided.');
+                    return;
+                }
+                // Validate JSON and prohibited characters in keys/values
+                var parsed;
+                try {
+                    parsed = JSON.parse(jsonValue);
+                } catch (e) {
+                    flashEventStreamingInvalid(jsonInput);
+                    showErrorTooltip(jsonInput, 'Invalid JSON.');
+                    return;
+                }
+                if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                    flashEventStreamingInvalid(jsonInput);
+                    showErrorTooltip(jsonInput, 'JSON must be an object {event: [plugins]}.');
+                    return;
+                }
+                var hasProhibitedInJson = false;
+                for (var k in parsed) {
+                    if (PLAINTEXT_PROHIBITED_TEST_RE.test(k)) hasProhibitedInJson = true;
+                    var vals = parsed[k];
+                    if (!Array.isArray(vals)) { hasProhibitedInJson = true; break; }
+                    for (var i = 0; i < vals.length; i++) {
+                        if (typeof vals[i] !== 'string' || PLAINTEXT_PROHIBITED_TEST_RE.test(vals[i])) hasProhibitedInJson = true;
+                    }
+                }
+                if (hasProhibitedInJson) {
+                    flashEventStreamingInvalid(jsonInput);
+                    showErrorTooltip(jsonInput, 'Invalid character in JSON keys/values.');
+                    return;
+                }
+                // Convert to multiple add/update requests at UI level
+                var events = Object.keys(parsed);
+                var pending = events.length;
+                var hadError = false;
+                function onJsonDone() {
+                    pending--;
+                    if (pending === 0 && !hadError) {
+                        jsonInput.value = '';
+                        hideErrorTooltip();
+                        loadPluginEvents();
+                        // Revert to normal mode
+                        var importBtn = document.getElementById('eventStreamingImportBtn');
+                        if (importBtn) importBtn.click();
+                    } else if (pending === 0) {
+                        loadPluginEvents();
+                    }
+                }
+                events.forEach(function (ev) {
+                    var plugins = parsed[ev];
+                    // First ensure event exists
+                    var isNew = !isEventNameTaken(ev);
+                    var createPromise = isNew ? fetchWithHandshake('/api/plugin-events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: ev }) }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); }) : Promise.resolve({ ok: true, data: {} });
+                    createPromise.then(function (res) {
+                        if (!res.ok && isNew) {
+                            hadError = true;
+                            flashEventStreamingInvalid(jsonInput);
+                            showErrorTooltip(jsonInput, res.data.error || 'Failed to create event ' + ev);
+                            onJsonDone();
+                            return;
+                        }
+                        // Now add each plugin for this event
+                        if (!plugins || plugins.length === 0) {
+                            onJsonDone();
+                            return;
+                        }
+                        var pPending = plugins.length;
+                        plugins.forEach(function (pl) {
+                            fetchWithHandshake('/api/plugin-events/' + encodeURIComponent(ev) + '/plugins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plugin: pl }) })
+                                .then(function (r2) { return r2.json().then(function (d2) { return { ok: r2.ok, data: d2 }; }); })
+                                .then(function (res2) {
+                                    if (!res2.ok) {
+                                        hadError = true;
+                                        flashEventStreamingInvalid(jsonInput);
+                                        showErrorTooltip(jsonInput, res2.data.error || 'Failed to add plugin ' + pl + ' to ' + ev);
+                                    }
+                                    pPending--;
+                                    if (pPending === 0) onJsonDone();
+                                })
+                                .catch(function () {
+                                    hadError = true;
+                                    pPending--;
+                                    if (pPending === 0) onJsonDone();
+                                });
+                        });
+                        if (plugins.length === 0) onJsonDone();
+                    }).catch(function () {
+                        hadError = true;
+                        onJsonDone();
+                    });
+                });
+                return;
+            }
+            var eventInput = document.getElementById('eventStreamingEventInput');
+            var pluginInput = document.getElementById('eventStreamingPluginInput');
+            var eventValue = eventInput ? eventInput.value.trim() : '';
+            var pluginValue = pluginInput ? pluginInput.value.trim() : '';
+            var isInsert = !!eventValue && !isEventNameTaken(eventValue);
+
+            if (!eventValue) {
+                showTransientError(eventInput, 'api-key-input-invalid', 'Event Name Required.');
+                return;
+            }
+            if (!isEventNameValid(eventValue)) {
+                flashEventStreamingInvalid(eventInput);
+                showErrorTooltip(eventInput, 'Enter a valid event name.');
+                return;
+            }
+            if (isInsert && isEventNameTaken(eventValue)) {
+                flashEventStreamingInvalid(eventInput);
+                showErrorTooltip(eventInput, 'That event name is already taken.');
+                return;
+            }
+            if (!isInsert && !pluginValue) {
+                showTransientError(pluginInput, 'api-key-input-invalid', 'Plugin ID Required.');
+                return;
+            }
+            if (pluginValue && !isPluginNameForEventValid(pluginValue)) {
+                flashEventStreamingInvalid(pluginInput);
+                showErrorTooltip(pluginInput, 'Enter a valid plugin ID.');
+                return;
+            }
+
+            pluginEventsRequestId++;
+
+            if (isInsert) {
+                // Create new event
+                fetchWithHandshake('/api/plugin-events', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event: eventValue })
+                })
+                .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+                .then(function (res) {
+                    if (!res.ok) {
+                        var msg = res.data.error || 'Failed to create event.';
+                        showErrorTooltip(document.getElementById('eventStreamingEventInput'), msg);
+                        return;
+                    }
+                    if (!pluginValue) {
+                        document.getElementById('eventStreamingEventInput').value = '';
+                        hideErrorTooltip();
+                        pluginEvents[eventValue] = [];
+                        renderEventStreamingTable(pluginEvents);
+                        updateEventStreamingInputs();
+                        return;
+                    }
+                    // Now add plugin to the newly created event
+                    return fetchWithHandshake('/api/plugin-events/' + encodeURIComponent(eventValue) + '/plugins', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ plugin: pluginValue })
+                    })
+                    .then(function (r2) { return r2.json().then(function (d2) { return { ok: r2.ok, data: d2 }; }); })
+                    .then(function (res2) {
+                        if (!res2.ok) {
+                            showErrorTooltip(document.getElementById('eventStreamingPluginInput'), res2.data.error || 'Failed to add plugin.');
+                            return;
+                        }
+                        // Success
+                        document.getElementById('eventStreamingEventInput').value = '';
+                        document.getElementById('eventStreamingPluginInput').value = '';
+                        hideErrorTooltip();
+                        pluginEvents[eventValue] = [pluginValue];
+                        renderEventStreamingTable(pluginEvents);
+                        updateEventStreamingInputs();
+                    });
+                })
+                .catch(function () {});
+            } else {
+                // Update existing event: add plugin
+                fetchWithHandshake('/api/plugin-events/' + encodeURIComponent(eventValue) + '/plugins', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ plugin: pluginValue })
+                })
+                .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+                .then(function (res) {
+                    if (!res.ok) {
+                        showErrorTooltip(document.getElementById('eventStreamingPluginInput'), res.data.error || 'Failed to update event.');
+                        return;
+                    }
+                    document.getElementById('eventStreamingPluginInput').value = '';
+                    hideErrorTooltip();
+                    if (!Array.isArray(pluginEvents[eventValue])) pluginEvents[eventValue] = [];
+                    pluginEvents[eventValue].push(pluginValue);
+                    pluginEvents[eventValue].sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
+                    renderEventStreamingTable(pluginEvents);
+                    updateEventStreamingInputs();
+                })
+                .catch(function () {});
+            }
+        }
+
+        function loadPluginEvents() {
+            var tbody = document.getElementById('eventStreamingTableBody');
+            if (!tbody) return;
+            var requestId = ++pluginEventsRequestId;
+            fetchWithHandshake('/api/plugin-events')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (requestId !== pluginEventsRequestId) return;
+                    if (!data || typeof data.pluginEvents !== 'object') return;
+                    pluginEvents = data.pluginEvents;
+                    renderEventStreamingTable(pluginEvents);
+                    updateEventStreamingInputs();
+                })
+                .catch(function () {});
+        }
+
+        function renderEventStreamingTable(events) {
+            var table = document.getElementById('eventStreamingTable');
+            var tbody = document.getElementById('eventStreamingTableBody');
+            var empty = document.getElementById('eventStreamingEmpty');
+            if (!table || !tbody) return;
+            table.classList.remove('data-table-deleting');
+            var wrap = table.closest('.table-wrap');
+            var previousHeight = wrap ? wrap.offsetHeight : 0;
+            tbody.innerHTML = '';
+            var keys = Object.keys(events);
+            var has = keys.length > 0;
+            table.hidden = !has;
+            if (empty) empty.hidden = has;
+            if (!has) {
+                return;
+            }
+            keys.sort(function (a,b){ return a.toLowerCase().localeCompare(b.toLowerCase()); }).forEach(function (ev) {
+                var plugins = events[ev] || [];
+                var tr = document.createElement('tr');
+                var evTd = document.createElement('td');
+                evTd.textContent = ev;
+                tr.appendChild(evTd);
+                var pluginsTd = document.createElement('td');
+                var tags = document.createElement('div');
+                tags.className = 'event-plugin-tags';
+                if (!plugins.length) {
+                    var emptyLabel = document.createElement('span');
+                    emptyLabel.className = 'event-plugin-empty';
+                    emptyLabel.textContent = '(No Plugin Subscribed to Event)';
+                    tags.appendChild(emptyLabel);
+                }
+                plugins.forEach(function (pl) {
+                    var tag = document.createElement('span');
+                    tag.className = 'event-plugin-tag';
+                    var label = document.createElement('span');
+                    label.className = 'event-plugin-tag-label';
+                    label.textContent = pl;
+                    var removeBtn = document.createElement('button');
+                    removeBtn.type = 'button';
+                    removeBtn.className = 'event-plugin-tag-remove';
+                    removeBtn.dataset.action = 'delete-plugin-from-event';
+                    removeBtn.dataset.event = ev;
+                    removeBtn.dataset.plugin = pl;
+                    removeBtn.dataset.tableTooltip = 'Remove Plugin';
+                    removeBtn.setAttribute('aria-label', 'Remove ' + pl);
+                    removeBtn.textContent = 'x';
+                    tag.appendChild(label);
+                    tag.appendChild(removeBtn);
+                    tags.appendChild(tag);
+                });
+                pluginsTd.appendChild(tags);
+                tr.appendChild(pluginsTd);
+                var actionsTd = document.createElement('td');
+                actionsTd.className = 'table-actions-cell';
+                var delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'icon-btn';
+                delBtn.dataset.action = 'delete-event';
+                delBtn.dataset.event = ev;
+                delBtn.dataset.tableTooltip = 'Delete Event';
+                delBtn.innerHTML = ICONS.trash;
+                actionsTd.appendChild(delBtn);
+                tr.appendChild(actionsTd);
+                tbody.appendChild(tr);
+            });
+            table.style.height = '';
+        }
+
+        function deleteEvent(eventName, btn) {
+            var row = btn.closest('tr');
+            var table = row ? row.closest('table') : null;
+            var wrap = row ? row.closest('.table-wrap') : null;
+            var tbody = row ? row.closest('tbody') : null;
+            if (!row || !tbody) return;
+            var isLast = tbody.children.length === 1;
+            var below = getRowsBelow(row);
+            var firstTops = below.map(function (e) { return e.getBoundingClientRect().top; });
+            var h1 = wrap ? wrap.offsetHeight : 0;
+            hideTableTooltip();
+            var rect = row.getBoundingClientRect();
+            var overlay = document.createElement('div');
+            overlay.className = 'table-row-overlay';
+            overlay.style.left = Math.round(rect.left) + 'px';
+            overlay.style.top = Math.round(rect.top) + 'px';
+            overlay.style.width = Math.round(rect.width) + 'px';
+            overlay.style.height = Math.round(rect.height) + 'px';
+            document.body.appendChild(overlay);
+            void overlay.offsetWidth;
+            overlay.classList.add('table-row-overlay-active');
+            row.classList.add('table-row-deleting');
+            if (isLast && table) table.classList.add('data-table-deleting');
+            setTimeout(function () {
+                fetchWithHandshake('/api/plugin-events/' + encodeURIComponent(eventName), { method: 'DELETE' })
+                    .then(function (r) { return r.json(); })
+                    .then(function () { loadPluginEvents(); })
+                    .catch(function () {});
+                overlay.remove();
+                row.remove();
+                if (tbody.children.length === 0) {
+                    renderEventStreamingTable({}, false);
+                } else if (below.length) {
+                    flipRows(below, firstTops);
+                }
+            }, 1050);
+        }
+
+        function wireEventStreamingTable() {
+            var table = document.getElementById('eventStreamingTable');
+            if (!table) return;
+            table.addEventListener('click', function (event) {
+                var btn = event.target.closest('[data-action]');
+                if (!btn) return;
+                var action = btn.getAttribute('data-action');
+                if (action === 'delete-event') {
+                    var ev = btn.dataset.event;
+                    if (!ev) return;
+                    deleteEvent(ev, btn);
+                } else if (action === 'delete-plugin-from-event') {
+                    var ev2 = btn.dataset.event;
+                    var pl = btn.dataset.plugin;
+                    if (!ev2 || !pl) return;
+                    fetchWithHandshake('/api/plugin-events/' + encodeURIComponent(ev2) + '/plugins/' + encodeURIComponent(pl), { method: 'DELETE' })
+                        .then(function (r) { return r.json(); })
+                        .then(function () {
+                            if (Array.isArray(pluginEvents[ev2])) {
+                                pluginEvents[ev2] = pluginEvents[ev2].filter(function (entry) {
+                                    return entry.toLowerCase() !== pl.toLowerCase();
+                                });
+                                renderEventStreamingTable(pluginEvents);
+                                updateEventStreamingInputs();
+                            }
+                        })
+                        .catch(function () {});
+                }
+            });
+            table.addEventListener('mouseover', function (event) {
+                var el = event.target.closest('[data-table-tooltip]');
+                if (!el) return;
+                if (el.disabled) return;
+                showTableTooltip(el.dataset.tableTooltip, el, el.dataset.tableTooltipSide || 'near');
+            });
+            table.addEventListener('mouseout', function (event) {
+                var el = event.target.closest('[data-table-tooltip]');
+                if (!el) return;
+                var to = event.relatedTarget;
+                if (to && el.contains(to)) return;
+                hideTableTooltip();
+            });
+        }
+
         function renderApiKeysTable(keys) {
             var table = document.getElementById('apiKeysTable');
             var tbody = document.getElementById('apiKeysTableBody');
             var empty = document.getElementById('apiKeysEmpty');
             if (!table || !tbody) return;
             var head = table.querySelector('thead');
-            table.classList.remove('api-keys-table-deleting');
-            if (head) head.classList.remove('api-key-header-deleting');
+            table.classList.remove('data-table-deleting');
+            if (head) head.classList.remove('table-header-deleting');
             hideTableTooltip();
             tbody.innerHTML = '';
             var hasKeys = Array.isArray(keys) && keys.length > 0;
@@ -1255,11 +1945,11 @@
             if (!hasKeys) {
                 if (empty) {
                     if (prevTableVisible) {
-                        empty.classList.remove('api-key-empty-fade-in');
+                        empty.classList.remove('table-empty-fade-in');
                         void empty.offsetWidth;
-                        empty.classList.add('api-key-empty-fade-in');
+                        empty.classList.add('table-empty-fade-in');
                     } else {
-                        empty.classList.remove('api-key-empty-fade-in');
+                        empty.classList.remove('table-empty-fade-in');
                     }
                 }
                 return;
@@ -1305,7 +1995,7 @@
             tr.appendChild(nameTd);
 
             var actionsTd = document.createElement('td');
-            actionsTd.className = 'api-key-actions-cell';
+            actionsTd.className = 'table-actions-cell';
             var actionsDiv = document.createElement('div');
             actionsDiv.className = 'actions-cell';
 
@@ -1449,14 +2139,14 @@
             nameTd.appendChild(input);
             input.addEventListener('input', function () {
                 var before = this.value;
-                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
+                this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
                 if (this.value !== before) flashApiKeyInputRed(this);
                 refreshApiKeyInputInvalid(this);
             });
             input.addEventListener('keydown', function (event) {
                 if (event.key === 'Enter') {
                     toggleRename(row.dataset.key, btn);
-                } else if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
+                } else if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
                     event.preventDefault();
                     flashApiKeyInputRed(this);
                 }
@@ -1527,16 +2217,16 @@
             hideTableTooltip();
             var rect = row.getBoundingClientRect();
             var overlay = document.createElement('div');
-            overlay.className = 'api-key-row-overlay';
+            overlay.className = 'table-row-overlay';
             overlay.style.left = Math.round(rect.left) + 'px';
             overlay.style.top = Math.round(rect.top) + 'px';
             overlay.style.width = Math.round(rect.width) + 'px';
             overlay.style.height = Math.round(rect.height) + 'px';
             document.body.appendChild(overlay);
             void overlay.offsetWidth;
-            overlay.classList.add('api-key-row-overlay-active');
-            row.classList.add('api-key-row-deleting');
-            if (isLast && table) table.classList.add('api-keys-table-deleting');
+            overlay.classList.add('table-row-overlay-active');
+            row.classList.add('table-row-deleting');
+            if (isLast && table) table.classList.add('data-table-deleting');
             setTimeout(function () {
                 fetchWithHandshake('/api/api-keys/' + encodeURIComponent(key), { method: 'DELETE' })
                     .then(function (r) { return r.json(); })
@@ -1616,7 +2306,7 @@
             var tbody = document.getElementById('externalInteractionsTableBody');
             var empty = document.getElementById('externalInteractionsEmpty');
             if (!table || !tbody) return;
-            table.classList.remove('api-keys-table-deleting');
+            table.classList.remove('data-table-deleting');
             hideTableTooltip();
             tbody.innerHTML = '';
             var has = Array.isArray(entries) && entries.length > 0;
@@ -1626,11 +2316,11 @@
             if (!has) {
                 if (empty) {
                     if (prevTableVisible) {
-                        empty.classList.remove('api-key-empty-fade-in');
+                        empty.classList.remove('table-empty-fade-in');
                         void empty.offsetWidth;
-                        empty.classList.add('api-key-empty-fade-in');
+                        empty.classList.add('table-empty-fade-in');
                     } else {
-                        empty.classList.remove('api-key-empty-fade-in');
+                        empty.classList.remove('table-empty-fade-in');
                     }
                 }
                 return;
@@ -1686,7 +2376,7 @@
             tr.appendChild(policyTd);
 
             var actionsTd = document.createElement('td');
-            actionsTd.className = 'api-key-actions-cell';
+            actionsTd.className = 'table-actions-cell';
             var actionsDiv = document.createElement('div');
             actionsDiv.className = 'actions-cell';
             var editBtn = document.createElement('button');
@@ -1837,16 +2527,16 @@
             hideTableTooltip();
             var rect = row.getBoundingClientRect();
             var overlay = document.createElement('div');
-            overlay.className = 'api-key-row-overlay';
+            overlay.className = 'table-row-overlay';
             overlay.style.left = Math.round(rect.left) + 'px';
             overlay.style.top = Math.round(rect.top) + 'px';
             overlay.style.width = Math.round(rect.width) + 'px';
             overlay.style.height = Math.round(rect.height) + 'px';
             document.body.appendChild(overlay);
             void overlay.offsetWidth;
-            overlay.classList.add('api-key-row-overlay-active');
-            row.classList.add('api-key-row-deleting');
-            if (isLast && table) table.classList.add('api-keys-table-deleting');
+            overlay.classList.add('table-row-overlay-active');
+            row.classList.add('table-row-deleting');
+            if (isLast && table) table.classList.add('data-table-deleting');
             setTimeout(function () {
                 fetchWithHandshake('/api/external-interactions-ips/' + encodeURIComponent(ip), { method: 'DELETE' })
                     .then(function (r) { return r.json(); })
@@ -1884,7 +2574,7 @@
                 } else if (action === 'editnote') {
                     toggleExternalInteractionsNoteEdit(ip, btn);
                 } else if (action === 'delete') {
-                    deleteExternalInteractionsIp(ip, btn);
+                    deleteExternalAccessIp(ip, btn);
                 }
             });
             table.addEventListener('mouseover', function (event) {
@@ -2163,14 +2853,14 @@
             }
 
             usernameInput.addEventListener('keydown', function (event) {
-                if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
+                if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
                     event.preventDefault();
                     flashInvalid(this);
                 }
             });
             usernameInput.addEventListener('input', function () {
                 var before = this.value;
-                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
+                this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
                 if (this.value !== before) {
                     flashInvalid(this);
                 }
@@ -2276,7 +2966,7 @@
             var tbody = document.getElementById('usersTableBody');
             var empty = document.getElementById('usersEmpty');
             if (!table || !tbody) return;
-            table.classList.remove('api-keys-table-deleting');
+            table.classList.remove('data-table-deleting');
             hideTableTooltip();
             tbody.innerHTML = '';
             var has = Array.isArray(users) && users.length > 0;
@@ -2286,11 +2976,11 @@
             if (!has) {
                 if (empty) {
                     if (prevTableVisible) {
-                        empty.classList.remove('api-key-empty-fade-in');
+                        empty.classList.remove('table-empty-fade-in');
                         void empty.offsetWidth;
-                        empty.classList.add('api-key-empty-fade-in');
+                        empty.classList.add('table-empty-fade-in');
                     } else {
-                        empty.classList.remove('api-key-empty-fade-in');
+                        empty.classList.remove('table-empty-fade-in');
                     }
                 }
                 return;
@@ -2340,7 +3030,7 @@
             tr.appendChild(roleTd);
 
             var actionsTd = document.createElement('td');
-            actionsTd.className = 'api-key-actions-cell';
+            actionsTd.className = 'table-actions-cell';
             var actionsDiv = document.createElement('div');
             actionsDiv.className = 'actions-cell';
 
@@ -2413,16 +3103,16 @@
             hideTableTooltip();
             var rect = row.getBoundingClientRect();
             var overlay = document.createElement('div');
-            overlay.className = 'api-key-row-overlay';
+            overlay.className = 'table-row-overlay';
             overlay.style.left = Math.round(rect.left) + 'px';
             overlay.style.top = Math.round(rect.top) + 'px';
             overlay.style.width = Math.round(rect.width) + 'px';
             overlay.style.height = Math.round(rect.height) + 'px';
             document.body.appendChild(overlay);
             void overlay.offsetWidth;
-            overlay.classList.add('api-key-row-overlay-active');
-            row.classList.add('api-key-row-deleting');
-            if (isLast && table) table.classList.add('api-keys-table-deleting');
+            overlay.classList.add('table-row-overlay-active');
+            row.classList.add('table-row-deleting');
+            if (isLast && table) table.classList.add('data-table-deleting');
             setTimeout(function () {
                 fetchWithHandshake('/api/users/' + encodeURIComponent(username), { method: 'DELETE' })
                     .then(function (r) { return r.json(); })
@@ -2521,14 +3211,14 @@
             nameTd.appendChild(input);
             input.addEventListener('input', function () {
                 var before = this.value;
-                this.value = this.value.replace(/[ ,;\\/:%]/g, '');
+                this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
                 if (this.value !== before) flashUserRenameInvalid(this);
                 refreshUserRenameInvalid(this);
             });
             input.addEventListener('keydown', function (event) {
                 if (event.key === 'Enter') {
                     toggleUserRename(row.dataset.username, btn);
-                } else if (event.key.length === 1 && /[ ,;\\/:%]/.test(event.key)) {
+                } else if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
                     event.preventDefault();
                     flashUserRenameInvalid(this);
                 }
@@ -2679,6 +3369,20 @@
             if (insertBtn) {
                 insertBtn.addEventListener('click', insertExternalInteractionsEntry);
             }
+            var noteInput = document.getElementById('externalInteractionsNoteInput');
+            if (noteInput) {
+                noteInput.addEventListener('keydown', function (event) {
+                    if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
+                        event.preventDefault();
+                        flashExternalInteractionsIpInputRed(this);
+                    }
+                });
+                noteInput.addEventListener('input', function () {
+                    var before = this.value;
+                    this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
+                    if (this.value !== before) flashExternalInteractionsIpInputRed(this);
+                });
+            }
             refreshExternalInteractionsInsertBtn();
         }
 
@@ -2774,6 +3478,18 @@
             if (logRow) logRow.classList.toggle('sound-row-disabled', !value);
             var logToggle = document.getElementById('playLogSoundsToggle');
             if (logToggle) logToggle.disabled = !value;
+            var startupRow = document.getElementById('playStartupSoundRow');
+            if (startupRow) startupRow.classList.toggle('sound-row-disabled', !value);
+            var startupToggle = document.getElementById('playStartupSoundToggle');
+            if (startupToggle) startupToggle.disabled = !value;
+        }
+
+        function updatePlayStartupSound(value) {
+            var toggle = document.getElementById('playStartupSoundToggle');
+            if (toggle) {
+                toggle.classList.toggle('on', value);
+                toggle.setAttribute('aria-checked', value ? 'true' : 'false');
+            }
         }
 
         function updatePlayLogSounds(value) {
@@ -2975,6 +3691,17 @@
                 .then(function (data) {
                     if (data && typeof data.playLogSounds === 'boolean') {
                         updatePlayLogSounds(data.playLogSounds);
+                    }
+                })
+                .catch(function () {});
+        }
+
+        function fetchPlayStartupSound() {
+            return fetchWithHandshake('/api/startup-sound-enabled')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (data && typeof data.playStartupSound === 'boolean') {
+                        updatePlayStartupSound(data.playStartupSound);
                     }
                 })
                 .catch(function () {});
@@ -3873,6 +4600,35 @@
                 });
         }
 
+        function togglePlayStartupSound() {
+            var toggle = document.getElementById('playStartupSoundToggle');
+            if (!toggle || toggle.disabled || settingsPending) return;
+            settingsPending = true;
+            var next = !toggle.classList.contains('on');
+            var previous = !next;
+            updatePlayStartupSound(next);
+            fetchWithHandshake('/api/startup-sound-enabled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ playStartupSound: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.playStartupSound === 'boolean') {
+                        updatePlayStartupSound(data.playStartupSound);
+                    }
+                })
+                .catch(function () {
+                    updatePlayStartupSound(previous);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
+        }
+
         function toggleSharedMemoryEnabled() {
             var toggle = document.getElementById('sharedMemoryEnabledToggle');
             if (!toggle || settingsPending) return;
@@ -4070,6 +4826,8 @@
                     togglePlayAudios();
                 } else if (toggle.id === 'playLogSoundsToggle') {
                     togglePlayLogSounds();
+                } else if (toggle.id === 'playStartupSoundToggle') {
+                    togglePlayStartupSound();
                 } else if (toggle.id === 'sharedMemoryEnabledToggle') {
                     toggleSharedMemoryEnabled();
                 } else if (toggle.id === 'externalInteractionsToggle') {
@@ -4139,7 +4897,35 @@
     </script>
     <script>
         (function() {
+            var STORAGE_KEY = 'akupara-dev-stripes-hidden';
+            var PID_KEY = 'akupara-dev-stripes-pid';
             var stripes = document.querySelectorAll('.dev-stripe');
+            function applyStoredState() {
+                try {
+                    if (localStorage.getItem(STORAGE_KEY) === 'true') {
+                        stripes.forEach(function(s) { s.classList.add('faded'); });
+                    } else {
+                        stripes.forEach(function(s) { s.classList.remove('faded'); });
+                    }
+                } catch (e) {}
+            }
+            // Per akupara-run per browser (same browser): PID stored in localStorage
+            function checkAkuparaRun() {
+                fetch('/api/health').then(function(r){ return r.ok ? r.json() : null; }).then(function(data){
+                    if (!data || typeof data.pid !== 'number') return;
+                    var pid = String(data.pid);
+                    try {
+                        var storedPid = localStorage.getItem(PID_KEY);
+                        if (storedPid && storedPid !== pid) {
+                            localStorage.removeItem(STORAGE_KEY);
+                            stripes.forEach(function(s) { s.classList.remove('faded'); });
+                        }
+                        localStorage.setItem(PID_KEY, pid);
+                    } catch (e) {}
+                }).catch(function(){});
+            }
+            applyStoredState();
+            checkAkuparaRun();
             stripes.forEach(function(el) {
                 el.addEventListener('click', function() {
                     var shouldFade = !el.classList.contains('faded');
@@ -4147,8 +4933,18 @@
                         if (shouldFade) s.classList.add('faded');
                         else s.classList.remove('faded');
                     });
+                    try {
+                        localStorage.setItem(STORAGE_KEY, shouldFade ? 'true' : 'false');
+                    } catch (e) {}
                 });
             });
+            // Revert to display on next login on the same browser (not any login)
+            var logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', function() {
+                    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+                });
+            }
         })();
     </script>
 </body>

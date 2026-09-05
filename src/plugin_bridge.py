@@ -1253,6 +1253,139 @@ def hash_local_release_assets(identifier: str, version: str | None = None, timeo
     return get_local_plugin_hash(identifier, version, timeout)
 
 
+def _load_plugin_event_subscriptions_bridge() -> dict[str, list[str]]:
+    """Load PLUGIN_EVENT_SUBSCRIPTIONS from .env (bridge side, no main import)."""
+    try:
+        env_path = Path(__file__).resolve().parent.parent / ".env"
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            if k.strip() == "PLUGIN_EVENT_SUBSCRIPTIONS":
+                try:
+                    data = json.loads(v.strip())
+                    if isinstance(data, dict):
+                        out: dict[str, list[str]] = {}
+                        for ek, ev in data.items():
+                            if not isinstance(ek, str) or not ek.strip():
+                                continue
+                            if not isinstance(ev, list):
+                                continue
+                            out[ek.strip()] = [str(p).strip() for p in ev if isinstance(p, str) and str(p).strip()]
+                        return out
+                except Exception:
+                    return {}
+    except OSError:
+        pass
+    return {}
+
+
+def notify_plugin(plugin_name: str, event: str) -> bool:
+    """Notify a single plugin of an event if it is subscribed.
+
+    Checks ``PLUGIN_EVENT_SUBSCRIPTIONS`` (event -> [plugins]) and whether
+    ``plugin_name`` is in that list (case-insensitive). If subscribed, logs
+    the notification and returns ``True`` (actual plugin execution still to be
+    defined, so this is a placeholder). Returns ``False`` if not subscribed
+    or event/plugin invalid.
+    """
+    if not isinstance(plugin_name, str) or not plugin_name.strip():
+        log_warn("notify_plugin: invalid plugin name", {"plugin": plugin_name})
+        return False
+    if not isinstance(event, str) or not event.strip():
+        log_warn("notify_plugin: invalid event", {"event": event})
+        return False
+    event = event.strip()
+    plugin_name = plugin_name.strip()
+    # Check internal interactions enabled
+    try:
+        env_path = Path(__file__).resolve().parent.parent / ".env"
+        found_env = False
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line_stripped = line.strip()
+            if not line_stripped or line_stripped.startswith("#") or "=" not in line_stripped:
+                continue
+            k, _, v = line_stripped.partition("=")
+            if k.strip() == "INTERNAL_INTERACTIONS":
+                found_env = True
+                if v.strip().lower() not in {"1", "true", "yes", "on"}:
+                    log_warn("notify_plugin: internal interactions disabled, not notifying", {"plugin": plugin_name, "event": event})
+                    return False
+                break
+        if not found_env:
+            # Fallback to check via main's global if available
+            try:
+                import main
+                if not getattr(main, 'INTERNAL_INTERACTIONS', False):
+                    log_warn("notify_plugin: internal interactions disabled (main), not notifying", {"plugin": plugin_name, "event": event})
+                    return False
+            except Exception:
+                pass
+    except OSError:
+        pass
+    subs = _load_plugin_event_subscriptions_bridge()
+    plugins = subs.get(event, [])
+    if not any(p.casefold() == plugin_name.casefold() for p in plugins):
+        log_info("Plugin not subscribed to event, not notifying", {"plugin": plugin_name, "event": event})
+        return False
+    # Check plugin exists in library (optional)
+    found = get_plugin_data(plugin_name)
+    if found is None:
+        log_warn("notify_plugin: plugin not in library", {"plugin": plugin_name})
+        return False
+    # Check trust before notifying (per bridge note)
+    if not verify_plugin_signature(found):
+        log_warn("notify_plugin: trust invalid, not notifying", {"plugin": plugin_name})
+        return False
+    log_info("Notifying plugin of event", {"plugin": plugin_name, "event": event})
+    # TODO: actual plugin execution (how plugins handle events) still to be defined
+    # For now, just log. In future, this would dispatch to the plugin's handler.
+    return True
+
+
+def akupara_event(event_code: str):
+    """Decorator to mark points where an event happens.
+
+    Usage: ``@akupara_event("my_event")``. When the decorated function is
+    called, after it returns successfully, all plugins subscribed to
+    ``event_code`` in ``PLUGIN_EVENT_SUBSCRIPTIONS`` are notified via
+    ``notify_plugin``. Failures in notification are logged but do not affect
+    the decorated function's return value.
+
+    Example:
+        @akupara_event("user_created")
+        def create_user(...):
+            ...
+    """
+    if not isinstance(event_code, str) or not event_code.strip():
+        raise ValueError("Invalid event code.")
+
+    event_code = event_code.strip()
+
+    def decorator(func):
+        import functools
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+            try:
+                subs = _load_plugin_event_subscriptions_bridge()
+                plugins = subs.get(event_code, [])
+                for plugin_name in plugins:
+                    try:
+                        notify_plugin(plugin_name, event_code)
+                    except Exception as exc:
+                        log_warn("akupara_event: notify failed", {"event": event_code, "plugin": plugin_name, "error": str(exc)})
+            except Exception as exc:
+                log_warn("akupara_event: failed to load subscriptions", {"event": event_code, "error": str(exc)})
+            return result
+
+        return wrapper
+
+    return decorator
+
+
 _bridge = PluginBridge()
 
 

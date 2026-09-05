@@ -4,7 +4,52 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Login - Akupara</title>
+    <script>
+        try {
+            if (localStorage.getItem('akupara-dev-stripes-hidden') === 'true') {
+                document.documentElement.classList.add('dev-stripes-prehidden');
+            }
+        } catch (e) {}
+    </script>
     <style>
+        .dev-stripes-prehidden .dev-stripe { opacity: 0 !important; transition: none !important; }
+    </style>
+    <style>
+        @font-face {
+            font-family: 'Cascadia Code';
+            src: url('/ui/fonts/CascadiaCodeNF-Regular.woff2') format('woff2');
+            font-weight: 400;
+            font-style: normal;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Cascadia Code';
+            src: url('/ui/fonts/CascadiaCodeNF-SemiBold.woff2') format('woff2');
+            font-weight: 600;
+            font-style: normal;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Cascadia Code';
+            src: url('/ui/fonts/CascadiaCodeNF-Bold.woff2') format('woff2');
+            font-weight: 700;
+            font-style: normal;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Cascadia Code';
+            src: url('/ui/fonts/CascadiaCodeNF-Italic.woff2') format('woff2');
+            font-weight: 400;
+            font-style: italic;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Cascadia Code';
+            src: url('/ui/fonts/CascadiaCodeNF-SemiBoldItalic.woff2') format('woff2');
+            font-weight: 600;
+            font-style: italic;
+            font-display: swap;
+        }
         :root {
             --bg: #ffffff;
             --panel: #f9fafb;
@@ -167,6 +212,16 @@
     <div class="dev-stripe dev-stripe-left" aria-hidden="true"></div>
     <div class="dev-stripe dev-stripe-right" aria-hidden="true"></div>
     {% endif %}
+    <script>
+        try {
+            if (localStorage.getItem('akupara-dev-stripes-hidden') === 'true') {
+                document.querySelectorAll('.dev-stripe').forEach(function(s){ s.classList.add('faded'); });
+            }
+            requestAnimationFrame(function(){
+                document.documentElement.classList.remove('dev-stripes-prehidden');
+            });
+        } catch (e) {}
+    </script>
     <div class="title init-hidden"><a class="title-link" href="https://www.github.com/LorenBll/Akupara" target="_blank" rel="noopener"><img src="/ui/icons/akupara.svg" alt="" class="title-icon">Akupara</a></div>
     <div class="card init-hidden">
         <h2>Sign In</h2>
@@ -289,7 +344,34 @@
                     });
             });
             (function() {
+                var STORAGE_KEY = 'akupara-dev-stripes-hidden';
+                var PID_KEY = 'akupara-dev-stripes-pid';
                 var stripes = document.querySelectorAll('.dev-stripe');
+                function applyStoredState() {
+                    try {
+                        if (localStorage.getItem(STORAGE_KEY) === 'true') {
+                            stripes.forEach(function(s) { s.classList.add('faded'); });
+                        } else {
+                            stripes.forEach(function(s) { s.classList.remove('faded'); });
+                        }
+                    } catch (e) {}
+                }
+                function checkAkuparaRun() {
+                    fetch('/api/health').then(function(r){ return r.ok ? r.json() : null; }).then(function(data){
+                        if (!data || typeof data.pid !== 'number') return;
+                        var pid = String(data.pid);
+                        try {
+                            var storedPid = localStorage.getItem(PID_KEY);
+                            if (storedPid && storedPid !== pid) {
+                                localStorage.removeItem(STORAGE_KEY);
+                                stripes.forEach(function(s) { s.classList.remove('faded'); });
+                            }
+                            localStorage.setItem(PID_KEY, pid);
+                        } catch (e) {}
+                    }).catch(function(){});
+                }
+                applyStoredState();
+                checkAkuparaRun();
                 stripes.forEach(function(el) {
                     el.addEventListener('click', function() {
                         var shouldFade = !el.classList.contains('faded');
@@ -297,6 +379,9 @@
                             if (shouldFade) s.classList.add('faded');
                             else s.classList.remove('faded');
                         });
+                        try {
+                            localStorage.setItem(STORAGE_KEY, shouldFade ? 'true' : 'false');
+                        } catch (e) {}
                     });
                 });
             })();
