@@ -73,6 +73,8 @@ PLAY_AUDIOS: bool = True
 
 PLAY_LOG_SOUNDS: bool = False
 
+PLAY_STARTUP_SOUND: bool = True
+
 SHARED_MEMORY_ENABLED: bool = False
 
 EXTERNAL_INTERACTIONS: bool = False
@@ -96,6 +98,10 @@ SESSION_COOKIE_NAME = "akupara-refresh"
 _SESSION_STORE: dict[str, dict] = {}
 _SESSION_MAX_AGE: int = 900
 _SESSION_LOCK = threading.Lock()
+
+_FAILED_LOGIN_ATTEMPTS: int = 0
+_FAILED_LOGIN_LOCK = threading.Lock()
+_MAX_FAILED_LOGIN_WARNS = 3
 
 
 def _format_exc() -> str:
@@ -132,7 +138,7 @@ def _parse_bool(value: str | None, default: bool = False) -> bool:
 
 
 def _initialize_service_config() -> None:
-    global SERVICE_PORT, GUI_ENABLED, DEVELOPMENT, INTERNAL_INTERACTIONS, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, PLAY_LOG_SOUNDS, SHARED_MEMORY_ENABLED, EXTERNAL_INTERACTIONS, EXTERNAL_INTERACTIONS_ALLOW_NEW, AUTOMATIC_UPDATE, AUTOMATIC_PLUGIN_LIBRARY_UPDATE, AUTOMATIC_PLUGIN_UPGRADE
+    global SERVICE_PORT, GUI_ENABLED, DEVELOPMENT, INTERNAL_INTERACTIONS, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, PLAY_LOG_SOUNDS, PLAY_STARTUP_SOUND, SHARED_MEMORY_ENABLED, EXTERNAL_INTERACTIONS, EXTERNAL_INTERACTIONS_ALLOW_NEW, AUTOMATIC_UPDATE, AUTOMATIC_PLUGIN_LIBRARY_UPDATE, AUTOMATIC_PLUGIN_UPGRADE
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
     config = _load_configuration()
 
@@ -173,7 +179,11 @@ def _initialize_service_config() -> None:
     except Exception:
         pass
 
+    PLAY_STARTUP_SOUND = _parse_bool(os.getenv("PLAY_STARTUP_SOUND"), True)
+
     SHARED_MEMORY_ENABLED = _parse_bool(os.getenv("SHARED_MEMORY_ENABLED"), True)
+
+    INTERNAL_INTERACTIONS = _parse_bool(os.getenv("INTERNAL_INTERACTIONS"), False)
 
     EXTERNAL_INTERACTIONS = _parse_bool(os.getenv("EXTERNAL_INTERACTIONS"), False)
 
@@ -484,6 +494,21 @@ def _validate_login(username: str, password_hash: str) -> bool:
     return _authenticate_user(username, password_hash) is not None
 
 
+def _register_failed_login_attempt() -> bool:
+    """Record a failed login attempt; return True while the warn sound should still play."""
+    global _FAILED_LOGIN_ATTEMPTS
+    with _FAILED_LOGIN_LOCK:
+        _FAILED_LOGIN_ATTEMPTS += 1
+        return _FAILED_LOGIN_ATTEMPTS <= _MAX_FAILED_LOGIN_WARNS
+
+
+def _reset_failed_login_attempts() -> None:
+    """Reset the consecutive failed-login counter (called on successful login)."""
+    global _FAILED_LOGIN_ATTEMPTS
+    with _FAILED_LOGIN_LOCK:
+        _FAILED_LOGIN_ATTEMPTS = 0
+
+
 class AccountNotFoundError(RuntimeError):
     """Raised when the account is not found in the configured credentials."""
 
@@ -548,7 +573,7 @@ def _register_user(username: str, password_hash: str, admin: bool) -> None:
     username = username.strip()
     if not username:
         raise ValueError("Username must not be empty.")
-    if any(ch in username for ch in " ,;\\/:%"):
+    if any(ch in username for ch in _FORBIDDEN_KEY_NAME_CHARS):
         raise ValueError("Username contains prohibited characters.")
     if len(username) < 8:
         raise ValueError("Username must be at least 8 characters long.")
@@ -622,7 +647,7 @@ def _revoke_other_sessions(username: str, keep_token: str | None) -> None:
 def _rename_user(username: str, new_username: str) -> dict | None:
     if not isinstance(new_username, str) or not new_username.strip():
         raise ValueError("Username must not be empty.")
-    if any(ch in new_username for ch in " ,;\\/:%"):
+    if any(ch in new_username for ch in _FORBIDDEN_KEY_NAME_CHARS):
         raise ValueError("Username contains prohibited characters.")
     if len(new_username) < 8:
         raise ValueError("Username must be at least 8 characters long.")
@@ -1061,6 +1086,7 @@ def _set_external_interactions_ip(ip: str, action: str, note: str | None = None)
         raise ValueError("The note must be a string.")
     if note is None:
         note = ""
+    _validate_plaintext_string(note, "note")
     canonical = _maximize_network_ip(ip)
     entries = _load_external_interactions_ips()
     existing = next((entry for entry in entries if canonical in entry), None)
@@ -1089,6 +1115,7 @@ def _update_external_interactions_ip(ip: str, action: str, note: str | None = No
     if note is None:
         existing = next(entry for entry in entries if canonical in entry)
         note = existing.get("Note", "")
+    _validate_plaintext_string(note, "note")
     entry = {canonical: action, "Note": note}
     remaining = [item for item in entries if canonical not in item]
     remaining.append(entry)
@@ -1190,6 +1217,36 @@ def _set_play_log_sounds(value: bool) -> None:
             audio.play_sound("acknowledge")
         except Exception:
             pass
+
+
+STARTUP_SOUND_FILE = "logo-reveal.wav"
+
+
+@audio.play_audio("acknowledge")
+def _set_play_startup_sound(value: bool) -> None:
+    _require_play_audios_enabled()
+    global PLAY_STARTUP_SOUND
+    PLAY_STARTUP_SOUND = value
+    _write_env_bool("PLAY_STARTUP_SOUND", value)
+
+
+def _play_startup_sound() -> None:
+    """Play the fixed startup sound after all loading operations, when enabled.
+
+    The sound is not customisable (always ``logo-reveal.wav``) and plays only
+    when both ``PLAY_AUDIOS`` and ``PLAY_STARTUP_SOUND`` are on.
+    """
+    if not PLAY_AUDIOS:
+        return
+    if not PLAY_STARTUP_SOUND:
+        return
+    try:
+        path = audio.AUDIOS_DIR / STARTUP_SOUND_FILE
+        if not path.is_file():
+            return
+        audio.get_audio_orchestrator().play(path)
+    except Exception:
+        pass
 
 
 def _require_play_audios_enabled() -> None:
@@ -1343,6 +1400,28 @@ def log_sounds_enabled() -> tuple:
     return jsonify({"playLogSounds": PLAY_LOG_SOUNDS}), 200
 
 
+@app.route("/api/startup-sound-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def startup_sound_enabled() -> tuple:
+    if request.method == "GET":
+        log_info("Startup sound enabled setting read", {"client": request.remote_addr})
+        return jsonify({"playStartupSound": PLAY_STARTUP_SOUND}), 200
+
+    data = request.get_json(silent=True) or {}
+    if "playStartupSound" not in data or not isinstance(data["playStartupSound"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["playStartupSound"]
+    try:
+        _set_play_startup_sound(value)
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
+    log_info("Startup sound enabled set", {"client": request.remote_addr, "playStartupSound": PLAY_STARTUP_SOUND})
+    return jsonify({"playStartupSound": PLAY_STARTUP_SOUND}), 200
+
+
 @app.route("/api/audio/play", methods=["POST", "HEAD", "OPTIONS"])
 @network.external_interactions_worker_callable
 @log_change
@@ -1435,6 +1514,11 @@ def automatic_update_enabled() -> tuple:
     if request.method == "GET":
         log_info("Automatic update enabled setting read", {"client": request.remote_addr})
         return jsonify({"automaticUpdate": AUTOMATIC_UPDATE}), 200
+
+    # The toggle never changes in development mode (it is disabled there)
+    if DEVELOPMENT:
+        log_warn("Automatic update toggle disabled in development mode", {"client": request.remote_addr})
+        return jsonify({"automaticUpdate": AUTOMATIC_UPDATE, "disabled": True, "error": "Automatic updates are disabled in development mode."}), 403
 
     data = request.get_json(silent=True) or {}
     if "automaticUpdate" not in data or not isinstance(data["automaticUpdate"], bool):
@@ -1590,6 +1674,8 @@ def _should_exclude_from_project_hash(rel: str) -> bool:
         return True
     if rel.startswith("resources/plugins-lib/"):
         return True
+    if rel.startswith("resources/audios/"):
+        return True
     parts = rel.split("/")
     for part in parts:
         if part in _PROJECT_HASH_EXCLUDE_DIRS or part == "__pycache__":
@@ -1645,7 +1731,7 @@ def _verify_local_project_integrity() -> bool:
 
     A mismatch means the local project files differ from the recorded project hash
     (illicit interaction or a partial install) — logs an error and returns False.
-    Returns True when the check cannot run (e.g. not a git checkout).
+    Also returns False when the check cannot run (e.g. not a git checkout).
     """
     stored = _get_local_project_hash()
     if stored is None or not stored:
@@ -1653,8 +1739,8 @@ def _verify_local_project_integrity() -> bool:
         return False
     computed = _compute_local_project_hash()
     if computed is None:
-        log_warn("Project integrity check skipped: cannot enumerate tracked files (not a git checkout?)")
-        return True
+        log_error("Project integrity check failed: cannot enumerate tracked files (not a git checkout?)")
+        return False
     if computed.strip().lower() != stored.strip().lower():
         log_error("Project integrity check failed: local files differ from recorded project hash (illicit interaction?)", {"computed": computed, "stored": stored})
         return False
@@ -1696,8 +1782,8 @@ def _verify_disabled_styles() -> bool:
     return True
 
 
-def _get_latest_version_tag() -> str | None:
-    """Return the highest semantic-version tag on origin (e.g. 'v3.0.0'), or None."""
+def _get_version_tags() -> list[str]:
+    """Return semantic-version tags on origin sorted ascending (e.g. ['v1.0.0', ...])."""
     try:
         root = Path(__file__).resolve().parent.parent
         out = subprocess.check_output(
@@ -1707,7 +1793,7 @@ def _get_latest_version_tag() -> str | None:
             timeout=15,
         ).decode("utf-8", errors="replace")
     except Exception:
-        return None
+        return []
     versions: list[tuple[tuple[int, ...], str]] = []
     for line in out.splitlines():
         parts = line.split("\t")
@@ -1723,9 +1809,19 @@ def _get_latest_version_tag() -> str | None:
         key = tuple(int(part) for part in m.group(1).split("."))
         versions.append((key, name))
     if not versions:
-        return None
+        return []
     versions.sort(key=lambda item: item[0])
-    return versions[-1][1]
+    tags: list[str] = []
+    for _, name in versions:
+        if name not in tags:
+            tags.append(name)
+    return tags
+
+
+def _get_latest_version_tag() -> str | None:
+    """Return the highest semantic-version tag on origin (e.g. 'v3.0.0'), or None."""
+    tags = _get_version_tags()
+    return tags[-1] if tags else None
 
 
 def _fetch_remote_project_hash(timeout: int = 8) -> str | None:
@@ -1756,6 +1852,38 @@ def _fetch_remote_project_hash(timeout: int = 8) -> str | None:
     except Exception:
         return None
     return None
+
+
+def _fetch_release_hash_for_tag(tag: str, timeout: int = 8) -> str | None:
+    """Fetch the stored ``hash`` file at a version tag (that release's hash)."""
+    import ssl
+    import urllib.request
+    ctx = ssl.create_default_context()
+    url = f"https://raw.githubusercontent.com/LorenBll/Akupara/{tag}/hash"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            data = resp.read().decode("utf-8", errors="replace").strip().split()
+            if data:
+                return data[0]
+    except Exception:
+        return None
+    return None
+
+
+def _is_known_release_hash(local_hash: str | None) -> bool:
+    """Return True when ``local_hash`` matches the latest or any previous release's hash."""
+    local = (local_hash or "").strip().lower()
+    if not local:
+        return False
+    latest = _fetch_remote_project_hash()
+    if latest and latest.strip().lower() == local:
+        return True
+    for tag in reversed(_get_version_tags()):
+        known = _fetch_release_hash_for_tag(tag)
+        if known and known.strip().lower() == local:
+            return True
+    return False
 
 
 def _is_update_available() -> bool:
@@ -1915,12 +2043,34 @@ def _perform_project_update() -> bool:
 @standard_endpoint("POST", "HEAD", "OPTIONS")
 def check_for_updates() -> tuple:
     global _UPDATE_AVAILABLE, _UPDATE_AVAILABLE_AT_STARTUP
+    # No version check in development mode — never fetch the remote hash
+    if DEVELOPMENT:
+        log_info("Check for updates skipped in development mode", {"client": request.remote_addr})
+        return jsonify({"updateAvailable": False, "currentVersion": _get_current_project_version(), "integrityOk": _PROJECT_INTEGRITY_OK}), 200
     # Integrity check happens inside _is_update_available (effective vs indicated)
     available = _is_update_available()
     # If project integrity failed in development mode, update checks are disabled
     if not _PROJECT_INTEGRITY_OK and DEVELOPMENT:
         log_warn("Check for updates skipped due to project integrity failure in development mode")
         return jsonify({"updateAvailable": False, "currentVersion": _get_current_project_version(), "integrityOk": False}), 200
+    # Repeat the startup checks (development is off here): integrity failure crashes,
+    # and so does a local hash matching no known release (latest or previous).
+    if not _PROJECT_INTEGRITY_OK:
+        log_error("Project integrity check failed on manual update check — not continuing")
+        exit(1)
+    if available:
+        local_hash = _get_local_project_hash() or _compute_local_project_hash()
+        if not _is_known_release_hash(local_hash):
+            log_error("Project version unknown: local hash matches no Akupara release (illicit interaction?)", {"local": local_hash})
+            try:
+                audio.get_audio_orchestrator().start()
+            except Exception:
+                pass
+            try:
+                audio.play_sound("error")
+            except Exception:
+                pass
+            exit(1)
     # Cache the result so the server-rendered button stays consistent with the check
     _UPDATE_AVAILABLE = available
     _UPDATE_AVAILABLE_AT_STARTUP = available
@@ -1938,6 +2088,10 @@ def update_now() -> tuple:
     if request.remote_addr not in _get_local_device_addresses():
         log_warn("Update rejected: not localhost", {"client": request.remote_addr})
         return jsonify({"error": "Local device access only."}), 403
+    # Manual updates never run in development mode (the button is disabled there)
+    if DEVELOPMENT:
+        log_warn("Update rejected: updates are disabled in development mode", {"client": request.remote_addr})
+        return jsonify({"error": "Updates are disabled in development mode."}), 403
     # Integrity check before update
     effective = _compute_local_project_hash()
     indicated = _get_local_project_hash()
@@ -2001,7 +2155,28 @@ def update_plugins_now() -> tuple:
     return jsonify({"status": "ok", "message": "Updating and restarting."}), 200
 
 
-_FORBIDDEN_KEY_NAME_CHARS = set(" ,;:\\/%")
+_FORBIDDEN_KEY_NAME_CHARS = set(" ,;:\\/%\"'")
+
+
+def _validate_plaintext_string(value: str, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"The {field_name} must be a string.")
+    if any(ch in value for ch in _FORBIDDEN_KEY_NAME_CHARS):
+        raise ValueError(f"The {field_name} contains prohibited characters.")
+    return value
+
+
+def _validate_plaintext_value(value, field_name: str):
+    if isinstance(value, str):
+        return _validate_plaintext_string(value, field_name)
+    if isinstance(value, list):
+        return [_validate_plaintext_value(item, field_name) for item in value]
+    if isinstance(value, dict):
+        return {
+            _validate_plaintext_string(key, f"{field_name} key"): _validate_plaintext_value(item, field_name)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _is_valid_key_name(name: str) -> bool:
@@ -2269,6 +2444,7 @@ def _create_shared_variable(name: str, value, value_type: str) -> dict:
     if not isinstance(name, str) or not _is_valid_key_name(name):
         raise ValueError("Invalid shared variable name.")
     value = _normalize_shared_value(value, value_type)
+    value = _validate_plaintext_value(value, "shared variable value")
     variables = _load_shared_memory()
     if any(entry["name"].lower() == name.lower() for entry in variables):
         raise DuplicateNameError("A shared variable with this name already exists.")
@@ -2287,6 +2463,7 @@ def _update_shared_variable(name: str, value, value_type=None) -> dict | None:
         return None
     new_type = value_type if value_type is not None else target["type"]
     target["value"] = _normalize_shared_value(value, new_type)
+    target["value"] = _validate_plaintext_value(target["value"], "shared variable value")
     target["type"] = new_type
     _save_shared_memory(variables)
     return target
@@ -2369,6 +2546,212 @@ def shared_memory_edit(name: str) -> tuple:
     log_info("Shared variable updated", {"client": request.remote_addr, "name": name})
     return jsonify(target), 200
 
+
+
+def _load_plugin_event_subscriptions() -> dict[str, list[str]]:
+    raw = _read_env_var("PLUGIN_EVENT_SUBSCRIPTIONS")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    result: dict[str, list[str]] = {}
+    for event, plugins in data.items():
+        if not isinstance(event, str) or not event.strip():
+            continue
+        if not isinstance(plugins, list):
+            continue
+        # Validate event name: allow alphanumeric, underscore, hyphen, dot
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", event.strip()):
+            continue
+        cleaned: list[str] = []
+        for p in plugins:
+            if not isinstance(p, str) or not p.strip():
+                continue
+            # Validate plugin name
+            if not _is_valid_key_name(p):
+                continue
+            cleaned.append(p.strip())
+        # Deduplicate case-insensitive but preserve original case
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for p in cleaned:
+            key = p.casefold()
+            if key not in seen:
+                seen.add(key)
+                deduped.append(p)
+        result[event.strip()] = deduped
+    return result
+
+
+def _save_plugin_event_subscriptions(data: dict[str, list[str]]) -> None:
+    # Normalize and sort for determinism
+    normalized: dict[str, list[str]] = {}
+    for event in sorted(data.keys()):
+        plugins = data[event]
+        if not isinstance(plugins, list):
+            plugins = []
+        # Sort plugins case-insensitive
+        normalized[event] = sorted(plugins, key=lambda x: x.casefold())
+    _write_env_var("PLUGIN_EVENT_SUBSCRIPTIONS", json.dumps(normalized, ensure_ascii=False))
+
+
+def _is_valid_event_name(event: str) -> bool:
+    return isinstance(event, str) and bool(event.strip()) and bool(re.fullmatch(r"[A-Za-z0-9_.-]+", event.strip()))
+
+
+def _add_plugin_event(event: str) -> bool:
+    if not _is_valid_event_name(event):
+        raise ValueError("Invalid event name.")
+    event = event.strip()
+    data = _load_plugin_event_subscriptions()
+    if event in data:
+        raise DuplicateNameError("An event with this name already exists.")
+    data[event] = []
+    _save_plugin_event_subscriptions(data)
+    audio.play_audio("success")()
+    return True
+
+
+def _remove_plugin_event(event: str) -> bool:
+    if not _is_valid_event_name(event):
+        raise ValueError("Invalid event name.")
+    event = event.strip()
+    data = _load_plugin_event_subscriptions()
+    if event not in data:
+        return False
+    del data[event]
+    _save_plugin_event_subscriptions(data)
+    audio.play_audio("success")()
+    return True
+
+
+def _add_plugin_to_event(event: str, plugin: str) -> bool:
+    if not _is_valid_event_name(event):
+        raise ValueError("Invalid event name.")
+    if not isinstance(plugin, str) or not _is_valid_key_name(plugin):
+        raise ValueError("Invalid plugin name.")
+    event = event.strip()
+    plugin = plugin.strip()
+    data = _load_plugin_event_subscriptions()
+    if event not in data:
+        raise ValueError("Event not found.")
+    # Check duplicate (case-insensitive)
+    if any(p.casefold() == plugin.casefold() for p in data[event]):
+        raise DuplicateNameError("Plugin already subscribed to this event.")
+    # Check plugin exists in library (optional, but helpful)
+    # We don't enforce strict existence to allow future plugins, but validate name
+    data[event].append(plugin)
+    data[event] = sorted(data[event], key=lambda x: x.casefold())
+    _save_plugin_event_subscriptions(data)
+    audio.play_audio("success")()
+    return True
+
+
+def _remove_plugin_from_event(event: str, plugin: str) -> bool:
+    if not _is_valid_event_name(event):
+        raise ValueError("Invalid event name.")
+    if not isinstance(plugin, str) or not plugin.strip():
+        raise ValueError("Invalid plugin name.")
+    event = event.strip()
+    plugin = plugin.strip()
+    data = _load_plugin_event_subscriptions()
+    if event not in data:
+        return False
+    original = data[event]
+    remaining = [p for p in original if p.casefold() != plugin.casefold()]
+    if len(remaining) == len(original):
+        return False
+    data[event] = remaining
+    _save_plugin_event_subscriptions(data)
+    audio.play_audio("success")()
+    return True
+
+
+@app.route("/api/plugin-events", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def plugin_events() -> tuple:
+    if not INTERNAL_INTERACTIONS:
+        return jsonify({"error": "Internal interactions disabled."}), 403
+    if request.method == "GET":
+        data = _load_plugin_event_subscriptions()
+        log_info("Plugin events read", {"client": request.remote_addr})
+        return jsonify({"pluginEvents": data}), 200
+
+    data = request.get_json(silent=True) or {}
+    event = data.get("event")
+    try:
+        _add_plugin_event(event)
+    except DuplicateNameError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    log_info("Plugin event created", {"client": request.remote_addr, "event": event})
+    return jsonify({"event": event, "plugins": []}), 201
+
+
+@app.route("/api/plugin-events/<path:event>", methods=["DELETE", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("DELETE", "OPTIONS")
+def plugin_event_delete(event: str) -> tuple:
+    if not INTERNAL_INTERACTIONS:
+        return jsonify({"error": "Internal interactions disabled."}), 403
+    try:
+        deleted = _remove_plugin_event(event)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not deleted:
+        return jsonify({"error": "Not found."}), 404
+    log_info("Plugin event deleted", {"client": request.remote_addr, "event": event})
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/plugin-events/<path:event>/plugins", methods=["POST", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("POST", "HEAD", "OPTIONS")
+def plugin_event_plugins(event: str) -> tuple:
+    if not INTERNAL_INTERACTIONS:
+        return jsonify({"error": "Internal interactions disabled."}), 403
+    if request.method == "HEAD":
+        return jsonify({}), 200
+    data = request.get_json(silent=True) or {}
+    plugin = data.get("plugin")
+    try:
+        _add_plugin_to_event(event, plugin)
+    except DuplicateNameError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    log_info("Plugin added to event", {"client": request.remote_addr, "event": event, "plugin": plugin})
+    return jsonify({"event": event, "plugin": plugin}), 201
+
+
+@app.route("/api/plugin-events/<path:event>/plugins/<path:plugin>", methods=["DELETE", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("DELETE", "OPTIONS")
+def plugin_event_plugin_delete(event: str, plugin: str) -> tuple:
+    if not INTERNAL_INTERACTIONS:
+        return jsonify({"error": "Internal interactions disabled."}), 403
+    try:
+        deleted = _remove_plugin_from_event(event, plugin)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not deleted:
+        return jsonify({"error": "Not found."}), 404
+    log_info("Plugin removed from event", {"client": request.remote_addr, "event": event, "plugin": plugin})
+    return jsonify({"status": "ok"}), 200
 
 
 @app.route("/api/external-interactions-ips", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -2485,8 +2868,15 @@ def ui_css(filename: str):
 
 @network.external_interactions_worker_callable
 @standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_font(filename: str):
+    fonts_dir = Path(__file__).resolve().parent.parent / "ui" / "fonts"
+    return send_from_directory(fonts_dir, filename)
+
+
+@network.external_interactions_worker_callable
+@standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_icon(filename: str):
-    icons_dir = Path(__file__).resolve().parent.parent / "resources" / "icons"
+    icons_dir = Path(__file__).resolve().parent.parent / "ui" / "icons"
     return send_from_directory(icons_dir, filename)
 
 
@@ -2572,6 +2962,7 @@ def ui_settings_page():
         display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
         play_audios=_read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
         play_log_sounds=_read_env_bool("PLAY_LOG_SOUNDS", PLAY_LOG_SOUNDS),
+        play_startup_sound=_read_env_bool("PLAY_STARTUP_SOUND", PLAY_STARTUP_SOUND),
         sounds={event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
         available_audios=audio.list_audio_files(),
         sound_events=[(event, event.capitalize()) for event in audio.SOUND_EVENTS],
@@ -2591,7 +2982,7 @@ def ui_settings_page():
         update_available=_UPDATE_AVAILABLE_AT_STARTUP,
         project_integrity_ok=_PROJECT_INTEGRITY_OK,
         development=DEVELOPMENT,
-        project_update_disabled= (not _PROJECT_INTEGRITY_OK and DEVELOPMENT),
+        project_update_disabled=DEVELOPMENT,
         automatic_plugin_library_update=_read_env_bool("AUTOMATIC_PLUGIN_LIBRARY_UPDATE", AUTOMATIC_PLUGIN_LIBRARY_UPDATE),
         automatic_plugin_upgrade=_read_env_bool("AUTOMATIC_PLUGIN_UPGRADE", AUTOMATIC_PLUGIN_UPGRADE),
         current_plugins_lib_version=_get_current_plugins_lib_version(),
@@ -2667,7 +3058,7 @@ def ui_argon2_script():
 @network.external_interactions_worker_callable
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_login_icon():
-    icons_dir = Path(__file__).resolve().parent.parent / "resources" / "icons"
+    icons_dir = Path(__file__).resolve().parent.parent / "ui" / "icons"
     return send_from_directory(icons_dir, "akupara.svg")
 
 
@@ -2687,11 +3078,14 @@ def login() -> tuple:
     if user is not None:
         response = jsonify({"status": "ok"})
         _issue_session_cookie(response, user["username"], user["admin"], user.get("root", False))
+        _reset_failed_login_attempts()
         log_info("Login successful for user", {"username": user["username"], "client": request.remote_addr})
         audio.play_audio("success")()
         return response, 200
-    log_warn("Login failed", {"client": request.remote_addr})
-    audio.play_audio("warn")()
+    play_warn = _register_failed_login_attempt()
+    log_warn("Login failed", {"client": request.remote_addr}, silent=not play_warn)
+    if play_warn:
+        audio.play_audio("warn")()
     return jsonify({"error": "Invalid credentials."}), 401
 
 
@@ -2881,6 +3275,11 @@ def _register_ui_routes(app_instance: Flask) -> None:
         view_func=ui_css,
     )
     app_instance.add_url_rule(
+        "/ui/fonts/<path:filename>",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=ui_font,
+    )
+    app_instance.add_url_rule(
         "/ui/icons/<path:filename>",
         methods=["GET", "HEAD", "OPTIONS"],
         view_func=ui_icon,
@@ -2949,8 +3348,8 @@ if __name__ == "__main__":
             _UPDATE_AVAILABLE = False
             _UPDATE_AVAILABLE_AT_STARTUP = False
 
-    # Startup check for updates — only if project integrity ok
-    if _PROJECT_INTEGRITY_OK:
+    # Startup check for updates — skipped in development mode (and when integrity failed)
+    if _PROJECT_INTEGRITY_OK and not DEVELOPMENT:
         try:
             _UPDATE_AVAILABLE = _is_update_available()
             _UPDATE_AVAILABLE_AT_STARTUP = _UPDATE_AVAILABLE
@@ -2961,14 +3360,31 @@ if __name__ == "__main__":
                     log_info("Automatic update enabled — updating now and restarting", {"current": current})
                     if _perform_project_update():
                         _restart()
+                    # Update failed but the process continues — fall through to the known-release check
                 elif AUTOMATIC_UPDATE and DEVELOPMENT:
                     log_info("Automatic update skipped in development mode", {"current": current})
+                # Still not on the latest release (auto-update off or failed): the local
+                # hash must belong to a known release (latest or previous); otherwise crash.
+                local_hash = _get_local_project_hash() or _compute_local_project_hash()
+                if not _is_known_release_hash(local_hash):
+                    log_error("Project version unknown: local hash matches no Akupara release (illicit interaction?)", {"local": local_hash})
+                    try:
+                        audio.get_audio_orchestrator().start()
+                    except Exception:
+                        pass
+                    try:
+                        audio.play_sound("error")
+                    except Exception:
+                        pass
+                    exit(1)
             else:
                 log_info("No update available at startup", {"current": current})
         except Exception as exc:
             log_warn("Startup update check failed", {"error": str(exc)})
     else:
-        if DEVELOPMENT:
+        if _PROJECT_INTEGRITY_OK:
+            log_info("Skipping project update check in development mode")
+        elif DEVELOPMENT:
             log_info("Skipping project update check due to integrity failure in development mode")
 
     # Startup check for plugin library updates — always (even if integrity failed, to allow recovery update)
@@ -2993,6 +3409,13 @@ if __name__ == "__main__":
 
     if EXTERNAL_INTERACTIONS:
         _start_external_interactions_worker()
+
+    # Every loading operation is done — play the startup sound when enabled
+    # (only when PLAY_AUDIOS is on; _play_startup_sound checks both flags).
+    try:
+        _play_startup_sound()
+    except Exception:
+        pass
 
     try:
         log_info("Akupara starting", {"bind": f"http://{SERVICE_HOST}:{SERVICE_PORT}", "gui": GUI_ENABLED, "port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "internalInteractions": INTERNAL_INTERACTIONS, "apiKeysEnabled": API_KEYS_ENABLED, "externalInteractions": EXTERNAL_INTERACTIONS})

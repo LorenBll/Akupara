@@ -13,7 +13,7 @@
             </div>
             <p class="data-indicator-description"><span id="effectiveVersionDisplay">{{ effective_version }}</span> <span class="data-indicator-label" style="margin-left: 1.5em;">Indicated Version</span> <span id="indicatedVersionDisplay">{{ indicated_version }}</span></p>
             <span class="update-status-text" id="updateStatusText" hidden>Software Up to Date</span>
-            <button type="button" class="generate-api-key-btn" id="checkForUpdatesBtn" data-update-available="{{ 'true' if update_available else 'false' }}" {% if project_update_disabled %}disabled data-integrity-disabled="true" title="Integrity check failed"{% endif %}>{{ 'Update Now' if update_available else 'Check for Updates' }}</button>
+            <button type="button" class="generate-api-key-btn" id="checkForUpdatesBtn" data-update-available="{{ 'true' if update_available else 'false' }}" {% if project_update_disabled %}disabled data-integrity-disabled="true" title="{{ 'Disabled in development mode' if development else 'Integrity check failed' }}"{% endif %}>{{ 'Update Now' if update_available else 'Check for Updates' }}</button>
         </div>
         <div class="settings-row">
             <div class="data-indicator">
@@ -112,7 +112,7 @@
             <button type="button" class="generate-api-key-btn" id="generateApiKeyBtn">Generate API Key</button>
         </div>
         <div class="table-wrap">
-            <table class="api-keys-table" id="apiKeysTable"{{ '' if has_api_keys else ' hidden' }}>
+            <table class="data-table" id="apiKeysTable"{{ '' if has_api_keys else ' hidden' }}>
                 <thead>
                     <tr>
                         <th>Key</th>
@@ -123,7 +123,7 @@
                 </thead>
                 <tbody id="apiKeysTableBody" data-keys="{{ api_keys_json|e }}"></tbody>
             </table>
-            <p class="api-keys-empty" id="apiKeysEmpty"{{ '' if not has_api_keys else ' hidden' }}>No API keys saved</p>
+            <p class="table-empty" id="apiKeysEmpty"{{ '' if not has_api_keys else ' hidden' }}>No API keys saved</p>
         </div>
     </div>
     <div class="page-card" id="internalInteractionsCard"{{ '' if internal_interactions else ' hidden' }}>
@@ -174,7 +174,7 @@
             <button type="button" class="generate-api-key-btn" id="addSharedVariableBtn">Add Variable</button>
         </div>
         <div class="table-wrap">
-            <table class="api-keys-table" id="sharedMemoryTable"{{ '' if has_shared_memory else ' hidden' }}>
+            <table class="data-table" id="sharedMemoryTable"{{ '' if has_shared_memory else ' hidden' }}>
                 <thead>
                     <tr>
                         <th>Name</th>
@@ -185,11 +185,33 @@
                 </thead>
                 <tbody id="sharedMemoryTableBody" data-variables="{{ shared_memory_json|e }}"></tbody>
             </table>
-            <p class="api-keys-empty" id="sharedMemoryEmpty"{{ '' if not has_shared_memory else ' hidden' }}>No shared variables</p>
+            <p class="table-empty" id="sharedMemoryEmpty"{{ '' if not has_shared_memory else ' hidden' }}>No shared variables</p>
         </div>
         </div>
         <hr class="card-section-separator">
         <h4 class="card-section-title">Event Streaming</h4>
+        <div class="shared-variable-generator" id="eventStreamingGenerator" style="grid-template-columns: 1fr 1fr auto auto; gap: 8px;">
+            <input type="text" id="eventStreamingEventInput" class="shared-variable-name-input" placeholder="Event Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Event name" style="min-width:0;">
+            <input type="text" id="eventStreamingPluginInput" class="shared-variable-name-input" placeholder="Plugin ID" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Plugin ID" style="min-width:0;">
+            <input type="text" id="eventStreamingJsonInput" class="shared-variable-name-input" placeholder='{"event1": ["plugin1"], "event2": ["plugin2"]}' autocomplete="off" spellcheck="false" aria-label="Events JSON" style="display:none; min-width:0; grid-column: 1 / span 2;">
+            <button type="button" class="generate-api-key-btn" id="eventStreamingImportBtn" data-tooltip="Import Events and Subscriptions" aria-label="Import Events and Subscriptions" style="width:36px; height:29px; padding:0; display:inline-flex; align-items:center; justify-content:center;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>
+            </button>
+            <button type="button" class="generate-api-key-btn" id="addEventStreamingBtn">Add Event</button>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="eventStreamingTable" hidden>
+                <thead>
+                    <tr>
+                        <th>Event</th>
+                        <th>Plugins</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="eventStreamingTableBody"></tbody>
+            </table>
+            <p class="table-empty" id="eventStreamingEmpty">No events</p>
+        </div>
     </div>
     <div class="page-card" id="externalInteractionsCard"{{ '' if external_interactions_enabled else ' hidden' }}>
         <h3 class="card-title">
@@ -229,7 +251,7 @@
                 <button type="button" class="generate-api-key-btn" id="insertExternalInteractionsEntryBtn">Insert Entry</button>
             </div>
             <div class="table-wrap">
-                <table class="api-keys-table" id="externalInteractionsTable"{{ '' if has_external_interactions_ips else ' hidden' }}>
+                <table class="data-table" id="externalInteractionsTable"{{ '' if has_external_interactions_ips else ' hidden' }}>
                     <thead>
                         <tr>
                             <th>IP</th>
@@ -240,7 +262,7 @@
                     </thead>
                     <tbody id="externalInteractionsTableBody" data-external-interactions-ips="{{ external_interactions_ips_json|e }}"></tbody>
                 </table>
-                <p class="api-keys-empty" id="externalInteractionsEmpty"{{ '' if not has_external_interactions_ips else ' hidden' }}>No IPs recorded</p>
+                <p class="table-empty" id="externalInteractionsEmpty"{{ '' if not has_external_interactions_ips else ' hidden' }}>No IPs recorded</p>
             </div>
     </div>
     {% endif %}
@@ -261,7 +283,7 @@
             <button type="button" class="generate-api-key-btn" id="registerUserBtn" disabled>Register User</button>
         </div>
         <div class="table-wrap">
-            <table class="api-keys-table" id="usersTable"{{ '' if has_users else ' hidden' }}>
+            <table class="data-table" id="usersTable"{{ '' if has_users else ' hidden' }}>
                 <thead>
                     <tr>
                         <th>Username</th>
@@ -271,7 +293,7 @@
                 </thead>
                 <tbody id="usersTableBody" data-users="{{ users_json|e }}" data-current="{{ current_username|e }}"></tbody>
             </table>
-            <p class="api-keys-empty" id="usersEmpty"{{ '' if not has_users else ' hidden' }}>No users registered</p>
+            <p class="table-empty" id="usersEmpty"{{ '' if not has_users else ' hidden' }}>No users registered</p>
         </div>
     </div>
     {% endif %}
@@ -317,13 +339,22 @@
             </button>
         </div>
         <hr class="card-section-separator">
-        <h4 class="card-section-title">AUI - Auditory User Interface</h4>
+        <h4 class="card-section-title">soAUI - Server Only Auditory User Interface</h4>
         <div class="settings-row">
             <div class="data-indicator">
                 <span class="data-indicator-label">Play Audios</span>
             </div>
             <p class="data-indicator-description">Controls whether Akupara plays audio sounds.</p>
             <button type="button" class="toggle{{ ' on' if play_audios else '' }}" id="playAudiosToggle" role="switch" aria-checked="{{ 'true' if play_audios else 'false' }}" aria-label="Play audio sounds">
+                <span class="toggle-thumb"></span>
+            </button>
+        </div>
+        <div class="settings-row{{ '' if play_audios else ' sound-row-disabled' }}" id="playStartupSoundRow">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Play Startup Sound</span>
+            </div>
+            <p class="data-indicator-description">Controls whether the startup sound is played after loading.</p>
+            <button type="button" class="toggle{{ ' on' if play_startup_sound else '' }}" id="playStartupSoundToggle" role="switch" aria-checked="{{ 'true' if play_startup_sound else 'false' }}" aria-label="Play startup sound"{{ '' if play_audios else ' disabled' }}>
                 <span class="toggle-thumb"></span>
             </button>
         </div>

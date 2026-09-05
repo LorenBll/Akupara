@@ -96,7 +96,7 @@ def _play_log_sound(event_type: str, title: str | None = None) -> None:
         _in_log_sound = False
 
 
-def _write_event(event_type: str, title: str, data=None) -> None:
+def _write_event(event_type: str, title: str, data=None, silent: bool = False) -> None:
     if event_type == "DEBUG" and not _debug:
         return
     timestamp = datetime.now().isoformat(timespec="seconds")
@@ -119,15 +119,16 @@ def _write_event(event_type: str, title: str, data=None) -> None:
                 entries = []
         entries.append(event)
         path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
-    _play_log_sound(event_type, title)
+    if not silent:
+        _play_log_sound(event_type, title)
 
 
 def log_error(title: str, data=None) -> None:
     _write_event("ERROR", title, data)
 
 
-def log_warn(title: str, data=None) -> None:
-    _write_event("WARN", title, data)
+def log_warn(title: str, data=None, *, silent: bool = False) -> None:
+    _write_event("WARN", title, data, silent=silent)
 
 
 def log_info(title: str, data=None) -> None:
