@@ -13,7 +13,7 @@
             </div>
             <p class="data-indicator-description"><span id="effectiveVersionDisplay">{{ effective_version }}</span> <span class="data-indicator-label" style="margin-left: 1.5em;">Indicated Version</span> <span id="indicatedVersionDisplay">{{ indicated_version }}</span></p>
             <span class="update-status-text" id="updateStatusText" hidden>Software Up to Date</span>
-            <button type="button" class="generate-api-key-btn" id="checkForUpdatesBtn" data-update-available="{{ 'true' if update_available else 'false' }}" {% if project_update_disabled %}disabled data-integrity-disabled="true" title="{{ 'Disabled in development mode' if development else 'Integrity check failed' }}"{% endif %}>{{ 'Update Now' if update_available else 'Check for Updates' }}</button>
+            <button type="button" class="generate-api-key-btn" id="checkForUpdatesBtn" data-update-available="{{ 'true' if update_available else 'false' }}" {% if project_update_disabled %}disabled data-integrity-disabled="true"{% endif %}>{{ 'Update Now' if update_available else 'Check for Updates' }}</button>
         </div>
         <div class="settings-row">
             <div class="data-indicator">
@@ -63,7 +63,7 @@
         </h3>
         {% if is_admin %}
         <div {% if not plugin_integrity_ok %}style="pointer-events:auto; opacity:1;"{% endif %}>
-        <h4 class="card-section-title">Version</h4>
+        <h4 class="card-section-title">Plugin Library Version</h4>
         <div class="settings-row">
             <div class="data-indicator">
                 <span class="data-indicator-label">Effective Version</span>
@@ -86,14 +86,37 @@
         {% endif %}
         </div>
         <hr class="card-section-separator">
+        <h4 class="card-section-title">Installed Plugins Version</h4>
         <div class="settings-row">
             <div class="data-indicator">
-                <span class="data-indicator-label">Automatic Plugin Upgrade</span>
+                <span class="data-indicator-label">Installed Plugins</span>
             </div>
-            <p class="data-indicator-description">Controls whether plugins with available upgrades are automatically upgraded.</p>
-            <button type="button" class="toggle{{ ' on' if automatic_plugin_upgrade else '' }}" id="automaticPluginUpgradeToggle" role="switch" aria-checked="{{ 'true' if automatic_plugin_upgrade else 'false' }}" aria-label="Enable automatic plugin upgrades">
+            <p class="data-indicator-description">Check whether installed plugins are up to date.</p>
+            <span class="update-status-text" id="pluginUpgradeStatusText" hidden>Plugins up to date</span>
+            <button type="button" class="generate-api-key-btn" id="checkForPluginUpgradesBtn" data-update-available="{{ 'true' if installed_plugins_upgrade_available else 'false' }}">{{ 'Update All' if installed_plugins_upgrade_available else 'Check for Updates' }}</button>
+        </div>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Automatic Plugin Update</span>
+            </div>
+            <p class="data-indicator-description">Controls whether plugins with available updates are automatically updated.</p>
+            <button type="button" class="toggle{{ ' on' if automatic_plugin_upgrade else '' }}" id="automaticPluginUpgradeToggle" role="switch" aria-checked="{{ 'true' if automatic_plugin_upgrade else 'false' }}" aria-label="Enable automatic plugin updates">
                 <span class="toggle-thumb"></span>
             </button>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="installedPluginsTable"{{ '' if has_installed_plugins else ' hidden' }}>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Effective Hash</th>
+                        <th>Indicated Hash</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="installedPluginsTableBody" data-installed-plugins="{{ installed_plugins_json|e }}"></tbody>
+            </table>
+            <p class="table-empty" id="installedPluginsEmpty"{{ '' if not has_installed_plugins else ' hidden' }}>No plugins installed</p>
         </div>
         {% endif %}
     </div>
@@ -104,12 +127,12 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>
             API Keys
         </h3>
-        <div class="api-key-generator">
+        <div class="api-key-generator" style="gap: 8px;">
             <input type="text" id="apiKeyNameInput" class="api-key-name-input" placeholder="API Key Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="API key name">
             <button type="button" class="random-name-btn" id="randomNameBtn" data-tooltip="Generate Random Name" aria-label="Generate random name">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
             </button>
-            <button type="button" class="generate-api-key-btn" id="generateApiKeyBtn">Generate API Key</button>
+            <button type="button" class="generate-api-key-btn" id="generateApiKeyBtn" style="width:168px; min-width:168px; max-width:168px;">Generate API Key</button>
         </div>
         <div class="table-wrap">
             <table class="data-table" id="apiKeysTable"{{ '' if has_api_keys else ' hidden' }}>
@@ -142,7 +165,7 @@
             </button>
         </div>
         <div class="shared-memory-content{{ '' if shared_memory_enabled else ' shared-memory-disabled' }}">
-        <div class="shared-variable-generator">
+        <div class="shared-variable-generator" id="sharedVariableGenerator" style="grid-template-columns: 1fr auto 1fr auto auto; gap: 8px;">
             <input type="text" id="sharedVariableNameInput" class="shared-variable-name-input" placeholder="Variable Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Variable name">
             <div class="sound-dropdown" id="sharedVariableTypeDropdown">
                 <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="Variable type" disabled>
@@ -171,9 +194,14 @@
                     <li class="sound-select-option" role="option" aria-selected="false" data-value="false"><span class="sound-select-option-label">false</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
                 </ul>
             </div>
-            <button type="button" class="generate-api-key-btn" id="addSharedVariableBtn">Add Variable</button>
+            <input type="text" id="sharedVariableJsonInput" class="shared-variable-name-input" placeholder='[{"name": "...", "type": "...", "value": ...}]' autocomplete="off" spellcheck="false" aria-label="Variables JSON" style="display:none; min-width:0; grid-column: 1 / span 3;">
+            <button type="button" class="generate-api-key-btn" id="addSharedVariableBtn" style="width:168px; min-width:168px; max-width:168px;">Add Variable</button>
+            <button type="button" class="generate-api-key-btn" id="exportSharedVariableBtn" aria-label="Export Shared Variables" style="width:80px; min-width:80px; max-width:80px;" hidden>Export</button>
+            <button type="button" class="generate-api-key-btn" id="sharedVariableImportBtn" data-tooltip="Import/Export Shared Variables" aria-label="Import/Export Shared Variables" style="width:36px; height:29px; padding:0; display:inline-flex; align-items:center; justify-content:center;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>
+            </button>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap" id="sharedMemoryTableWrap">
             <table class="data-table" id="sharedMemoryTable"{{ '' if has_shared_memory else ' hidden' }}>
                 <thead>
                     <tr>
@@ -192,12 +220,13 @@
         <h4 class="card-section-title">Event Streaming</h4>
         <div class="shared-variable-generator" id="eventStreamingGenerator" style="grid-template-columns: 1fr 1fr auto auto; gap: 8px;">
             <input type="text" id="eventStreamingEventInput" class="shared-variable-name-input" placeholder="Event Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Event name" style="min-width:0;">
-            <input type="text" id="eventStreamingPluginInput" class="shared-variable-name-input" placeholder="Plugin ID" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Plugin ID" style="min-width:0;">
+            <input type="text" id="eventStreamingPluginInput" class="shared-variable-name-input" placeholder="Plugin Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Plugin name" style="min-width:0;">
             <input type="text" id="eventStreamingJsonInput" class="shared-variable-name-input" placeholder='{"event1": ["plugin1"], "event2": ["plugin2"]}' autocomplete="off" spellcheck="false" aria-label="Events JSON" style="display:none; min-width:0; grid-column: 1 / span 2;">
-            <button type="button" class="generate-api-key-btn" id="eventStreamingImportBtn" data-tooltip="Import Events and Subscriptions" aria-label="Import Events and Subscriptions" style="width:36px; height:29px; padding:0; display:inline-flex; align-items:center; justify-content:center;">
+            <button type="button" class="generate-api-key-btn" id="addEventStreamingBtn" style="width:168px; min-width:168px; max-width:168px;">Add Event</button>
+            <button type="button" class="generate-api-key-btn" id="exportEventStreamingBtn" aria-label="Export Events and Subscriptions" style="width:80px; min-width:80px; max-width:80px;" hidden>Export</button>
+            <button type="button" class="generate-api-key-btn" id="eventStreamingImportBtn" data-tooltip="Import/Export Events and Subscriptions" aria-label="Import/Export Events and Subscriptions" style="width:36px; height:29px; padding:0; display:inline-flex; align-items:center; justify-content:center;">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>
             </button>
-            <button type="button" class="generate-api-key-btn" id="addEventStreamingBtn">Add Event</button>
         </div>
         <div class="table-wrap">
             <table class="data-table" id="eventStreamingTable" hidden>
@@ -228,6 +257,13 @@
                 <span class="pill-value">{{ external_interactions_worker_bind.port }}</span>
             </div>
         </div>
+        <div class="shared-variable-generator" id="externalInteractionsGenerator" style="grid-template-columns: 1fr auto auto; gap: 8px;">
+            <input type="text" id="externalInteractionsJsonInput" class="shared-variable-name-input" placeholder='{"incoming": [], "outgoing": []}' autocomplete="off" spellcheck="false" aria-label="External interactions JSON" style="min-width:0;" disabled>
+            <button type="button" class="generate-api-key-btn" id="externalInteractionsImportBtn" aria-label="Import External Interactions" style="width:80px; min-width:80px; max-width:80px;" disabled>Import</button>
+            <button type="button" class="generate-api-key-btn" id="exportExternalInteractionsBtn" aria-label="Export External Interactions" style="width:80px; min-width:80px; max-width:80px;" disabled>Export</button>
+        </div>
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Incoming Interactions</h4>
             <div class="settings-row">
                 <div class="data-indicator">
                     <span class="data-indicator-label">Policy for New IPs</span>
@@ -240,21 +276,12 @@
                     </span>
                 </button>
             </div>
-            <div class="external-interactions-insert-row">
-                <input type="text" id="externalInteractionsIpInput" class="api-key-name-input external-interactions-ip-input" placeholder="IP Address" maxlength="45" autocomplete="off" spellcheck="false" aria-label="IP address">
-                <input type="text" id="externalInteractionsNoteInput" class="api-key-name-input external-interactions-note-input" placeholder="Note" maxlength="256" autocomplete="off" spellcheck="false" aria-label="Note">
-                <div class="external-interactions-segmented" id="externalInteractionsInsertSegmented">
-                    <button type="button" class="external-interactions-segment" data-value="allow">Allow</button>
-                    <button type="button" class="external-interactions-segment selected" data-value="unknown">Policy</button>
-                    <button type="button" class="external-interactions-segment" data-value="block">Block</button>
-                </div>
-                <button type="button" class="generate-api-key-btn" id="insertExternalInteractionsEntryBtn">Insert Entry</button>
-            </div>
             <div class="table-wrap">
                 <table class="data-table" id="externalInteractionsTable"{{ '' if has_external_interactions_ips else ' hidden' }}>
                     <thead>
                         <tr>
                             <th>IP</th>
+                            <th>Plugins</th>
                             <th>Note</th>
                             <th></th>
                             <th></th>
@@ -263,6 +290,35 @@
                     <tbody id="externalInteractionsTableBody" data-external-interactions-ips="{{ external_interactions_ips_json|e }}"></tbody>
                 </table>
                 <p class="table-empty" id="externalInteractionsEmpty"{{ '' if not has_external_interactions_ips else ' hidden' }}>No IPs recorded</p>
+            </div>
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Outgoing Interactions</h4>
+            <div class="settings-row">
+                <div class="data-indicator">
+                    <span class="data-indicator-label">Default Policy</span>
+                </div>
+                <p class="data-indicator-description">Controls whether outgoing requests not matching any entry are let through or blocked.</p>
+                <button type="button" class="toggle{{ ' on' if external_interactions_allow_new_outgoing else '' }}" id="externalInteractionsAllowNewOutgoingToggle" role="switch" aria-checked="{{ 'true' if external_interactions_allow_new_outgoing else 'false' }}" aria-label="Allow outgoing requests by default" data-tooltip-on="Allow" data-tooltip-off="Block">
+                    <span class="toggle-thumb">
+                        <svg class="toggle-lock" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <svg class="toggle-lock-open" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+                    </span>
+                </button>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table" id="externalInteractionsOutgoingTable"{{ '' if has_external_interactions_outgoing_ips else ' hidden' }}>
+                    <thead>
+                        <tr>
+                            <th>Plugins</th>
+                            <th>IP</th>
+                            <th>Note</th>
+                            <th></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="externalInteractionsOutgoingTableBody" data-external-interactions-outgoing-ips="{{ external_interactions_outgoing_ips_json|e }}"></tbody>
+                </table>
+                <p class="table-empty" id="externalInteractionsOutgoingEmpty"{{ '' if not has_external_interactions_outgoing_ips else ' hidden' }}>No IPs recorded</p>
             </div>
     </div>
     {% endif %}
@@ -305,7 +361,7 @@
         <div class="account-summary">
             <div class="account-summary-item">
                 <span class="pill-label">USERNAME</span>
-                <span class="pill-value" id="accountUsernameValue">{{ account_username }}</span>
+                <span class="pill-value" id="accountUsernameValue">{{ account_username|e }}</span>
             </div>
             <div class="account-summary-item">
                 <span class="pill-label">ROLE</span>
@@ -319,10 +375,9 @@
             <input type="password" id="currentPasswordInput" class="api-key-name-input account-password-input" placeholder="Current Password" autocomplete="current-password" aria-label="Current password">
             <input type="password" id="newPasswordInput" class="api-key-name-input account-password-input" placeholder="New Password" autocomplete="new-password" aria-label="New password" disabled>
             <input type="password" id="confirmPasswordInput" class="api-key-name-input account-password-input" placeholder="Confirm New Password" autocomplete="new-password" aria-label="Confirm new password" disabled>
-            <button type="button" class="generate-api-key-btn" id="changePasswordBtn" disabled>Change Password</button>
+            <button type="button" class="generate-api-key-btn" id="changePasswordBtn" disabled>Confirm Change</button>
         </div>
     </div>
-    {% if is_admin %}
     <div class="page-card">
         <h3 class="card-title">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
@@ -331,13 +386,26 @@
         <h4 class="card-section-title">GUI - Graphical User Interface</h4>
         <div class="settings-row">
             <div class="data-indicator">
+                <span class="data-indicator-label">Theme</span>
+            </div>
+            <p class="data-indicator-description">Selects the browser's theme preference for Akupara.</p>
+            <button type="button" class="toggle" id="themeToggle" role="switch" aria-checked="false" aria-label="Choose the Akupara theme" data-tooltip-on="Dark" data-tooltip-off="Light">
+                <span class="toggle-thumb">
+                    <svg class="theme-toggle-sun" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+                    <svg class="theme-toggle-moon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6.5 6.5 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                </span>
+            </button>
+        </div>
+        <div class="settings-row">
+            <div class="data-indicator">
                 <span class="data-indicator-label">Display Promotion</span>
             </div>
             <p class="data-indicator-description">Shows the "report issues" and "created by" line at the bottom of the page.</p>
-            <button type="button" class="toggle{{ ' on' if display_promotion else '' }}" id="displayPromotionToggle" role="switch" aria-checked="{{ 'true' if display_promotion else 'false' }}" aria-label="Show the promotion line">
+            <button type="button" class="toggle{{ ' on' if display_promotion else '' }}" id="displayPromotionToggle" role="switch" aria-checked="{{ 'true' if display_promotion else 'false' }}" aria-label="Show the promotion line"{{ '' if is_admin else ' disabled' }}>
                 <span class="toggle-thumb"></span>
             </button>
         </div>
+        {% if is_admin %}
         <hr class="card-section-separator">
         <h4 class="card-section-title">soAUI - Server Only Auditory User Interface</h4>
         <div class="settings-row">
@@ -389,7 +457,9 @@
             </div>
         </div>
         {% endfor %}
+        {% endif %}
     </div>
+    {% if is_admin %}
     <div class="page-actions">
         <button class="page-action-btn terminate" data-action="terminate">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 22v-5"/><path d="M14 19v-2"/><path d="M18 20v-3"/><path d="M2 13h20"/><path d="M6 20v-3"/></svg>

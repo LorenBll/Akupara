@@ -9,6 +9,11 @@
             if (localStorage.getItem('akupara-dev-stripes-hidden') === 'true') {
                 document.documentElement.classList.add('dev-stripes-prehidden');
             }
+            var storedTheme = localStorage.getItem('akupara-theme');
+            var initialTheme = storedTheme === 'dark' || storedTheme === 'light'
+                ? storedTheme
+                : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', initialTheme);
         } catch (e) {}
     </script>
     <style>
@@ -57,6 +62,30 @@
             --muted: #6b7280;
             --border: #d1d5db;
             --accent: #374151;
+        }
+        :root[data-theme="dark"] {
+            --bg: #1e1e2e;
+            --panel: #313244;
+            --ink: #f3f4f6;
+            --muted: #cba6f7;
+            --border: #43465a;
+            --accent: #cba6f7;
+        }
+        :root[data-theme="dark"] .title-icon {
+            display: none;
+        }
+        :root[data-theme="dark"] .title-link::before {
+            content: '';
+            display: block;
+            width: 0.645em;
+            height: 1em;
+            flex-shrink: 0;
+            background: var(--accent);
+            mask: url('/ui/icons/akupara.svg') center / contain no-repeat;
+            -webkit-mask: url('/ui/icons/akupara.svg') center / contain no-repeat;
+        }
+        :root[data-theme="dark"] .title {
+            color: var(--accent);
         }
         * {
             margin: 0;

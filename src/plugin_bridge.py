@@ -214,7 +214,7 @@ class PluginBridge:
         """Return whether the bridge has been started (integrity checks passed)."""
         return self._started
 
-    def discover_installed_plugins(self, development: bool = False) -> list[Path]:
+    def discover_installed_plugins(self, development: bool = False, auto_upgrade: bool | None = None, only_hash: str | None = None) -> tuple[list[Path], list[dict]]:
         """Discover installed plugin folders per execution tree steps 6 (defined part only).
 
         Lists ``plugins/`` subfolders (folder name is the ``hash``):
@@ -227,7 +227,15 @@ class PluginBridge:
              then manifest ``akupara_version`` vs local Akupara hash,
              then latest hash vs local → upgrade available.
 
-        Returns list of ``Path`` that passed all defined checks.
+        ``auto_upgrade`` controls whether available upgrades are applied: ``None``
+        follows the ``AUTOMATIC_PLUGIN_UPGRADE`` setting, ``True`` always upgrades,
+        ``False`` only checks (manual availability checks must pass ``False`` so no
+        automatic upgrade ever runs, independently of the setting). ``only_hash``
+        restricts the discovery to a single plugin hash (single-plugin upgrade).
+
+        Returns ``(verified_paths, pending_upgrades)``: paths that passed all defined
+        checks, plus one ``{"folder", "hash", "name", "installed_version",
+        "latest_tag"}`` entry per non-dev plugin that still needs an upgrade.
 
         NOTE: This is where the loading of the plugins should happen — actual
         plugin execution (how plugins are implemented) is still to be defined,
@@ -235,8 +243,9 @@ class PluginBridge:
         """
         plugins_dir = _plugins_dir()
         if not plugins_dir.is_dir():
-            return []
+            return [], []
         verified: list[Path] = []
+        pending: list[dict] = []
         # Cache local Akupara version hash for upgrade checks
         local_akupara_version = _get_local_akupara_version()
         for entry in sorted(plugins_dir.iterdir(), key=lambda p: p.name):
@@ -245,6 +254,8 @@ class PluginBridge:
             folder_name = entry.name
             # dev- folders: load without checks only if development
             if folder_name.startswith("dev-"):
+                if only_hash is not None:
+                    continue
                 if not development:
                     log_info("Skipping dev plugin (development off)", {"folder": folder_name})
                     continue
@@ -263,6 +274,8 @@ class PluginBridge:
                 else:
                     log_warn("Plugin folder name not a valid hash and no hash file, skipping", {"folder": folder_name})
                     continue
+            if only_hash is not None and hash_value.lower() != only_hash.strip().lower():
+                continue
             # Find catalog entry for this hash to verify trust and get version/repo
             catalog_entry = None
             for e in _load_plugins():
@@ -378,7 +391,9 @@ class PluginBridge:
                 continue
             # Upgrade available!
             log_info("Plugin has available upgrade", {"folder": folder_name, "installed": plugin_version, "latest_hash": latest_hash, "latest_tag": latest_tag})
-            if _is_automatic_plugin_upgrade_enabled():
+            pending_info = {"folder": folder_name, "hash": hash_value, "name": plugin_name, "installed_version": plugin_version, "latest_tag": latest_tag}
+            allow_upgrade = _is_automatic_plugin_upgrade_enabled() if auto_upgrade is None else auto_upgrade
+            if allow_upgrade:
                 log_info("Automatic plugin upgrade enabled — upgrading", {"folder": folder_name, "old_hash": hash_value, "new_hash": latest_hash, "latest_tag": latest_tag})
                 # Automatic upgrade: delete old folder and create new one named as new hash with new version's files
                 try:
@@ -407,9 +422,18 @@ class PluginBridge:
                         new_folder.mkdir(parents=True, exist_ok=True)
                         # Download each asset
                         for fname, url in assets_to_download:
-                            # Sanitize filename
-                            if "/" in fname or "\\" in fname or fname in (".", ".."):
+                            # Sanitize filename — block traversal, Windows drive/UNC, and shell metachars
+                            if "/" in fname or "\\" in fname or fname in (".", "..") or ":" in fname or "\x00" in fname or fname.startswith("."):
                                 log_warn("Invalid asset filename, skipping", {"fname": fname})
+                                continue
+                            # Extra check: resolve must stay inside new_folder
+                            try:
+                                target = (new_folder / fname).resolve()
+                                if new_folder.resolve() not in target.parents and target != new_folder.resolve():
+                                    log_warn("Invalid asset filename (outside target), skipping", {"fname": fname})
+                                    continue
+                            except Exception:
+                                log_warn("Invalid asset filename (resolve failed), skipping", {"fname": fname})
                                 continue
                             data = _fetch_url_bytes(url)
                             if data is None:
@@ -432,13 +456,15 @@ class PluginBridge:
                         continue  # Skip adding old entry, new one will be verified next time
                 except Exception as exc:
                     log_warn("Automatic plugin upgrade failed", {"folder": folder_name, "error": str(exc)})
-                    # Fall back to keeping old
+                    # Fall back to keeping old (still pending an upgrade)
+                    pending.append(pending_info)
                     import traceback
                     log_warn("Upgrade exception", {"trace": traceback.format_exc()})
             else:
                 log_info("Automatic plugin upgrade disabled — not upgrading", {"folder": folder_name})
+                pending.append(pending_info)
             verified.append(entry)
-        return verified
+        return verified, pending
 
 
 _REVERSE_INDEX_NAME = "reverse-index.json"
@@ -1281,14 +1307,74 @@ def _load_plugin_event_subscriptions_bridge() -> dict[str, list[str]]:
     return {}
 
 
+def _resolve_installed_plugin_for_notify(plugin_name: str) -> tuple[Path, bool, dict | None] | None:
+    """Find the installed plugin to notify for a subscribed name (dev ones included).
+
+    A ``dev-*`` name matches the installed dev folder directly (no checks).
+    Any other name matches the ``name`` field of an installed folder's
+    ``manifest.json`` (first match in sorted order).
+
+    Returns ``(folder_path, is_dev, catalog_entry_or_None)`` or ``None`` when no
+    installed plugin matches. The catalog entry (looked up by folder hash) is
+    returned only so trust can still be verified for non-dev plugins.
+    """
+    name = plugin_name.strip()
+    plugins_dir = _plugins_dir()
+    if not plugins_dir.is_dir():
+        return None
+    if name.startswith("dev-"):
+        for entry in sorted(plugins_dir.iterdir(), key=lambda p: p.name):
+            if entry.is_dir() and entry.name.casefold() == name.casefold():
+                return (entry, True, None)
+        return None
+    for entry in sorted(plugins_dir.iterdir(), key=lambda p: p.name):
+        if not entry.is_dir() or entry.name.startswith("dev-"):
+            continue
+        manifest = entry / "manifest.json"
+        if not manifest.is_file():
+            continue
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        manifest_name = None
+        for key in ("name", "plugin_name", "plugin", "title"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                manifest_name = value.strip()
+                break
+        if manifest_name is None or manifest_name.casefold() != name.casefold():
+            continue
+        folder_hash = entry.name.strip()
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", folder_hash):
+            try:
+                file_hash = _read_plugin_hash_file(entry)
+            except Exception:
+                file_hash = None
+            if file_hash and re.fullmatch(r"[0-9a-fA-F]{64}", file_hash.strip()):
+                folder_hash = file_hash.strip()
+        catalog_entry = None
+        for e in _load_plugins():
+            if str(e.get("hash", "")).strip().lower() == folder_hash.lower():
+                catalog_entry = e
+                break
+        return (entry, False, catalog_entry)
+    return None
+
+
 def notify_plugin(plugin_name: str, event: str) -> bool:
     """Notify a single plugin of an event if it is subscribed.
 
     Checks ``PLUGIN_EVENT_SUBSCRIPTIONS`` (event -> [plugins]) and whether
-    ``plugin_name`` is in that list (case-insensitive). If subscribed, logs
-    the notification and returns ``True`` (actual plugin execution still to be
-    defined, so this is a placeholder). Returns ``False`` if not subscribed
-    or event/plugin invalid.
+    ``plugin_name`` is in that list (case-insensitive). The plugin to notify is
+    then individuated through the installed plugins list (dev ones included),
+    not the catalog: a ``dev-*`` name matches the installed dev folder
+    directly, any other name matches an installed folder's ``manifest.json``
+    ``name``. If subscribed, logs the notification and returns ``True``
+    (actual plugin execution still to be defined, so this is a placeholder).
+    Returns ``False`` if not subscribed or event/plugin invalid.
     """
     if not isinstance(plugin_name, str) or not plugin_name.strip():
         log_warn("notify_plugin: invalid plugin name", {"plugin": plugin_name})
@@ -1329,15 +1415,20 @@ def notify_plugin(plugin_name: str, event: str) -> bool:
     if not any(p.casefold() == plugin_name.casefold() for p in plugins):
         log_info("Plugin not subscribed to event, not notifying", {"plugin": plugin_name, "event": event})
         return False
-    # Check plugin exists in library (optional)
-    found = get_plugin_data(plugin_name)
-    if found is None:
-        log_warn("notify_plugin: plugin not in library", {"plugin": plugin_name})
+    # Individuate through the installed plugins list (dev ones included), not the catalog
+    resolved = _resolve_installed_plugin_for_notify(plugin_name)
+    if resolved is None:
+        log_warn("notify_plugin: no installed plugin with that name", {"plugin": plugin_name})
         return False
-    # Check trust before notifying (per bridge note)
-    if not verify_plugin_signature(found):
-        log_warn("notify_plugin: trust invalid, not notifying", {"plugin": plugin_name})
-        return False
+    _folder_path, is_dev, catalog_entry = resolved
+    if not is_dev:
+        if catalog_entry is None:
+            log_warn("notify_plugin: plugin not in library", {"plugin": plugin_name})
+            return False
+        # Check trust before notifying (per bridge note)
+        if not verify_plugin_signature(catalog_entry):
+            log_warn("notify_plugin: trust invalid, not notifying", {"plugin": plugin_name})
+            return False
     log_info("Notifying plugin of event", {"plugin": plugin_name, "event": event})
     # TODO: actual plugin execution (how plugins handle events) still to be defined
     # For now, just log. In future, this would dispatch to the plugin's handler.
