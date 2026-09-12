@@ -1322,8 +1322,8 @@ def settings() -> tuple:
         elif key == "externalInteractions":
             try:
                 _set_external_interactions(value)
-            except FeatureDisabledError as exc:
-                return jsonify({"error": str(exc)}), 403
+            except FeatureDisabledError:
+                return jsonify({"error": "Functionality disabled."}), 403
         else:
             _set_display_promotion(value)
     log_info("Settings updated", {"client": request.remote_addr, "internalInteractions": INTERNAL_INTERACTIONS, "displayPromotion": DISPLAY_PROMOTION, "externalInteractions": EXTERNAL_INTERACTIONS})
@@ -1362,8 +1362,8 @@ def audio_playback() -> tuple:
             return jsonify({"error": "Invalid request."}), 400
         try:
             _set_sound_file(event_name, sound_file)
-        except FeatureDisabledError as exc:
-            return jsonify({"error": str(exc)}), 403
+        except FeatureDisabledError:
+            return jsonify({"error": "Functionality disabled."}), 403
         except ValueError:
             return jsonify({"error": "Invalid request."}), 400
     log_info("Audio settings updated", {"client": request.remote_addr, "playAudios": PLAY_AUDIOS})
@@ -1390,8 +1390,8 @@ def log_sounds_enabled() -> tuple:
     value = data["playLogSounds"]
     try:
         _set_play_log_sounds(value)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     log_info("Log sounds enabled set", {"client": request.remote_addr, "playLogSounds": PLAY_LOG_SOUNDS})
     return jsonify({"playLogSounds": PLAY_LOG_SOUNDS}), 200
 
@@ -1412,8 +1412,8 @@ def startup_sound_enabled() -> tuple:
     value = data["playStartupSound"]
     try:
         _set_play_startup_sound(value)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     log_info("Startup sound enabled set", {"client": request.remote_addr, "playStartupSound": PLAY_STARTUP_SOUND})
     return jsonify({"playStartupSound": PLAY_STARTUP_SOUND}), 200
 
@@ -1430,8 +1430,8 @@ def play_audio_event() -> tuple:
         return jsonify({"error": "Invalid request."}), 400
     try:
         _play_sound_event(event_name)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     log_info("Audio play triggered", {"client": request.remote_addr, "event": event_name})
@@ -1454,8 +1454,8 @@ def shared_memory_enabled() -> tuple:
     value = data["sharedMemoryEnabled"]
     try:
         _set_shared_memory_enabled(value)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     log_info("Shared memory enabled set", {"client": request.remote_addr, "sharedMemoryEnabled": SHARED_MEMORY_ENABLED})
     return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
 
@@ -2490,19 +2490,21 @@ def api_keys() -> tuple:
     if request.method == "GET":
         try:
             keys = _list_api_keys()
-        except FeatureDisabledError as exc:
-            return jsonify({"error": str(exc)}), 403
+        except FeatureDisabledError:
+            return jsonify({"error": "Functionality disabled."}), 403
         log_info("API keys read", {"client": request.remote_addr})
         return jsonify({"apiKeys": keys}), 200
 
     data = request.get_json(silent=True) or {}
     name = data.get("name")
+    if not API_KEYS_ENABLED:
+        return jsonify({"error": "Functionality disabled."}), 403
     try:
         entry = _create_api_key(name)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
-    except DuplicateNameError as exc:
-        return jsonify({"error": str(exc)}), 409
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
+    except DuplicateNameError:
+        return jsonify({"error": "Already exists."}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     log_info("API key generated", {"client": request.remote_addr, "name": name})
@@ -2518,8 +2520,8 @@ def api_key_item(key: str) -> tuple:
     if request.method == "DELETE":
         try:
             deleted = _delete_api_key(key)
-        except FeatureDisabledError as exc:
-            return jsonify({"error": str(exc)}), 403
+        except FeatureDisabledError:
+            return jsonify({"error": "Functionality disabled."}), 403
         if not deleted:
             return jsonify({"error": "Not found."}), 404
         log_info("API key deleted", {"client": request.remote_addr})
@@ -2529,10 +2531,10 @@ def api_key_item(key: str) -> tuple:
     name = data.get("name")
     try:
         target = _rename_api_key(key, name)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
-    except DuplicateNameError as exc:
-        return jsonify({"error": str(exc)}), 409
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
+    except DuplicateNameError:
+        return jsonify({"error": "Already exists."}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     if target is None:
@@ -2654,8 +2656,8 @@ def shared_memory() -> tuple:
     if request.method == "GET":
         try:
             variables = _list_shared_memory()
-        except FeatureDisabledError as exc:
-            return jsonify({"error": str(exc)}), 403
+        except FeatureDisabledError:
+            return jsonify({"error": "Functionality disabled."}), 403
         log_info("Shared memory read", {"client": request.remote_addr})
         return jsonify({"sharedMemory": variables}), 200
 
@@ -2663,6 +2665,8 @@ def shared_memory() -> tuple:
     name = data.get("name")
     value = data.get("value")
     value_type = data.get("type")
+    if not _effective_shared_memory_enabled():
+        return jsonify({"error": "Functionality disabled."}), 403
     try:
         entry = _create_shared_variable(name, value, value_type)
     except FeatureDisabledError:
@@ -2683,8 +2687,8 @@ def shared_memory() -> tuple:
 def shared_memory_delete(name: str) -> tuple:
     try:
         deleted = _delete_shared_variable(name)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     if not deleted:
         return jsonify({"error": "Not found."}), 404
     log_info("Shared variable deleted", {"client": request.remote_addr, "name": name})
@@ -2702,8 +2706,8 @@ def shared_memory_edit(name: str) -> tuple:
     value_type = data.get("type")
     try:
         target = _update_shared_variable(name, value, value_type)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     if target is None:
@@ -2855,10 +2859,10 @@ def plugin_events() -> tuple:
     plugin = data.get("plugin")
     try:
         _add_plugin_event(event, plugin)
-    except DuplicateNameError as exc:
-        return jsonify({"error": str(exc)}), 409
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except DuplicateNameError:
+        return jsonify({"error": "Already exists."}), 409
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
     log_info("Plugin event created", {"client": request.remote_addr, "event": event})
     return jsonify({"event": event, "plugins": [plugin] if plugin else []}), 201
 
@@ -2873,8 +2877,8 @@ def plugin_event_delete(event: str) -> tuple:
         return jsonify({"error": "Internal interactions disabled."}), 403
     try:
         deleted = _remove_plugin_event(event)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
     if not deleted:
         return jsonify({"error": "Not found."}), 404
     log_info("Plugin event deleted", {"client": request.remote_addr, "event": event})
@@ -2895,10 +2899,10 @@ def plugin_event_plugins(event: str) -> tuple:
     plugin = data.get("plugin")
     try:
         _add_plugin_to_event(event, plugin)
-    except DuplicateNameError as exc:
-        return jsonify({"error": str(exc)}), 409
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except DuplicateNameError:
+        return jsonify({"error": "Already exists."}), 409
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
     log_info("Plugin added to event", {"client": request.remote_addr, "event": event, "plugin": plugin})
     return jsonify({"event": event, "plugin": plugin}), 201
 
@@ -2913,8 +2917,8 @@ def plugin_event_plugin_delete(event: str, plugin: str) -> tuple:
         return jsonify({"error": "Internal interactions disabled."}), 403
     try:
         deleted = _remove_plugin_from_event(event, plugin)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
     if not deleted:
         return jsonify({"error": "Not found."}), 404
     log_info("Plugin removed from event", {"client": request.remote_addr, "event": event, "plugin": plugin})
@@ -2927,10 +2931,12 @@ def plugin_event_plugin_delete(event: str, plugin: str) -> tuple:
 @admin_session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def external_interactions_incoming_ips() -> tuple:
+    if not EXTERNAL_INTERACTIONS:
+        return jsonify({"error": "Functionality disabled."}), 403
     try:
         entries = _list_external_interactions_entries("incoming")
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     log_info("Incoming external interactions IPs read", {"client": request.remote_addr})
     return jsonify({"incomingIps": entries}), 200
 
@@ -2941,10 +2947,12 @@ def external_interactions_incoming_ips() -> tuple:
 @admin_session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def external_interactions_outgoing_ips() -> tuple:
+    if not EXTERNAL_INTERACTIONS:
+        return jsonify({"error": "Functionality disabled."}), 403
     try:
         entries = _list_external_interactions_entries("outgoing")
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     log_info("Outgoing external interactions IPs read", {"client": request.remote_addr})
     return jsonify({"outgoingIps": entries}), 200
 
@@ -2953,8 +2961,8 @@ def _external_interactions_ip_item(direction: str, ip: str) -> tuple:
     if request.method == "DELETE":
         try:
             deleted = _delete_external_interactions_entry(direction, ip)
-        except FeatureDisabledError as exc:
-            return jsonify({"error": str(exc)}), 403
+        except FeatureDisabledError:
+            return jsonify({"error": "Functionality disabled."}), 403
         except ValueError:
             return jsonify({"error": "Invalid request."}), 400
         if not deleted:
@@ -2982,10 +2990,10 @@ def _external_interactions_ip_item(direction: str, ip: str) -> tuple:
         return jsonify({"error": "Invalid request."}), 400
     try:
         entry = _update_external_interactions_entry(direction, ip, action, note, new_ip, remove_plugin, add_plugin)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
-    except DuplicateNameError as exc:
-        return jsonify({"error": str(exc)}), 409
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
+    except DuplicateNameError:
+        return jsonify({"error": "Already exists."}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     if entry is None:
@@ -3028,8 +3036,8 @@ def external_interactions_allow_new() -> tuple:
     value = data["externalInteractionsAllowNew"]
     try:
         _set_external_interactions_allow_new(value)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     log_info("External interactions allow new set", {"client": request.remote_addr, "externalInteractionsAllowNew": EXTERNAL_INTERACTIONS_ALLOW_NEW})
     return jsonify({"externalInteractionsAllowNew": EXTERNAL_INTERACTIONS_ALLOW_NEW}), 200
 
@@ -3050,8 +3058,8 @@ def external_interactions_allow_new_outgoing() -> tuple:
     value = data["externalInteractionsAllowNewOutgoing"]
     try:
         _set_external_interactions_allow_new_outgoing(value)
-    except FeatureDisabledError as exc:
-        return jsonify({"error": str(exc)}), 403
+    except FeatureDisabledError:
+        return jsonify({"error": "Functionality disabled."}), 403
     log_info("Outgoing external interactions allow new set", {"client": request.remote_addr, "externalInteractionsAllowNewOutgoing": EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING})
     return jsonify({"externalInteractionsAllowNewOutgoing": EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING}), 200
 
@@ -3076,8 +3084,8 @@ def search_plugins() -> tuple:
             return jsonify({"error": "Invalid request."}), 400
     try:
         results = plugin_bridge._search_plugins(pattern)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
     log_info("Plugins search", {"client": request.remote_addr, "pattern": pattern, "count": len(results)})
     return jsonify({"plugins": results}), 200
 
@@ -3388,11 +3396,11 @@ def change_password() -> tuple:
         _change_password(session["username"], current_password_hash, new_password_hash, keep_token)
     except AccountNotFoundError as exc:
         log_warn("Password change rejected", {"client": request.remote_addr, "error": str(exc)})
-        return jsonify({"error": str(exc)}), 404
+        return jsonify({"error": "Account not found."}), 404
     except CurrentPasswordError as exc:
         log_warn("Password change rejected", {"client": request.remote_addr, "error": str(exc)})
         audio.play_audio("warn")()
-        return jsonify({"error": str(exc)}), 403
+        return jsonify({"error": "Current password is incorrect."}), 403
     audio.play_audio("success")()
     return jsonify({"status": "ok"}), 200
 
@@ -3414,6 +3422,10 @@ def users() -> tuple:
     admin = data.get("admin", False)
     if not isinstance(username, str) or not username.strip():
         return jsonify({"error": "Invalid request."}), 400
+    if any(ch in username for ch in _FORBIDDEN_KEY_NAME_CHARS):
+        return jsonify({"error": "Invalid request."}), 400
+    if len(username.strip()) < 8:
+        return jsonify({"error": "Invalid request."}), 400
     if not isinstance(password_hash, str) or not password_hash.startswith("$argon2id$"):
         return jsonify({"error": "Invalid password hash."}), 400
     if not isinstance(admin, bool):
@@ -3422,9 +3434,9 @@ def users() -> tuple:
         _register_user(username, password_hash, admin)
     except UsernameTakenError as exc:
         log_warn("User registration rejected", {"client": request.remote_addr, "error": str(exc)})
-        return jsonify({"error": str(exc)}), 409
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": "Already exists."}), 409
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
     log_info("User registered", {"username": username.strip(), "client": request.remote_addr})
     return jsonify({"status": "ok"}), 201
 
@@ -3446,7 +3458,7 @@ def user_item(username: str) -> tuple:
             deleted = _delete_user(username)
         except ValueError as exc:
             log_warn("Root deletion rejected", {"client": request.remote_addr, "user": username})
-            return jsonify({"error": str(exc)}), 403
+            return jsonify({"error": "Invalid request."}), 403
         if not deleted:
             return jsonify({"error": "Not found."}), 404
         log_info("User deleted", {"client": request.remote_addr, "username": username})
@@ -3463,9 +3475,9 @@ def user_item(username: str) -> tuple:
             target = _rename_user(username, new_username)
         except UsernameTakenError as exc:
             log_warn("User rename rejected", {"client": request.remote_addr, "error": str(exc)})
-            return jsonify({"error": str(exc)}), 409
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"error": "Already exists."}), 409
+        except ValueError:
+            return jsonify({"error": "Invalid request."}), 400
         if target is None:
             return jsonify({"error": "Not found."}), 404
         log_info("User renamed", {"client": request.remote_addr, "old_username": username, "new_username": new_username})
@@ -3480,7 +3492,7 @@ def user_item(username: str) -> tuple:
             target = _set_user_admin(username, admin)
         except ValueError as exc:
             log_warn("Root admin change rejected", {"client": request.remote_addr, "user": username})
-            return jsonify({"error": str(exc)}), 403
+            return jsonify({"error": "Invalid request."}), 403
         if target is None:
             return jsonify({"error": "Not found."}), 404
         log_info("Admin status updated", {"client": request.remote_addr, "username": username, "admin": admin})
