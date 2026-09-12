@@ -57,6 +57,16 @@ import plugin_bridge
 
 from logginglib import init_logging, log_debug, log_error, log_info, log_warn
 
+import env_store as _env_store
+
+# Re-export env helpers for backward compat (main._write_env_var etc. remain importable)
+# New code should import from env_store directly.
+_write_env_var = _env_store.write_env_var
+_write_env_bool = _env_store.write_env_bool
+_read_env_var = _env_store.read_env_var
+_read_env_bool = _env_store.read_env_bool
+_parse_bool = _env_store._parse_bool
+
 SERVICE_HOST = "127.0.0.1"
 SERVICE_PORT = None
 
@@ -78,6 +88,8 @@ PLAY_STARTUP_SOUND: bool = True
 SHARED_MEMORY_ENABLED: bool = False
 
 EXTERNAL_INTERACTIONS: bool = False
+EXTERNAL_INTERACTIONS_ALLOW_NEW: bool = False
+EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING: bool = False
 
 AUTOMATIC_UPDATE: bool = False
 AUTOMATIC_PLUGIN_LIBRARY_UPDATE: bool = False
@@ -87,6 +99,7 @@ _UPDATE_AVAILABLE: bool = False
 _UPDATE_AVAILABLE_AT_STARTUP: bool = False
 _PLUGIN_UPDATE_AVAILABLE: bool = False
 _PLUGIN_UPDATE_AVAILABLE_AT_STARTUP: bool = False
+_INSTALLED_PLUGINS_PENDING_UPGRADES: list[dict] = []
 _PROJECT_INTEGRITY_OK: bool = False
 _PLUGIN_INTEGRITY_OK: bool = False
 
@@ -131,14 +144,8 @@ def _load_configuration() -> dict:
     return config
 
 
-def _parse_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _initialize_service_config() -> None:
-    global SERVICE_PORT, GUI_ENABLED, DEVELOPMENT, INTERNAL_INTERACTIONS, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, PLAY_LOG_SOUNDS, PLAY_STARTUP_SOUND, SHARED_MEMORY_ENABLED, EXTERNAL_INTERACTIONS, EXTERNAL_INTERACTIONS_ALLOW_NEW, AUTOMATIC_UPDATE, AUTOMATIC_PLUGIN_LIBRARY_UPDATE, AUTOMATIC_PLUGIN_UPGRADE
+    global SERVICE_PORT, GUI_ENABLED, DEVELOPMENT, INTERNAL_INTERACTIONS, API_KEYS_ENABLED, DISPLAY_PROMOTION, PLAY_AUDIOS, PLAY_LOG_SOUNDS, PLAY_STARTUP_SOUND, SHARED_MEMORY_ENABLED, EXTERNAL_INTERACTIONS, EXTERNAL_INTERACTIONS_ALLOW_NEW, EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING, AUTOMATIC_UPDATE, AUTOMATIC_PLUGIN_LIBRARY_UPDATE, AUTOMATIC_PLUGIN_UPGRADE
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
     config = _load_configuration()
 
@@ -189,6 +196,8 @@ def _initialize_service_config() -> None:
 
     EXTERNAL_INTERACTIONS_ALLOW_NEW = _parse_bool(os.getenv("EXTERNAL_INTERACTIONS_ALLOW_NEW"), False)
 
+    EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING = _parse_bool(os.getenv("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING"), False)
+
     AUTOMATIC_UPDATE = _parse_bool(os.getenv("AUTOMATIC_UPDATE"), False)
     AUTOMATIC_PLUGIN_LIBRARY_UPDATE = _parse_bool(os.getenv("AUTOMATIC_PLUGIN_LIBRARY_UPDATE"), False)
     AUTOMATIC_PLUGIN_UPGRADE = _parse_bool(os.getenv("AUTOMATIC_PLUGIN_UPGRADE"), False)
@@ -217,13 +226,23 @@ def _initialize_service_config() -> None:
     _refresh_api_key_store()
 
     if not _login_credentials_configured():
-        log_warn("Login credentials not configured", {"hint": "set USERNAME and PASSWORD (or USERS) in .env"})
+        log_warn("Login credentials not configured", {"hint": "set USERS in .env"})
 
     log_debug("Resolved config values", {"port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "internalInteractions": INTERNAL_INTERACTIONS, "apiKeysEnabled": API_KEYS_ENABLED, "externalInteractions": EXTERNAL_INTERACTIONS, "automaticUpdate": AUTOMATIC_UPDATE, "automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE, "automaticPluginUpgrade": AUTOMATIC_PLUGIN_UPGRADE})
     log_info("Service configuration initialized")
 
 
+_LOCAL_ADDR_CACHE: set[str] | None = None
+_LOCAL_ADDR_CACHE_TS: float = 0.0
+_LOCAL_ADDR_TTL: float = 30.0
+_LOCAL_ADDR_LOCK = threading.Lock()
+
 def _get_local_device_addresses() -> set[str]:
+    global _LOCAL_ADDR_CACHE, _LOCAL_ADDR_CACHE_TS
+    now = time.time()
+    with _LOCAL_ADDR_LOCK:
+        if _LOCAL_ADDR_CACHE is not None and (now - _LOCAL_ADDR_CACHE_TS) < _LOCAL_ADDR_TTL:
+            return set(_LOCAL_ADDR_CACHE)
     local_addresses: set[str] = set()
     candidate_names = {socket.gethostname(), socket.getfqdn()}
 
@@ -260,6 +279,9 @@ def _get_local_device_addresses() -> set[str]:
 
     normalized_addresses.update({"127.0.0.1", "::1"})
     log_debug("Local device address cache populated", {"count": len(normalized_addresses)})
+    with _LOCAL_ADDR_LOCK:
+        _LOCAL_ADDR_CACHE = set(normalized_addresses)
+        _LOCAL_ADDR_CACHE_TS = now
     return normalized_addresses
 
 
@@ -437,8 +459,6 @@ def log_change(func):
 
 
 def _login_credentials_configured() -> bool:
-    if _read_env_var("USERNAME") and _read_env_var("PASSWORD"):
-        return True
     return bool(_load_users())
 
 
@@ -482,11 +502,6 @@ def _authenticate_user(username: str, password_hash: str) -> dict | None:
     for user in _load_users():
         if username_key == user["username"].casefold() and hmac.compare_digest(password_hash, user["password"]):
             return {"username": user["username"], "admin": user["admin"], "root": user["root"]}
-    expected_username = _read_env_var("USERNAME")
-    expected_password = _read_env_var("PASSWORD")
-    if expected_username and expected_password:
-        if username_key == expected_username.casefold() and hmac.compare_digest(password_hash, expected_password):
-            return {"username": expected_username, "admin": False, "root": False}
     return None
 
 
@@ -556,11 +571,8 @@ def _change_password(username: str, current_password_hash: str, new_password_has
     if not any(hmac.compare_digest(current_password_hash, stored) for _, stored in records):
         raise CurrentPasswordError("Current password is incorrect.")
     for source, _ in records:
-        if source == "users":
-            if not _set_user_password_env(username, new_password_hash):
-                raise AccountNotFoundError("Account not found.")
-        else:
-            _write_env_var("PASSWORD", new_password_hash)
+        if not _set_user_password_env(username, new_password_hash):
+            raise AccountNotFoundError("Account not found.")
     _revoke_other_sessions(username, keep_token)
     log_info("Password changed for user", {"username": username})
 
@@ -583,9 +595,6 @@ def _register_user(username: str, password_hash: str, admin: bool) -> None:
     for user in _load_users():
         if username_key == user["username"].casefold():
             raise UsernameTakenError("A user with that username already exists.")
-    expected_username = _read_env_var("USERNAME")
-    if expected_username and username_key == expected_username.casefold():
-        raise UsernameTakenError("A user with that username already exists.")
     raw = _read_env_var("USERS")
     try:
         data = json.loads(raw) if raw else []
@@ -657,9 +666,6 @@ def _rename_user(username: str, new_username: str) -> dict | None:
         return None
     new_key = new_username.casefold()
     if any(user is not target and user["username"].casefold() == new_key for user in users):
-        raise UsernameTakenError("A user with that username already exists.")
-    expected_username = _read_env_var("USERNAME")
-    if expected_username and new_key == expected_username.casefold():
         raise UsernameTakenError("A user with that username already exists.")
     old_username = target["username"]
     target["username"] = new_username
@@ -787,10 +793,18 @@ def standard_endpoint(*methods: str):
 def health() -> tuple:
     log_info("Health check", {"client": request.remote_addr})
 
+    bind_address = SERVICE_HOST
+    # Requests arriving through the external interactions worker (non-local
+    # client) see the worker's bind address instead of loopback.
+    if _external_interactions_worker is not None and request.remote_addr not in _get_local_device_addresses():
+        worker_bind = _external_interactions_worker_bind_address().get("address")
+        if worker_bind:
+            bind_address = worker_bind
+
     return jsonify({
         "status": "ok",
         "service": "Akupara",
-        "bind_address": SERVICE_HOST,
+        "bind_address": bind_address,
         "port": SERVICE_PORT,
         "hostname": socket.gethostname(),
         "pid": os.getpid(),
@@ -830,73 +844,9 @@ def restart() -> tuple:
     return jsonify({"status": "ok", "message": "Akupara is restarting."}), 200
 
 
-def _write_env_var(key: str, value: str) -> None:
-    env_path = Path(__file__).resolve().parent.parent / ".env"
-    if not env_path.exists():
-        env_path.touch()
-    lines = env_path.read_text(encoding="utf-8").splitlines()
-    updated = False
-    for index, line in enumerate(lines):
-        if line.strip().startswith(key + "="):
-            lines[index] = f"{key}={value}"
-            updated = True
-            break
-    if not updated:
-        lines.append(f"{key}={value}")
-    new_content = "\n".join(lines) + "\n"
-    try:
-        mode = env_path.stat().st_mode & 0o777
-    except OSError:
-        mode = None
-    fd, tmp_path = tempfile.mkstemp(dir=str(env_path.parent), prefix=".env.", suffix=".tmp", text=True)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        if mode is not None:
-            os.chmod(tmp_path, mode)
-        os.replace(tmp_path, str(env_path))
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
-def _write_env_bool(key: str, value: bool) -> None:
-    _write_env_var(key, str(value).lower())
-
-
-def _read_env_var(key: str, default: str = "") -> str:
-    env_path = Path(__file__).resolve().parent.parent / ".env"
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return default
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, _, value = line.partition("=")
-        if name.strip() == key:
-            return value.strip()
-    return default
-
-
-def _read_env_bool(key: str, default: bool = False) -> bool:
-    env_path = Path(__file__).resolve().parent.parent / ".env"
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return default
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, _, value = line.partition("=")
-        if name.strip() == key:
-            return _parse_bool(value, default)
-    return default
+# Env helpers moved to src/env_store.py — wrappers imported at top for compat.
+# _write_env_var, _write_env_bool, _read_env_var, _read_env_bool, _parse_bool
+# are now provided by env_store and re-exported above.
 
 
 @audio.play_audio("acknowledge")
@@ -938,19 +888,6 @@ def _set_api_keys_enabled(value: bool) -> None:
 
 def _external_interactions_enabled() -> bool:
     return bool(EXTERNAL_INTERACTIONS)
-
-
-@audio.play_audio("acknowledge")
-def _set_external_interactions(value: bool) -> None:
-    global EXTERNAL_INTERACTIONS
-    if value:
-        EXTERNAL_INTERACTIONS = True
-        _write_env_bool("EXTERNAL_INTERACTIONS", True)
-        _start_external_interactions_worker()
-    else:
-        EXTERNAL_INTERACTIONS = False
-        _stop_external_interactions_worker()
-        _write_env_bool("EXTERNAL_INTERACTIONS", False)
 
 
 def _resolve_external_host() -> str | None:
@@ -1025,6 +962,9 @@ def _parse_network_ip(ip: str):
 
 def _canonical_network_ip(address) -> str:
     if isinstance(address, ipaddress.IPv6Address):
+        # Normalize IPv4-mapped IPv6 (e.g. ::ffff:192.0.2.1) to plain IPv4 to avoid bypass
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
         return address.exploded
     return str(address)
 
@@ -1035,10 +975,44 @@ def _maximize_network_ip(ip: str) -> str:
 
 
 _EXTERNAL_INTERACTIONS_ACTIONS = ("allow", "unknown", "block")
+_EXTERNAL_INTERACTIONS_DIRECTIONS = ("incoming", "outgoing")
+
+_INCOMING_IPS_VAR = "EXTERNAL_INTERACTIONS_INCOMING_IPS"
+_OUTGOING_IPS_VAR = "EXTERNAL_INTERACTIONS_OUTGOING_IPS"
 
 
-def _load_external_interactions_ips() -> list[dict]:
-    raw = _read_env_var("EXTERNAL_INTERACTIONS_IPS")
+def _sort_entry_plugins(plugins: list) -> list[str]:
+    """Sort a firewall entry's plugin names: akupara first, then alphabetical.
+
+    Entries are deduplicated case-insensitively (first spelling kept) so tag
+    clouds are always stored and displayed in the same order.
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for plugin in plugins:
+        if not isinstance(plugin, str) or not plugin.strip():
+            continue
+        key = plugin.strip().casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(plugin.strip())
+    akupara = [p for p in ordered if p.casefold() == "akupara"]
+    rest = sorted([p for p in ordered if p.casefold() != "akupara"], key=lambda p: p.casefold())
+    return akupara + rest
+
+
+def _entries_var(direction: str) -> str:
+    if direction == "incoming":
+        return _INCOMING_IPS_VAR
+    if direction == "outgoing":
+        return _OUTGOING_IPS_VAR
+    raise ValueError("Direction must be 'incoming' or 'outgoing'.")
+
+
+def _load_external_interactions_entries(direction: str) -> list[dict]:
+    """Load firewall entries ({"ip", "plugins", "action", "Note"}) for a direction."""
+    raw = _read_env_var(_entries_var(direction))
     if not raw:
         return []
     try:
@@ -1051,87 +1025,96 @@ def _load_external_interactions_ips() -> list[dict]:
     for entry in data:
         if not isinstance(entry, dict):
             continue
+        try:
+            canonical = _canonical_network_ip(ipaddress.ip_address(str(entry.get("ip", "")).strip()))
+        except ValueError:
+            continue
+        action = entry.get("action", "unknown")
+        if action not in _EXTERNAL_INTERACTIONS_ACTIONS:
+            action = "unknown"
+        plugins = entry.get("plugins", [])
+        if not isinstance(plugins, list):
+            plugins = []
+        plugins = [p for p in _sort_entry_plugins(plugins) if _is_valid_key_name(p)]
         note = entry.get("Note")
         if not isinstance(note, str):
             note = ""
-        for ip, action in entry.items():
-            if ip == "Note":
-                continue
-            if action not in _EXTERNAL_INTERACTIONS_ACTIONS:
-                continue
-            try:
-                canonical = _canonical_network_ip(ipaddress.ip_address(ip))
-            except ValueError:
-                continue
-            entries.append({canonical: action, "Note": note})
+        entries.append({"ip": canonical, "plugins": plugins, "action": action, "Note": note})
     return entries
 
 
+def _load_external_interactions_incoming_ips() -> list[dict]:
+    return _load_external_interactions_entries("incoming")
 
-def _save_external_interactions_ips(entries: list[dict]) -> None:
-    _write_env_var("EXTERNAL_INTERACTIONS_IPS", json.dumps(entries))
+
+def _load_external_interactions_outgoing_ips() -> list[dict]:
+    return _load_external_interactions_entries("outgoing")
 
 
-def _list_external_interactions_ips() -> list[dict]:
+def _save_external_interactions_entries(direction: str, entries: list[dict]) -> None:
+    normalized = [
+        {"ip": entry["ip"], "plugins": _sort_entry_plugins(entry.get("plugins", [])), "action": entry["action"], "Note": entry.get("Note", "")}
+        for entry in entries
+    ]
+    _write_env_var(_entries_var(direction), json.dumps(normalized))
+
+
+def _list_external_interactions_entries(direction: str) -> list[dict]:
     _require_external_interactions_enabled()
-    return _load_external_interactions_ips()
+    return _load_external_interactions_entries(direction)
 
 
-
-def _set_external_interactions_ip(ip: str, action: str, note: str | None = None) -> tuple[dict, bool]:
-    _require_external_interactions_enabled()
-    if action not in _EXTERNAL_INTERACTIONS_ACTIONS:
-        raise ValueError("The value must be 'allow', 'unknown' or 'block'.")
-    if note is not None and not isinstance(note, str):
-        raise ValueError("The note must be a string.")
-    if note is None:
-        note = ""
-    _validate_plaintext_string(note, "note")
-    canonical = _maximize_network_ip(ip)
-    entries = _load_external_interactions_ips()
-    existing = next((entry for entry in entries if canonical in entry), None)
-    entry = {canonical: action, "Note": note}
-    remaining = [item for item in entries if canonical not in item]
-    remaining.append(entry)
-    _save_external_interactions_ips(remaining)
-    if existing is None:
-        audio.play_audio("success")()
-    else:
-        audio.play_audio("acknowledge")()
-    return entry, existing is None
+def _find_external_interactions_entry(entries: list[dict], canonical: str) -> dict | None:
+    return next((entry for entry in entries if entry.get("ip") == canonical), None)
 
 
 @audio.play_audio("acknowledge")
-def _update_external_interactions_ip(ip: str, action: str, note: str | None = None) -> dict | None:
+def _update_external_interactions_entry(direction: str, ip: str, action: str | None = None, note: str | None = None, new_ip: str | None = None, remove_plugin: str | None = None, add_plugin: str | None = None) -> dict | None:
+    """Update a firewall entry: action/note/IP, or remove/add a plugin."""
     _require_external_interactions_enabled()
-    if action not in _EXTERNAL_INTERACTIONS_ACTIONS:
-        raise ValueError("The value must be 'allow', 'unknown' or 'block'.")
-    if note is not None and not isinstance(note, str):
-        raise ValueError("The note must be a string.")
+    entries = _load_external_interactions_entries(direction)
     canonical = _maximize_network_ip(ip)
-    entries = _load_external_interactions_ips()
-    if not any(canonical in entry for entry in entries):
+    match = _find_external_interactions_entry(entries, canonical)
+    if match is None:
         return None
-    if note is None:
-        existing = next(entry for entry in entries if canonical in entry)
-        note = existing.get("Note", "")
-    _validate_plaintext_string(note, "note")
-    entry = {canonical: action, "Note": note}
-    remaining = [item for item in entries if canonical not in item]
-    remaining.append(entry)
-    _save_external_interactions_ips(remaining)
-    return entry
+    if action is not None and action not in _EXTERNAL_INTERACTIONS_ACTIONS:
+        raise ValueError("The value must be 'allow', 'unknown' or 'block'.")
+    if note is not None:
+        _validate_plaintext_string(note, "note")
+    if remove_plugin is not None and (not isinstance(remove_plugin, str) or not remove_plugin.strip()):
+        raise ValueError("Invalid plugin name.")
+    if add_plugin is not None and (not isinstance(add_plugin, str) or not add_plugin.strip()):
+        raise ValueError("Invalid plugin name.")
+    new_canonical = _maximize_network_ip(new_ip) if new_ip is not None else canonical
+    if new_canonical != canonical and _find_external_interactions_entry(entries, new_canonical) is not None:
+        raise DuplicateNameError("That IP is already in the list.")
+    plugins = _sort_entry_plugins(match.get("plugins", []))
+    if remove_plugin is not None:
+        plugins = [p for p in plugins if p.casefold() != remove_plugin.strip().casefold()]
+    if add_plugin is not None:
+        candidate = add_plugin.strip()
+        if not _is_valid_key_name(candidate):
+            raise ValueError("Invalid plugin name.")
+        if candidate.casefold() not in [p.casefold() for p in plugins]:
+            plugins = _sort_entry_plugins(plugins + [candidate])
+    updated = {
+        "ip": new_canonical,
+        "plugins": plugins,
+        "action": action if action is not None else match.get("action", "unknown"),
+        "Note": note if note is not None else match.get("Note", ""),
+    }
+    _save_external_interactions_entries(direction, [updated if entry is match else entry for entry in entries])
+    return updated
 
 
-
-def _delete_external_interactions_ip(ip: str) -> bool:
+def _delete_external_interactions_entry(direction: str, ip: str) -> bool:
     _require_external_interactions_enabled()
     canonical = _maximize_network_ip(ip)
-    entries = _load_external_interactions_ips()
-    remaining = [item for item in entries if canonical not in item]
+    entries = _load_external_interactions_entries(direction)
+    remaining = [entry for entry in entries if entry.get("ip") != canonical]
     if len(remaining) == len(entries):
         return False
-    _save_external_interactions_ips(remaining)
+    _save_external_interactions_entries(direction, remaining)
     audio.play_audio("success")()
     return True
 
@@ -1144,38 +1127,48 @@ def _set_external_interactions_allow_new(value: bool) -> None:
     _write_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", value)
 
 
+@audio.play_audio("acknowledge")
+def _set_external_interactions_allow_new_outgoing(value: bool) -> None:
+    _require_external_interactions_enabled()
+    global EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING
+    EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING = value
+    _write_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", value)
+
+
 def _record_external_interactions_ip_automatic(canonical: str, action: str) -> None:
-    entries = _load_external_interactions_ips()
-    if any(canonical in entry for entry in entries):
+    entries = _load_external_interactions_entries("incoming")
+    if _find_external_interactions_entry(entries, canonical) is not None:
         return
-    entries.append({canonical: action, "Note": ""})
-    _save_external_interactions_ips(entries)
+    # Prevent unbounded growth / disk exhaustion from attacker-controlled IP spoofing
+    if len(entries) >= 1000:
+        log_warn("Firewall automatic recording capped: too many entries", {"cap": 1000, "canonical": canonical})
+        return
+    entries.append({"ip": canonical, "plugins": ["akupara"], "action": action, "Note": ""})
+    _save_external_interactions_entries("incoming", entries)
     audio.play_audio("acknowledge")()
 
 
 def _external_interactions_worker_ip_policy(remote_addr: str) -> bool:
     """Per-request access decision for the external interactions worker.
 
-    Each IP in the list carries one of three actions: ``"allow"`` (requests
-    pass through), ``"block"`` (requests are refused) and ``"unknown"``. New
-    IPs are always recorded in the list with ``"unknown"``. Requests from IPs
-    whose action is ``"unknown"``, and requests from IPs not yet in the list,
-    are decided by ``EXTERNAL_ACCESS_ALLOW_NEW``. Recordings made here are
-    automatic and play the acknowledge sound.
+    Each IP in the incoming list carries one of three actions: ``"allow"``
+    (requests pass through), ``"block"`` (requests are refused) and
+    ``"unknown"``. New IPs are always recorded in the incoming list with
+    ``"unknown"`` (scoped to ``akupara``). Requests from IPs whose action is
+    ``"unknown"``, and requests from IPs not yet in the list, are decided by
+    ``EXTERNAL_INTERACTIONS_ALLOW_NEW``. Recordings made here are automatic
+    and play the acknowledge sound.
     """
     try:
         canonical = _canonical_network_ip(ipaddress.ip_address(remote_addr))
     except ValueError:
         return False
-    entries = _load_external_interactions_ips()
-    for entry in entries:
-        if canonical in entry:
-            action = entry[canonical]
-            if action == "allow":
-                return True
-            if action == "block":
-                return False
-            break
+    match = _find_external_interactions_entry(_load_external_interactions_entries("incoming"), canonical)
+    if match is not None:
+        if match.get("action") == "allow":
+            return True
+        if match.get("action") == "block":
+            return False
     _record_external_interactions_ip_automatic(canonical, "unknown")
     return _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", EXTERNAL_INTERACTIONS_ALLOW_NEW)
 
@@ -1257,6 +1250,16 @@ def _require_play_audios_enabled() -> None:
 def _is_valid_sound_file_name(file_name: str) -> bool:
     if "/" in file_name or "\\" in file_name or file_name in {".", ".."}:
         return False
+    # Whitelist: only alphanum, dot, underscore, hyphen, ending .wav (preserves existing files unchanged)
+    if not re.fullmatch(r"[A-Za-z0-9._-]+\.wav", file_name):
+        return False
+    # Resolve containment to prevent symlink escape outside audios dir
+    try:
+        target = (audio.AUDIOS_DIR / file_name).resolve()
+        if audio.AUDIOS_DIR.resolve() not in target.parents and target != audio.AUDIOS_DIR.resolve() / file_name:
+            return False
+    except Exception:
+        return False
     return (audio.AUDIOS_DIR / file_name).is_file()
 
 
@@ -1302,13 +1305,12 @@ def settings() -> tuple:
             "internalInteractions": _read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS),
             "displayPromotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
             "externalInteractions": _read_env_bool("EXTERNAL_INTERACTIONS", EXTERNAL_INTERACTIONS),
-            "externalInteractionsAllowNew": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", EXTERNAL_INTERACTIONS_ALLOW_NEW),
         }), 200
     denied = _require_admin_session()
     if denied is not None:
         return denied
     data = request.get_json(silent=True) or {}
-    keys = [key for key in ("internalInteractions", "displayPromotion", "externalInteractions", "externalInteractionsAllowNew") if key in data]
+    keys = [key for key in ("internalInteractions", "displayPromotion", "externalInteractions") if key in data]
     if not keys:
         return jsonify({"error": "No known setting provided."}), 400
     for key in keys:
@@ -1322,19 +1324,13 @@ def settings() -> tuple:
                 _set_external_interactions(value)
             except FeatureDisabledError as exc:
                 return jsonify({"error": str(exc)}), 403
-        elif key == "externalInteractionsAllowNew":
-            try:
-                _set_external_interactions_allow_new(value)
-            except FeatureDisabledError as exc:
-                return jsonify({"error": str(exc)}), 403
         else:
             _set_display_promotion(value)
-    log_info("Settings updated", {"client": request.remote_addr, "internalInteractions": INTERNAL_INTERACTIONS, "displayPromotion": DISPLAY_PROMOTION, "externalInteractions": EXTERNAL_INTERACTIONS, "externalInteractionsAllowNew": EXTERNAL_INTERACTIONS_ALLOW_NEW})
+    log_info("Settings updated", {"client": request.remote_addr, "internalInteractions": INTERNAL_INTERACTIONS, "displayPromotion": DISPLAY_PROMOTION, "externalInteractions": EXTERNAL_INTERACTIONS})
     return jsonify({
         "internalInteractions": INTERNAL_INTERACTIONS,
         "displayPromotion": DISPLAY_PROMOTION,
         "externalInteractions": EXTERNAL_INTERACTIONS,
-        "externalInteractionsAllowNew": EXTERNAL_INTERACTIONS_ALLOW_NEW,
     }), 200
 
 
@@ -2155,6 +2151,175 @@ def update_plugins_now() -> tuple:
     return jsonify({"status": "ok", "message": "Updating and restarting."}), 200
 
 
+@app.route("/api/check-for-plugin-upgrades", methods=["POST", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("POST", "HEAD", "OPTIONS")
+def check_for_plugin_upgrades() -> tuple:
+    global _INSTALLED_PLUGINS_PENDING_UPGRADES
+    # Manual availability check only — never applies automatic upgrades,
+    # independently of AUTOMATIC_PLUGIN_UPGRADE.
+    try:
+        _, pending = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT, auto_upgrade=False)
+    except Exception as exc:
+        log_warn("Manual installed plugins upgrade check failed", {"client": request.remote_addr, "error": str(exc)})
+        return jsonify({"error": "Upgrade check failed."}), 500
+    _INSTALLED_PLUGINS_PENDING_UPGRADES = pending
+    log_info("Manual installed plugins upgrade check", {"client": request.remote_addr, "pending": len(pending)})
+    return jsonify({
+        "upgradesAvailable": bool(pending),
+        "plugins": [{"hash": item.get("hash"), "name": item.get("name"), "installedVersion": item.get("installed_version"), "latestTag": item.get("latest_tag")} for item in pending],
+    }), 200
+
+
+@app.route("/api/upgrade-all-plugins", methods=["POST", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("POST", "HEAD", "OPTIONS")
+def upgrade_all_plugins() -> tuple:
+    global _INSTALLED_PLUGINS_PENDING_UPGRADES
+    try:
+        _, pending = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT, auto_upgrade=True)
+    except Exception as exc:
+        log_warn("Upgrade all plugins failed", {"client": request.remote_addr, "error": str(exc)})
+        return jsonify({"error": "Upgrade failed."}), 500
+    _INSTALLED_PLUGINS_PENDING_UPGRADES = pending
+    log_info("Upgrade all plugins requested", {"client": request.remote_addr, "stillPending": len(pending)})
+    return jsonify({
+        "status": "ok",
+        "stillPending": bool(pending),
+        "plugins": [{"hash": item.get("hash"), "name": item.get("name"), "installedVersion": item.get("installed_version"), "latestTag": item.get("latest_tag")} for item in pending],
+    }), 200
+
+
+def _resolve_installed_plugin_folder(folder: str) -> Path | None:
+    """Resolve an installed plugin folder name to its path (None when invalid/missing)."""
+    name = (folder or "").strip()
+    if not name or "/" in name or "\\" in name or ":" in name or "\x00" in name or name in {".", ".."}:
+        return None
+    plugins_dir = plugin_bridge._plugins_dir()
+    path = plugins_dir / name
+    try:
+        if path.parent != plugins_dir or not path.is_dir():
+            return None
+    except Exception:
+        return None
+    return path
+
+
+def _list_installed_plugins() -> list[dict]:
+    """List installed plugins (dev ones included) with names and hashes (disk-only, no network)."""
+    result: list[dict] = []
+    plugins_dir = plugin_bridge._plugins_dir()
+    if not plugins_dir.is_dir():
+        return result
+    try:
+        catalog = {str(e.get("hash", "")).strip().lower(): str(e.get("name", "")).strip() for e in plugin_bridge._load_plugins()}
+    except Exception:
+        catalog = {}
+    for entry in sorted(plugins_dir.iterdir(), key=lambda p: p.name):
+        if not entry.is_dir():
+            continue
+        folder = entry.name
+        if folder.startswith("dev-"):
+            result.append({"folder": folder, "name": folder, "dev": True, "effective": "", "indicated": ""})
+            continue
+        try:
+            effective = plugin_bridge._compute_plugin_folder_hash(entry) or ""
+        except Exception:
+            effective = ""
+        try:
+            stored = plugin_bridge._read_plugin_hash_file(entry)
+        except Exception:
+            stored = None
+        result.append({
+            "folder": folder,
+            "name": catalog.get(folder.strip().lower(), folder),
+            "dev": False,
+            "effective": effective,
+            "indicated": stored or folder,
+        })
+    result.sort(key=lambda item: (bool(item["dev"]), str(item["name"]).casefold()))
+    return result
+
+
+def _delete_installed_plugin(folder: str) -> bool:
+    """Stop and delete an installed plugin folder (dev ones included)."""
+    path = _resolve_installed_plugin_folder(folder)
+    if path is None:
+        return False
+    import shutil
+    shutil.rmtree(path)
+    audio.play_audio("success")()
+    return True
+
+
+@app.route("/api/installed-plugins", methods=["GET", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def installed_plugins() -> tuple:
+    log_info("Installed plugins list read", {"client": request.remote_addr})
+    return jsonify({"plugins": _list_installed_plugins()}), 200
+
+
+@app.route("/api/installed-plugins/<path:folder>", methods=["POST", "DELETE", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("POST", "DELETE", "OPTIONS")
+def installed_plugin_item(folder: str) -> tuple:
+    global _INSTALLED_PLUGINS_PENDING_UPGRADES
+    if request.method == "DELETE":
+        try:
+            deleted = _delete_installed_plugin(folder)
+        except OSError as exc:
+            log_warn("Installed plugin deletion failed", {"client": request.remote_addr, "folder": folder, "error": str(exc)})
+            return jsonify({"error": "Deletion failed."}), 500
+        if not deleted:
+            return jsonify({"error": "Not found."}), 404
+        _INSTALLED_PLUGINS_PENDING_UPGRADES = [item for item in _INSTALLED_PLUGINS_PENDING_UPGRADES if item.get("folder") != folder.strip()]
+        log_info("Installed plugin deleted", {"client": request.remote_addr, "folder": folder})
+        return jsonify({"status": "ok"}), 200
+    # POST upgrades only the singular plugin (dev plugins cannot be upgraded)
+    if (folder or "").strip().startswith("dev-"):
+        return jsonify({"error": "Dev plugins cannot be upgraded."}), 400
+    path = _resolve_installed_plugin_folder(folder)
+    if path is None:
+        return jsonify({"error": "Not found."}), 404
+    only = folder.strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", only):
+        try:
+            file_hash = plugin_bridge._read_plugin_hash_file(path)
+        except Exception:
+            file_hash = None
+        if file_hash and re.fullmatch(r"[0-9a-fA-F]{64}", file_hash.strip()):
+            only = file_hash.strip()
+    try:
+        _, pending_before = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT, auto_upgrade=False)
+    except Exception as exc:
+        log_warn("Single plugin upgrade check failed", {"client": request.remote_addr, "folder": folder, "error": str(exc)})
+        return jsonify({"error": "Upgrade check failed."}), 500
+    if not any(item.get("folder") == folder.strip() for item in pending_before):
+        log_info("Single plugin upgrade not needed", {"client": request.remote_addr, "folder": folder})
+        audio.play_audio("acknowledge")()
+        return jsonify({"status": "ok", "upgraded": False, "upToDate": True, "stillPending": bool(_INSTALLED_PLUGINS_PENDING_UPGRADES)}), 200
+    try:
+        _, pending_after = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT, auto_upgrade=True, only_hash=only)
+    except Exception as exc:
+        log_warn("Single plugin upgrade failed", {"client": request.remote_addr, "folder": folder, "error": str(exc)})
+        return jsonify({"error": "Upgrade failed."}), 500
+    _INSTALLED_PLUGINS_PENDING_UPGRADES = [item for item in _INSTALLED_PLUGINS_PENDING_UPGRADES if item.get("folder") != folder.strip()] + pending_after
+    upgraded = not any(item.get("folder") == folder.strip() for item in pending_after)
+    if upgraded:
+        audio.play_audio("success")()
+    log_info("Single plugin upgrade requested", {"client": request.remote_addr, "folder": folder, "upgraded": upgraded})
+    return jsonify({"status": "ok", "upgraded": upgraded, "upToDate": False, "stillPending": bool(_INSTALLED_PLUGINS_PENDING_UPGRADES)}), 200
+
+
 _FORBIDDEN_KEY_NAME_CHARS = set(" ,;:\\/%\"'")
 
 
@@ -2603,16 +2768,18 @@ def _is_valid_event_name(event: str) -> bool:
     return isinstance(event, str) and bool(event.strip()) and bool(re.fullmatch(r"[A-Za-z0-9_.-]+", event.strip()))
 
 
-def _add_plugin_event(event: str) -> bool:
+def _add_plugin_event(event: str, plugin: str | None = None) -> bool:
     if not _is_valid_event_name(event):
         raise ValueError("Invalid event name.")
     event = event.strip()
+    if plugin is not None and (not isinstance(plugin, str) or not _is_valid_key_name(plugin)):
+        raise ValueError("Invalid plugin name.")
+    plugin = plugin.strip() if plugin is not None else None
     data = _load_plugin_event_subscriptions()
     if event in data:
         raise DuplicateNameError("An event with this name already exists.")
-    data[event] = []
+    data[event] = [plugin] if plugin else []
     _save_plugin_event_subscriptions(data)
-    audio.play_audio("success")()
     return True
 
 
@@ -2647,7 +2814,6 @@ def _add_plugin_to_event(event: str, plugin: str) -> bool:
     data[event].append(plugin)
     data[event] = sorted(data[event], key=lambda x: x.casefold())
     _save_plugin_event_subscriptions(data)
-    audio.play_audio("success")()
     return True
 
 
@@ -2686,14 +2852,15 @@ def plugin_events() -> tuple:
 
     data = request.get_json(silent=True) or {}
     event = data.get("event")
+    plugin = data.get("plugin")
     try:
-        _add_plugin_event(event)
+        _add_plugin_event(event, plugin)
     except DuplicateNameError as exc:
         return jsonify({"error": str(exc)}), 409
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     log_info("Plugin event created", {"client": request.remote_addr, "event": event})
-    return jsonify({"event": event, "plugins": []}), 201
+    return jsonify({"event": event, "plugins": [plugin] if plugin else []}), 201
 
 
 @app.route("/api/plugin-events/<path:event>", methods=["DELETE", "OPTIONS"])
@@ -2754,67 +2921,139 @@ def plugin_event_plugin_delete(event: str, plugin: str) -> tuple:
     return jsonify({"status": "ok"}), 200
 
 
-@app.route("/api/external-interactions-ips", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@app.route("/api/external-interactions-incoming-ips", methods=["GET", "HEAD", "OPTIONS"])
 @network.external_interactions_worker_callable
 @log_change
-@api_key_or_admin_authenticated
-@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
-def external_access_ips() -> tuple:
-    if request.method == "GET":
-        try:
-            entries = _list_external_interactions_ips()
-        except FeatureDisabledError as exc:
-            return jsonify({"error": str(exc)}), 403
-        log_info("External interactions access IPs read", {"client": request.remote_addr})
-        return jsonify({"externalInteractionsIps": entries}), 200
-
-    data = request.get_json(silent=True) or {}
-    ip = data.get("ip")
-    action = data.get("action")
-    note = data.get("note")
+@admin_session_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def external_interactions_incoming_ips() -> tuple:
     try:
-        entry, created = _set_external_interactions_ip(ip, action, note)
+        entries = _list_external_interactions_entries("incoming")
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
-    except ValueError:
-        return jsonify({"error": "Invalid request."}), 400
-    log_info("External interactions access IP saved", {"client": request.remote_addr, "entry": entry})
-    return jsonify(entry), 201 if created else 200
+    log_info("Incoming external interactions IPs read", {"client": request.remote_addr})
+    return jsonify({"incomingIps": entries}), 200
 
 
-
-
-@app.route("/api/external-interactions-ips/<path:ip>", methods=["PATCH", "DELETE", "OPTIONS"])
+@app.route("/api/external-interactions-outgoing-ips", methods=["GET", "HEAD", "OPTIONS"])
 @network.external_interactions_worker_callable
 @log_change
-@api_key_or_admin_authenticated
-@standard_endpoint("PATCH", "DELETE", "OPTIONS")
-def external_access_ip_item(ip: str) -> tuple:
+@admin_session_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def external_interactions_outgoing_ips() -> tuple:
+    try:
+        entries = _list_external_interactions_entries("outgoing")
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
+    log_info("Outgoing external interactions IPs read", {"client": request.remote_addr})
+    return jsonify({"outgoingIps": entries}), 200
+
+
+def _external_interactions_ip_item(direction: str, ip: str) -> tuple:
     if request.method == "DELETE":
         try:
-            deleted = _delete_external_interactions_ip(ip)
+            deleted = _delete_external_interactions_entry(direction, ip)
         except FeatureDisabledError as exc:
             return jsonify({"error": str(exc)}), 403
         except ValueError:
             return jsonify({"error": "Invalid request."}), 400
         if not deleted:
             return jsonify({"error": "Not found."}), 404
-        log_info("External interactions access IP deleted", {"client": request.remote_addr, "ip": ip})
+        log_info("External interactions firewall entry deleted", {"client": request.remote_addr, "direction": direction, "ip": ip})
         return jsonify({"status": "ok"}), 200
 
     data = request.get_json(silent=True) or {}
     action = data.get("action")
     note = data.get("note")
+    new_ip = data.get("new_ip")
+    remove_plugin = data.get("remove_plugin")
+    add_plugin = data.get("add_plugin")
+    if action is None and note is None and new_ip is None and remove_plugin is None and add_plugin is None:
+        return jsonify({"error": "Invalid request."}), 400
+    if action is not None and not isinstance(action, str):
+        return jsonify({"error": "Invalid request."}), 400
+    if note is not None and not isinstance(note, str):
+        return jsonify({"error": "Invalid request."}), 400
+    if new_ip is not None and not isinstance(new_ip, str):
+        return jsonify({"error": "Invalid request."}), 400
+    if remove_plugin is not None and not isinstance(remove_plugin, str):
+        return jsonify({"error": "Invalid request."}), 400
+    if add_plugin is not None and not isinstance(add_plugin, str):
+        return jsonify({"error": "Invalid request."}), 400
     try:
-        entry = _update_external_interactions_ip(ip, action, note)
+        entry = _update_external_interactions_entry(direction, ip, action, note, new_ip, remove_plugin, add_plugin)
     except FeatureDisabledError as exc:
         return jsonify({"error": str(exc)}), 403
+    except DuplicateNameError as exc:
+        return jsonify({"error": str(exc)}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     if entry is None:
         return jsonify({"error": "Not found."}), 404
-    log_info("External interactions access IP updated", {"client": request.remote_addr, "ip": ip})
+    log_info("External interactions firewall entry updated", {"client": request.remote_addr, "direction": direction, "ip": ip})
     return jsonify(entry), 200
+
+
+@app.route("/api/external-interactions-incoming-ips/<path:ip>", methods=["PATCH", "DELETE", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("PATCH", "DELETE", "OPTIONS")
+def external_interactions_incoming_ip_item(ip: str) -> tuple:
+    return _external_interactions_ip_item("incoming", ip)
+
+
+@app.route("/api/external-interactions-outgoing-ips/<path:ip>", methods=["PATCH", "DELETE", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("PATCH", "DELETE", "OPTIONS")
+def external_interactions_outgoing_ip_item(ip: str) -> tuple:
+    return _external_interactions_ip_item("outgoing", ip)
+
+
+@app.route("/api/external-interactions-allow-new", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def external_interactions_allow_new() -> tuple:
+    if request.method == "GET":
+        log_info("External interactions allow new setting read", {"client": request.remote_addr})
+        return jsonify({"externalInteractionsAllowNew": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", EXTERNAL_INTERACTIONS_ALLOW_NEW)}), 200
+
+    data = request.get_json(silent=True) or {}
+    if "externalInteractionsAllowNew" not in data or not isinstance(data["externalInteractionsAllowNew"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["externalInteractionsAllowNew"]
+    try:
+        _set_external_interactions_allow_new(value)
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
+    log_info("External interactions allow new set", {"client": request.remote_addr, "externalInteractionsAllowNew": EXTERNAL_INTERACTIONS_ALLOW_NEW})
+    return jsonify({"externalInteractionsAllowNew": EXTERNAL_INTERACTIONS_ALLOW_NEW}), 200
+
+
+@app.route("/api/external-interactions-allow-new-outgoing", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@network.external_interactions_worker_callable
+@log_change
+@admin_session_authenticated
+@standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
+def external_interactions_allow_new_outgoing() -> tuple:
+    if request.method == "GET":
+        log_info("Outgoing external interactions allow new setting read", {"client": request.remote_addr})
+        return jsonify({"externalInteractionsAllowNewOutgoing": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING)}), 200
+
+    data = request.get_json(silent=True) or {}
+    if "externalInteractionsAllowNewOutgoing" not in data or not isinstance(data["externalInteractionsAllowNewOutgoing"], bool):
+        return jsonify({"error": "Invalid request."}), 400
+    value = data["externalInteractionsAllowNewOutgoing"]
+    try:
+        _set_external_interactions_allow_new_outgoing(value)
+    except FeatureDisabledError as exc:
+        return jsonify({"error": str(exc)}), 403
+    log_info("Outgoing external interactions allow new set", {"client": request.remote_addr, "externalInteractionsAllowNewOutgoing": EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING})
+    return jsonify({"externalInteractionsAllowNewOutgoing": EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING}), 200
 
 
 @app.route("/api/plugins/search", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -2949,8 +3188,10 @@ def ui_settings_page():
     template = (pages_dir / "settings.html").read_text(encoding="utf-8")
     api_keys = sorted(_api_key_store, key=lambda k: (k.get("name") or "").lower())
     shared_memory = _load_shared_memory()
-    external_interactions_ips = _load_external_interactions_ips()
+    incoming_interactions_ips = _load_external_interactions_entries("incoming")
+    outgoing_interactions_ips = _load_external_interactions_entries("outgoing")
     users = _list_users()
+    installed_plugins_list = _list_installed_plugins()
     session = _active_session()
     return render_template_string(
         template,
@@ -2971,9 +3212,13 @@ def ui_settings_page():
         api_keys_json=json.dumps(api_keys),
         has_shared_memory=bool(shared_memory),
         shared_memory_json=json.dumps(shared_memory),
-        has_external_interactions_ips=bool(external_interactions_ips),
-        external_interactions_ips_json=json.dumps(external_interactions_ips),
+        has_external_interactions_ips=bool(incoming_interactions_ips),
+        external_interactions_ips_json=json.dumps(incoming_interactions_ips),
+        has_external_interactions_outgoing_ips=bool(outgoing_interactions_ips),
+        external_interactions_outgoing_ips_json=json.dumps(outgoing_interactions_ips),
+        external_interactions_allow_new_outgoing=_read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING),
         external_interactions_enabled=_external_interactions_enabled(),
+        external_interactions_allow_new=_read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", EXTERNAL_INTERACTIONS_ALLOW_NEW),
         external_interactions_worker_bind=_external_interactions_worker_bind_address(),
         automatic_update=_read_env_bool("AUTOMATIC_UPDATE", AUTOMATIC_UPDATE),
         current_version=_get_current_project_version(),
@@ -2985,6 +3230,9 @@ def ui_settings_page():
         project_update_disabled=DEVELOPMENT,
         automatic_plugin_library_update=_read_env_bool("AUTOMATIC_PLUGIN_LIBRARY_UPDATE", AUTOMATIC_PLUGIN_LIBRARY_UPDATE),
         automatic_plugin_upgrade=_read_env_bool("AUTOMATIC_PLUGIN_UPGRADE", AUTOMATIC_PLUGIN_UPGRADE),
+        installed_plugins_upgrade_available=bool(_INSTALLED_PLUGINS_PENDING_UPGRADES),
+        has_installed_plugins=bool(installed_plugins_list),
+        installed_plugins_json=json.dumps(installed_plugins_list),
         current_plugins_lib_version=_get_current_plugins_lib_version(),
         effective_plugins_lib_version=_get_effective_plugins_lib_version(),
         indicated_plugins_lib_version=_get_indicated_plugins_lib_version(),
@@ -3057,6 +3305,13 @@ def ui_argon2_script():
 
 @network.external_interactions_worker_callable
 @standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_js(filename: str):
+    js_dir = Path(__file__).resolve().parent.parent / "ui" / "js"
+    return send_from_directory(js_dir, filename)
+
+
+@network.external_interactions_worker_callable
+@standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_login_icon():
     icons_dir = Path(__file__).resolve().parent.parent / "ui" / "icons"
     return send_from_directory(icons_dir, "akupara.svg")
@@ -3072,7 +3327,7 @@ def login() -> tuple:
     if not isinstance(username, str) or not isinstance(password_hash, str):
         return jsonify({"error": "Invalid request."}), 400
     if not _login_credentials_configured():
-        log_warn("Login rejected: USERNAME/PASSWORD or USERS not configured in .env", {"client": request.remote_addr})
+        log_warn("Login rejected: USERS not configured in .env", {"client": request.remote_addr})
         return jsonify({"error": "Login is not configured."}), 403
     user = _authenticate_user(username, password_hash)
     if user is not None:
@@ -3289,6 +3544,11 @@ def _register_ui_routes(app_instance: Flask) -> None:
         methods=["GET", "HEAD", "OPTIONS"],
         view_func=ui_page,
     )
+    app_instance.add_url_rule(
+        "/ui/js/<path:filename>",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=ui_js,
+    )
 
 
 if __name__ == "__main__":
@@ -3406,6 +3666,18 @@ if __name__ == "__main__":
                 log_info("No plugin library update available at startup", {"current": current_pl})
     except Exception as exc:
         log_warn("Startup plugin library update check failed", {"error": str(exc)})
+
+    # Startup discovery of installed plugins — applies automatic upgrades only
+    # when AUTOMATIC_PLUGIN_UPGRADE is on; otherwise pending upgrades are cached
+    # so the settings page can offer them via Update All.
+    try:
+        _, _INSTALLED_PLUGINS_PENDING_UPGRADES = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT)
+        if _INSTALLED_PLUGINS_PENDING_UPGRADES:
+            log_info("Installed plugins have available upgrades", {"count": len(_INSTALLED_PLUGINS_PENDING_UPGRADES)})
+        else:
+            log_info("No installed plugin upgrades available at startup")
+    except Exception as exc:
+        log_warn("Startup installed plugins discovery failed", {"error": str(exc)})
 
     if EXTERNAL_INTERACTIONS:
         _start_external_interactions_worker()

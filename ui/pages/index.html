@@ -4,12 +4,17 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Akupara</title>
-    <link rel="stylesheet" href="/ui/css/index.css?v=4">
+    <link rel="stylesheet" href="/ui/css/index.css?v=5">
     <script>
         try {
             if (localStorage.getItem('akupara-dev-stripes-hidden') === 'true') {
                 document.documentElement.classList.add('dev-stripes-prehidden');
             }
+            var storedTheme = localStorage.getItem('akupara-theme');
+            var initialTheme = storedTheme === 'dark' || storedTheme === 'light'
+                ? storedTheme
+                : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', initialTheme);
         } catch (e) {}
     </script>
     <style>
@@ -52,8 +57,8 @@
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
                     </button>
                     {% if is_admin %}
-                    <button class="pill-action-btn" aria-label="Plugins" data-page="plugins" data-label="Plugins">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg>
+                    <button class="pill-action-btn" aria-label="Plugin Marketplace" data-page="plugins" data-label="Plugin Marketplace">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
                     </button>
                     {% endif %}
                 </div>
@@ -74,7 +79,16 @@
 
     <div class="floating-tooltip error-tooltip" id="errorTooltip" hidden></div>
 
+    <div class="theme-light-afterglow" id="themeLightAfterglow" aria-hidden="true"></div>
+    <div class="theme-light-progress" id="themeLightProgress" role="progressbar" aria-label="Time left Until Yellow Filter Vanishes" aria-valuemin="0" aria-valuemax="60" aria-valuenow="60">
+        <div class="theme-light-progress-bar"></div>
+        <span class="theme-light-progress-label"><span>Time left Until Yellow Filter Vanishes</span><span aria-hidden="true">·</span><button type="button" class="theme-light-progress-skip" id="themeLightProgressSkip">Skip</button></span>
+    </div>
+
     <script src="/ui/js/argon2/argon2-bundled.min.js"></script>
+    <script src="/ui/js/fetch.js"></script>
+    <script src="/ui/js/tooltips.js"></script>
+    <script src="/ui/js/validation.js"></script>
     <script>
         function triggerLoadIn() {
             var items = [
@@ -181,6 +195,7 @@
                     setActivePage(page);
                     if (page === 'settings') {
                         fetchSettings();
+                        initializeThemeToggle();
                         wireToggleTooltips();
                         wireApiKeyGenerator();
                         wireApiKeysTable();
@@ -188,11 +203,13 @@
                         wireLogout();
                         wireUpdateButtons();
                         wirePluginUpdateButtons();
+                        wirePluginUpgradeButtons();
  wireSoundDropdowns();
                         wireAudioSoundDropdowns();
                         fetchPlayLogSounds();
                         fetchPlayStartupSound();
                         wireSharedVariableGenerator();
+                        wireImportButtonTooltips();
                         wireSharedMemoryTable();
                         wireEventStreamingGenerator();
                         wireEventStreamingTable();
@@ -214,6 +231,17 @@
                         renderUsersTable(usersList);
                         wireUsersTable();
                         loadUsers();
+                        var installedTbody = document.getElementById('installedPluginsTableBody');
+                        if (installedTbody && installedTbody.dataset.installedPlugins) {
+                            try {
+                                installedPluginsList = JSON.parse(installedTbody.dataset.installedPlugins);
+                            } catch (e) {
+                                installedPluginsList = [];
+                            }
+                        }
+                        renderInstalledPluginsTable(installedPluginsList);
+                        wireInstalledPluginsTable();
+                        loadInstalledPlugins();
                         var sharedTbody = document.getElementById('sharedMemoryTableBody');
                         if (sharedTbody && sharedTbody.dataset.variables) {
                             try {
@@ -241,13 +269,23 @@
                         var netTbody = document.getElementById('externalInteractionsTableBody');
                         if (netTbody && netTbody.dataset.externalInteractionsIps) {
                             try {
-                                externalInteractionsIpsList = JSON.parse(netTbody.dataset.externalInteractionsIps);
-                                renderExternalInteractionsTable(externalInteractionsIpsList);
+                                incomingIpsList = JSON.parse(netTbody.dataset.externalInteractionsIps);
+                                renderFirewallTable('incoming', incomingIpsList);
                             } catch (e) {}
                         }
-                        wireExternalInteractionsTable();
-                        wireExtenralInteractionsInsert();
-                        loadExternalInteractionsIps();
+                        var netOutgoingTbody = document.getElementById('externalInteractionsOutgoingTableBody');
+                        if (netOutgoingTbody && netOutgoingTbody.dataset.externalInteractionsOutgoingIps) {
+                            try {
+                                outgoingIpsList = JSON.parse(netOutgoingTbody.dataset.externalInteractionsOutgoingIps);
+                                renderFirewallTable('outgoing', outgoingIpsList);
+                            } catch (e) {}
+                        }
+                        wireFirewallTable('incoming');
+                        wireFirewallTable('outgoing');
+                        loadFirewallIps('incoming');
+                        loadFirewallIps('outgoing');
+                        fetchExternalInteractionsAllowNew();
+                        fetchExternalInteractionsAllowNewOutgoing();
                     }
                     buildCardIndicators();
                         animateCardIndicatorsIn(loadInDelay);
@@ -272,8 +310,10 @@
 
         var apiKeysList = [];
         var sharedVariablesList = [];
-        var externalInteractionsIpsList = [];
+        var incomingIpsList = [];
+        var outgoingIpsList = [];
         var usersList = [];
+        var installedPluginsList = [];
         var currentUsername = '';
         var currentPage = '';
         var lastSessionAdmin = false;
@@ -281,8 +321,6 @@
         var registeredUsernames = [];
         var PLAINTEXT_PROHIBITED_RE = /[ ,;\/\\:%"']/g;
         var PLAINTEXT_PROHIBITED_TEST_RE = /[ ,;\/\\:%"']/;
-        var JSON_IMPORT_PROHIBITED_RE = /[ ;\/\\%]/g;
-        var JSON_IMPORT_PROHIBITED_TEST_RE = /[ ;\/\\%]/;
 
         function rebuildRegisteredUsernames() {
             var names = usersList.map(function (u) { return u.username; });
@@ -491,6 +529,9 @@
             var r = a.target.getBoundingClientRect();
             var tr = a.el.getBoundingClientRect();
             if (a.kind === 'error') {
+                if (a.side === 'right') {
+                    return { left: r.right - tr.width, top: r.top - tr.height - 8 };
+                }
                 return { left: r.left + r.width / 2 - tr.width / 2, top: r.top - tr.height - 8 };
             }
             if (a.kind === 'table') {
@@ -590,11 +631,11 @@
             unregisterTooltipAnchor(pluginSearchTooltip);
         }
 
-        function showErrorTooltip(target, message) {
+        function showErrorTooltip(target, message, side) {
             var tooltip = document.getElementById('errorTooltip');
             if (!tooltip || !target || !message) return;
             tooltip.textContent = message;
-            placeTooltip(registerTooltipAnchor(tooltip, target, 'error'));
+            placeTooltip(registerTooltipAnchor(tooltip, target, 'error', side));
         }
 
         function hideErrorTooltip() {
@@ -607,13 +648,13 @@
 
         var transientErrorTimer = null;
 
-        function showTransientError(input, invalidClass, message) {
+        function showTransientError(input, invalidClass, message, side) {
             if (transientErrorTimer) {
                 clearTimeout(transientErrorTimer);
                 transientErrorTimer = null;
             }
             input.classList.add(invalidClass);
-            showErrorTooltip(input, message);
+            showErrorTooltip(input, message, side);
             transientErrorTimer = setTimeout(function () {
                 transientErrorTimer = null;
                 input.classList.remove(invalidClass);
@@ -676,6 +717,41 @@
             var booleanDropdown = document.getElementById('sharedVariableBooleanDropdown');
             if (!nameInput || !typeDropdown || !valueInput || !booleanDropdown) return;
 
+            var jsonInput = document.getElementById('sharedVariableJsonInput');
+            var addBtn = document.getElementById('addSharedVariableBtn');
+            var exportBtn = document.getElementById('exportSharedVariableBtn');
+            var generator = document.getElementById('sharedVariableGenerator');
+            var isJsonMode = jsonInput && jsonInput.style.display !== 'none' && jsonInput.style.display !== '';
+            if (isJsonMode) {
+                if (addBtn) {
+                    addBtn.textContent = 'Import';
+                    addBtn.style.width = '80px';
+                    addBtn.style.minWidth = '80px';
+                    addBtn.style.maxWidth = '80px';
+                    addBtn.disabled = true;
+                }
+                if (jsonInput) jsonInput.disabled = true;
+                if (exportBtn) {
+                    exportBtn.hidden = false;
+                    exportBtn.disabled = true;
+                }
+                if (generator) generator.style.gridTemplateColumns = '1fr auto 1fr auto auto auto';
+                return;
+            }
+            if (addBtn) {
+                addBtn.textContent = 'Add Variable';
+                addBtn.style.width = '168px';
+                addBtn.style.minWidth = '168px';
+                addBtn.style.maxWidth = '168px';
+                addBtn.disabled = false;
+            }
+            if (jsonInput) jsonInput.disabled = false;
+            if (exportBtn) {
+                exportBtn.hidden = true;
+                exportBtn.disabled = false;
+            }
+            if (generator) generator.style.gridTemplateColumns = '1fr auto 1fr auto auto';
+
             var nameValid = isSharedVariableNameValid(nameInput.value);
             var typeBtn = getSoundDropdownButton(typeDropdown);
             if (typeBtn) typeBtn.disabled = !nameValid;
@@ -701,7 +777,47 @@
             var valueInput = document.getElementById('sharedVariableValueInput');
             var booleanDropdown = document.getElementById('sharedVariableBooleanDropdown');
             var addBtn = document.getElementById('addSharedVariableBtn');
+            var jsonInput = document.getElementById('sharedVariableJsonInput');
+            var importBtn = document.getElementById('sharedVariableImportBtn');
+            var exportBtn = document.getElementById('exportSharedVariableBtn');
             if (!nameInput || !typeDropdown || !valueInput || !booleanDropdown || !addBtn) return;
+
+            var importIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>';
+            var xIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+            if (importBtn && jsonInput) {
+                importBtn.addEventListener('click', function () {
+                    var entering = jsonInput.style.display === 'none' || jsonInput.style.display === '';
+                    if (entering) {
+                        nameInput.style.display = 'none';
+                        typeDropdown.style.display = 'none';
+                        valueInput.style.display = 'none';
+                        booleanDropdown.style.display = 'none';
+                        jsonInput.style.display = 'block';
+                        jsonInput.value = '';
+                        jsonInput.classList.remove('api-key-input-invalid');
+                        hideErrorTooltip();
+                        importBtn.innerHTML = xIconSvg;
+                        importBtn.setAttribute('data-tooltip', 'Go Back');
+                        importBtn.setAttribute('aria-label', 'Go Back');
+                        jsonInput.focus();
+                    } else {
+                        nameInput.style.display = '';
+                        typeDropdown.style.display = '';
+                        valueInput.style.display = '';
+                        booleanDropdown.style.display = '';
+                        jsonInput.style.display = 'none';
+                        jsonInput.value = '';
+                        jsonInput.classList.remove('api-key-input-invalid');
+                        hideErrorTooltip();
+                        importBtn.innerHTML = importIconSvg;
+                        importBtn.setAttribute('data-tooltip', 'Import/Export Shared Variables');
+                        importBtn.setAttribute('aria-label', 'Import/Export Shared Variables');
+                    }
+                    refreshImportButtonTooltip(importBtn);
+                    updateSharedVariableInputs();
+                });
+            }
 
             nameInput.addEventListener('keydown', function (event) {
                 if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
@@ -919,6 +1035,24 @@
                 headers['X-Api-Key'] = apiKeysList[0].key;
             }
             return headers;
+        }
+
+        function animateTableWrapToContent(wrap, update, startHeight) {
+            if (!wrap) {
+                update();
+                return;
+            }
+            startHeight = startHeight == null ? wrap.offsetHeight : startHeight;
+            wrap.style.height = startHeight + 'px';
+            update();
+            var endHeight = wrap.offsetHeight;
+            wrap.style.transition = 'height 0.4s ease';
+            void wrap.offsetHeight;
+            wrap.style.height = endHeight + 'px';
+            setTimeout(function () {
+                wrap.style.height = '';
+                wrap.style.transition = '';
+            }, 400);
         }
 
         function renderSharedMemoryTable(variables) {
@@ -1232,7 +1366,7 @@
                 sharedVariablesList = sharedVariablesList.filter(function (v) { return v.name !== name; });
                 row.remove();
                 if (tbody && tbody.children.length === 0) {
-                    renderSharedMemoryTable([]);
+                    animateTableWrapToContent(wrap, function () { renderSharedMemoryTable([]); }, h1);
                 } else if (wrap) {
                     var h2 = wrap.offsetHeight;
                     wrap.style.height = h1 + 'px';
@@ -1334,18 +1468,39 @@
             if (!eventInput || !pluginInput || !btn) return;
 
             var isJsonMode = jsonInput && jsonInput.style.display !== 'none' && jsonInput.style.display !== '';
+            var exportBtn = document.getElementById('exportEventStreamingBtn');
+            var generator = document.getElementById('eventStreamingGenerator');
             if (isJsonMode) {
                 btn.textContent = 'Import';
+                btn.style.width = '80px';
+                btn.style.minWidth = '80px';
+                btn.style.maxWidth = '80px';
+                btn.disabled = true;
+                if (jsonInput) jsonInput.disabled = true;
+                if (exportBtn) {
+                    exportBtn.hidden = false;
+                    exportBtn.disabled = true;
+                }
+                if (generator) generator.style.gridTemplateColumns = '1fr 1fr auto auto auto';
                 return;
             }
+            btn.style.width = '168px';
+            btn.style.minWidth = '168px';
+            btn.style.maxWidth = '168px';
+            if (jsonInput) jsonInput.disabled = false;
+            if (exportBtn) {
+                exportBtn.hidden = true;
+                exportBtn.disabled = false;
+            }
+            if (generator) generator.style.gridTemplateColumns = '1fr 1fr auto auto';
 
             var eventValue = getEventStreamingSelectedEvent();
             var isNewEvent = !!eventValue && !isEventNameTaken(eventValue);
             var isExistingEvent = !!eventValue && isEventNameTaken(eventValue);
             var eventValid = isEventNameValid(eventValue);
 
-            // Second input (plugin ID) as wide as event name input (both 1fr, button auto 84.4x29)
-            // Plugin ID input enabled logic: disabled as long as no event value or (if textual, no valid event)
+            // Second input (plugin name), both inputs fixed width, buttons auto
+            // Plugin name input enabled logic: disabled as long as no event value or (if textual, no valid event)
             var pluginShouldBeEnabled = !!eventValue && eventValid;
             // Also check if event is new, need valid new event name, if existing, just need event selected
             if (!eventValue) {
@@ -1480,10 +1635,11 @@
                     // Restore button text based on current event
                     updateEventStreamingInputs();
                     importBtn.innerHTML = importIconSvg;
-                    importBtn.setAttribute('data-tooltip', 'Import Events and Subscriptions');
-                    importBtn.setAttribute('aria-label', 'Import Events and Subscriptions');
+                    importBtn.setAttribute('data-tooltip', 'Import/Export Events and Subscriptions');
+                    importBtn.setAttribute('aria-label', 'Import/Export Events and Subscriptions');
                     importBtn.classList.remove('x-active');
                 }
+                refreshImportButtonTooltip(importBtn);
                 updateEventStreamingInputs();
             });
 
@@ -1508,23 +1664,6 @@
                     this.classList.remove('api-key-input-invalid');
                     hideErrorTooltip();
                 }
-                updateEventStreamingInputs();
-            });
-
-            jsonInput.addEventListener('keydown', function (event) {
-                if (event.key.length === 1 && JSON_IMPORT_PROHIBITED_TEST_RE.test(event.key)) {
-                    event.preventDefault();
-                    flashEventStreamingInvalid(this);
-                }
-            });
-            jsonInput.addEventListener('input', function () {
-                var before = this.value;
-                var hadProhibited = JSON_IMPORT_PROHIBITED_TEST_RE.test(before);
-                this.value = this.value.replace(JSON_IMPORT_PROHIBITED_RE, '');
-                if (this.value !== before) {
-                    flashEventStreamingInvalid(this);
-                }
-                // Don't show tooltip here, only on Import press
                 updateEventStreamingInputs();
             });
 
@@ -1563,104 +1702,6 @@
         }
 
         function addOrUpdateEventStreaming() {
-            var jsonInput = document.getElementById('eventStreamingJsonInput');
-            var isJsonMode = jsonInput && jsonInput.style.display !== 'none' && jsonInput.style.display !== '';
-            if (isJsonMode) {
-                var jsonValue = jsonInput ? jsonInput.value.trim() : '';
-                if (!jsonValue) {
-                    showTransientError(jsonInput, 'api-key-input-invalid', 'No input was provided.');
-                    return;
-                }
-                // Validate JSON and prohibited characters in keys/values
-                var parsed;
-                try {
-                    parsed = JSON.parse(jsonValue);
-                } catch (e) {
-                    flashEventStreamingInvalid(jsonInput);
-                    showErrorTooltip(jsonInput, 'Invalid JSON.');
-                    return;
-                }
-                if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-                    flashEventStreamingInvalid(jsonInput);
-                    showErrorTooltip(jsonInput, 'JSON must be an object {event: [plugins]}.');
-                    return;
-                }
-                var hasProhibitedInJson = false;
-                for (var k in parsed) {
-                    if (PLAINTEXT_PROHIBITED_TEST_RE.test(k)) hasProhibitedInJson = true;
-                    var vals = parsed[k];
-                    if (!Array.isArray(vals)) { hasProhibitedInJson = true; break; }
-                    for (var i = 0; i < vals.length; i++) {
-                        if (typeof vals[i] !== 'string' || PLAINTEXT_PROHIBITED_TEST_RE.test(vals[i])) hasProhibitedInJson = true;
-                    }
-                }
-                if (hasProhibitedInJson) {
-                    flashEventStreamingInvalid(jsonInput);
-                    showErrorTooltip(jsonInput, 'Invalid character in JSON keys/values.');
-                    return;
-                }
-                // Convert to multiple add/update requests at UI level
-                var events = Object.keys(parsed);
-                var pending = events.length;
-                var hadError = false;
-                function onJsonDone() {
-                    pending--;
-                    if (pending === 0 && !hadError) {
-                        jsonInput.value = '';
-                        hideErrorTooltip();
-                        loadPluginEvents();
-                        // Revert to normal mode
-                        var importBtn = document.getElementById('eventStreamingImportBtn');
-                        if (importBtn) importBtn.click();
-                    } else if (pending === 0) {
-                        loadPluginEvents();
-                    }
-                }
-                events.forEach(function (ev) {
-                    var plugins = parsed[ev];
-                    // First ensure event exists
-                    var isNew = !isEventNameTaken(ev);
-                    var createPromise = isNew ? fetchWithHandshake('/api/plugin-events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: ev }) }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); }) : Promise.resolve({ ok: true, data: {} });
-                    createPromise.then(function (res) {
-                        if (!res.ok && isNew) {
-                            hadError = true;
-                            flashEventStreamingInvalid(jsonInput);
-                            showErrorTooltip(jsonInput, res.data.error || 'Failed to create event ' + ev);
-                            onJsonDone();
-                            return;
-                        }
-                        // Now add each plugin for this event
-                        if (!plugins || plugins.length === 0) {
-                            onJsonDone();
-                            return;
-                        }
-                        var pPending = plugins.length;
-                        plugins.forEach(function (pl) {
-                            fetchWithHandshake('/api/plugin-events/' + encodeURIComponent(ev) + '/plugins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plugin: pl }) })
-                                .then(function (r2) { return r2.json().then(function (d2) { return { ok: r2.ok, data: d2 }; }); })
-                                .then(function (res2) {
-                                    if (!res2.ok) {
-                                        hadError = true;
-                                        flashEventStreamingInvalid(jsonInput);
-                                        showErrorTooltip(jsonInput, res2.data.error || 'Failed to add plugin ' + pl + ' to ' + ev);
-                                    }
-                                    pPending--;
-                                    if (pPending === 0) onJsonDone();
-                                })
-                                .catch(function () {
-                                    hadError = true;
-                                    pPending--;
-                                    if (pPending === 0) onJsonDone();
-                                });
-                        });
-                        if (plugins.length === 0) onJsonDone();
-                    }).catch(function () {
-                        hadError = true;
-                        onJsonDone();
-                    });
-                });
-                return;
-            }
             var eventInput = document.getElementById('eventStreamingEventInput');
             var pluginInput = document.getElementById('eventStreamingPluginInput');
             var eventValue = eventInput ? eventInput.value.trim() : '';
@@ -1682,12 +1723,12 @@
                 return;
             }
             if (!isInsert && !pluginValue) {
-                showTransientError(pluginInput, 'api-key-input-invalid', 'Plugin ID Required.');
+                showTransientError(pluginInput, 'api-key-input-invalid', 'Plugin Name Required.');
                 return;
             }
             if (pluginValue && !isPluginNameForEventValid(pluginValue)) {
                 flashEventStreamingInvalid(pluginInput);
-                showErrorTooltip(pluginInput, 'Enter a valid plugin ID.');
+                showErrorTooltip(pluginInput, 'Enter a valid plugin name.');
                 return;
             }
 
@@ -1698,7 +1739,7 @@
                 fetchWithHandshake('/api/plugin-events', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ event: eventValue })
+                    body: JSON.stringify({ event: eventValue, plugin: pluginValue || null })
                 })
                 .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
                 .then(function (res) {
@@ -1707,34 +1748,12 @@
                         showErrorTooltip(document.getElementById('eventStreamingEventInput'), msg);
                         return;
                     }
-                    if (!pluginValue) {
-                        document.getElementById('eventStreamingEventInput').value = '';
-                        hideErrorTooltip();
-                        pluginEvents[eventValue] = [];
-                        renderEventStreamingTable(pluginEvents);
-                        updateEventStreamingInputs();
-                        return;
-                    }
-                    // Now add plugin to the newly created event
-                    return fetchWithHandshake('/api/plugin-events/' + encodeURIComponent(eventValue) + '/plugins', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ plugin: pluginValue })
-                    })
-                    .then(function (r2) { return r2.json().then(function (d2) { return { ok: r2.ok, data: d2 }; }); })
-                    .then(function (res2) {
-                        if (!res2.ok) {
-                            showErrorTooltip(document.getElementById('eventStreamingPluginInput'), res2.data.error || 'Failed to add plugin.');
-                            return;
-                        }
-                        // Success
-                        document.getElementById('eventStreamingEventInput').value = '';
-                        document.getElementById('eventStreamingPluginInput').value = '';
-                        hideErrorTooltip();
-                        pluginEvents[eventValue] = [pluginValue];
-                        renderEventStreamingTable(pluginEvents);
-                        updateEventStreamingInputs();
-                    });
+                    document.getElementById('eventStreamingEventInput').value = '';
+                    document.getElementById('eventStreamingPluginInput').value = '';
+                    hideErrorTooltip();
+                    pluginEvents[eventValue] = Array.isArray(res.data.plugins) ? res.data.plugins : [];
+                    renderEventStreamingTable(pluginEvents);
+                    updateEventStreamingInputs();
                 })
                 .catch(function () {});
             } else {
@@ -1832,6 +1851,8 @@
                 tr.appendChild(pluginsTd);
                 var actionsTd = document.createElement('td');
                 actionsTd.className = 'table-actions-cell';
+                var actionsDiv = document.createElement('div');
+                actionsDiv.className = 'actions-cell';
                 var delBtn = document.createElement('button');
                 delBtn.type = 'button';
                 delBtn.className = 'icon-btn';
@@ -1839,7 +1860,8 @@
                 delBtn.dataset.event = ev;
                 delBtn.dataset.tableTooltip = 'Delete Event';
                 delBtn.innerHTML = ICONS.trash;
-                actionsTd.appendChild(delBtn);
+                actionsDiv.appendChild(delBtn);
+                actionsTd.appendChild(actionsDiv);
                 tr.appendChild(actionsTd);
                 tbody.appendChild(tr);
             });
@@ -1877,7 +1899,18 @@
                 overlay.remove();
                 row.remove();
                 if (tbody.children.length === 0) {
-                    renderEventStreamingTable({}, false);
+                    animateTableWrapToContent(wrap, function () { renderEventStreamingTable({}, false); }, h1);
+                } else if (wrap) {
+                    var remainingHeight = wrap.offsetHeight;
+                    wrap.style.height = h1 + 'px';
+                    wrap.style.transition = 'height 0.4s ease';
+                    void wrap.offsetHeight;
+                    wrap.style.height = remainingHeight + 'px';
+                    setTimeout(function () {
+                        wrap.style.height = '';
+                        wrap.style.transition = '';
+                    }, 400);
+                    if (below.length) flipRows(below, firstTops);
                 } else if (below.length) {
                     flipRows(below, firstTops);
                 }
@@ -2235,7 +2268,7 @@
                 apiKeysList = apiKeysList.filter(function (k) { return k.key !== key; });
                 row.remove();
                 if (tbody && tbody.children.length === 0) {
-                    renderApiKeysTable([]);
+                    animateTableWrapToContent(wrap, function () { renderApiKeysTable([]); }, h1);
                 } else if (wrap) {
                     var h2 = wrap.offsetHeight;
                     wrap.style.height = h1 + 'px';
@@ -2301,10 +2334,86 @@
             return 0;
         }
 
-        function renderExternalInteractionsTable(entries) {
-            var table = document.getElementById('externalInteractionsTable');
-            var tbody = document.getElementById('externalInteractionsTableBody');
-            var empty = document.getElementById('externalInteractionsEmpty');
+        var incomingIpsList = [];
+        var outgoingIpsList = [];
+
+        function firewallTableConfig(direction) {
+            if (direction === 'outgoing') {
+                return { listKey: 'outgoingIps', base: '/api/external-interactions-outgoing-ips', tableId: 'externalInteractionsOutgoingTable', tbodyId: 'externalInteractionsOutgoingTableBody', emptyId: 'externalInteractionsOutgoingEmpty', pluginsFirst: true };
+            }
+            return { listKey: 'incomingIps', base: '/api/external-interactions-incoming-ips', tableId: 'externalInteractionsTable', tbodyId: 'externalInteractionsTableBody', emptyId: 'externalInteractionsEmpty', pluginsFirst: false };
+        }
+
+        function firewallList(direction) {
+            return direction === 'outgoing' ? outgoingIpsList : incomingIpsList;
+        }
+
+        function setFirewallList(direction, list) {
+            if (direction === 'outgoing') {
+                outgoingIpsList = list;
+            } else {
+                incomingIpsList = list;
+            }
+        }
+
+        function sortedEntryPlugins(plugins) {
+            var ordered = [];
+            var seen = {};
+            (plugins || []).forEach(function (p) {
+                if (typeof p !== 'string' || !p.trim()) return;
+                var key = p.trim().toLowerCase();
+                if (seen[key]) return;
+                seen[key] = true;
+                ordered.push(p.trim());
+            });
+            var akupara = ordered.filter(function (p) { return p.toLowerCase() === 'akupara'; });
+            var rest = ordered.filter(function (p) { return p.toLowerCase() !== 'akupara'; });
+            rest.sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
+            return akupara.concat(rest);
+        }
+
+        function buildFirewallPluginTags(direction, ip, plugins) {
+            var tags = document.createElement('div');
+            tags.className = 'event-plugin-tags';
+            var ordered = sortedEntryPlugins(plugins);
+            if (!ordered.length) {
+                var emptyLabel = document.createElement('span');
+                emptyLabel.className = 'event-plugin-empty';
+                emptyLabel.textContent = '(No Plugins)';
+                tags.appendChild(emptyLabel);
+                return tags;
+            }
+            ordered.forEach(function (pl) {
+                var tag = document.createElement('span');
+                var low = pl.toLowerCase();
+                var kindClass = low === 'akupara' ? ' event-plugin-tag-akupara' : (low.indexOf('dev-') === 0 ? ' event-plugin-tag-dev' : '');
+                tag.className = 'event-plugin-tag' + kindClass;
+                tag.draggable = true;
+                var label = document.createElement('span');
+                label.className = 'event-plugin-tag-label';
+                label.textContent = pl;
+                tag.appendChild(label);
+                var cross = document.createElement('button');
+                cross.type = 'button';
+                cross.className = 'event-plugin-tag-remove';
+                cross.dataset.action = 'removeplugin';
+                cross.dataset.direction = direction;
+                cross.dataset.ip = ip;
+                cross.dataset.plugin = pl;
+                cross.dataset.tableTooltip = low === 'akupara' ? 'Remove Akupara' : 'Remove Plugin';
+                cross.setAttribute('aria-label', low === 'akupara' ? 'Remove Akupara' : 'Remove ' + pl);
+                cross.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+                tag.appendChild(cross);
+                tags.appendChild(tag);
+            });
+            return tags;
+        }
+
+        function renderFirewallTable(direction, entries) {
+            var cfg = firewallTableConfig(direction);
+            var table = document.getElementById(cfg.tableId);
+            var tbody = document.getElementById(cfg.tbodyId);
+            var empty = document.getElementById(cfg.emptyId);
             if (!table || !tbody) return;
             table.classList.remove('data-table-deleting');
             hideTableTooltip();
@@ -2326,20 +2435,18 @@
                 return;
             }
             entries.slice().sort(function (a, b) {
-                var ia = Object.keys(a)[0];
-                var ib = Object.keys(b)[0];
-                var c = compareNetworkIps(ia, ib);
+                var c = compareNetworkIps(a.ip, b.ip);
                 if (c !== 0) return c;
-                return String(a[ia]).localeCompare(String(b[ib]));
+                return String(a.action).localeCompare(String(b.action));
             }).forEach(function (entry) {
-                tbody.appendChild(buildExternalInteractionsRow(entry));
+                tbody.appendChild(buildFirewallRow(direction, entry));
             });
         }
 
-        function buildExternalInteractionsRow(entry) {
-            var ip = Object.keys(entry)[0];
-            var action = entry[ip];
-            var note = entry['Note'] || '';
+        function buildFirewallRow(direction, entry) {
+            var ip = entry.ip;
+            var action = entry.action;
+            var note = entry.Note || '';
             var tr = document.createElement('tr');
             tr.dataset.ip = ip;
             tr.dataset.note = note;
@@ -2348,7 +2455,10 @@
             var ipTd = document.createElement('td');
             ipTd.className = 'external-interactions-ip-cell';
             ipTd.textContent = ip;
-            tr.appendChild(ipTd);
+
+            var pluginsTd = document.createElement('td');
+            pluginsTd.className = 'firewall-plugins-cell';
+            pluginsTd.appendChild(buildFirewallPluginTags(direction, ip, entry.plugins));
 
             var noteTd = document.createElement('td');
             noteTd.className = 'external-interactions-note-cell';
@@ -2356,7 +2466,6 @@
             noteDisplay.className = 'external-interactions-note-display' + (note ? '' : ' is-empty');
             noteDisplay.textContent = note;
             noteTd.appendChild(noteDisplay);
-            tr.appendChild(noteTd);
 
             var policyTd = document.createElement('td');
             policyTd.className = 'external-interactions-policy-cell';
@@ -2367,13 +2476,13 @@
                 btn.type = 'button';
                 btn.className = 'external-interactions-segment' + (part[0] === action ? ' selected' : '');
                 btn.dataset.action = 'policy';
+                btn.dataset.direction = direction;
                 btn.dataset.ip = ip;
                 btn.dataset.value = part[0];
                 btn.textContent = part[1];
                 seg.appendChild(btn);
             });
             policyTd.appendChild(seg);
-            tr.appendChild(policyTd);
 
             var actionsTd = document.createElement('td');
             actionsTd.className = 'table-actions-cell';
@@ -2382,27 +2491,39 @@
             var editBtn = document.createElement('button');
             editBtn.type = 'button';
             editBtn.className = 'icon-btn';
-            editBtn.dataset.action = 'editnote';
+            editBtn.dataset.action = 'editip';
+            editBtn.dataset.direction = direction;
             editBtn.dataset.ip = ip;
-            editBtn.dataset.tableTooltip = 'Edit Note';
+            editBtn.dataset.tableTooltip = 'Edit IP';
             editBtn.innerHTML = ICONS.pen;
             actionsDiv.appendChild(editBtn);
             var deleteBtn = document.createElement('button');
             deleteBtn.type = 'button';
             deleteBtn.className = 'icon-btn';
             deleteBtn.dataset.action = 'delete';
+            deleteBtn.dataset.direction = direction;
             deleteBtn.dataset.ip = ip;
             deleteBtn.dataset.tableTooltip = 'Delete IP';
             deleteBtn.innerHTML = ICONS.trash;
             actionsDiv.appendChild(deleteBtn);
             actionsTd.appendChild(actionsDiv);
+
+            if (firewallTableConfig(direction).pluginsFirst) {
+                tr.appendChild(pluginsTd);
+                tr.appendChild(ipTd);
+            } else {
+                tr.appendChild(ipTd);
+                tr.appendChild(pluginsTd);
+            }
+            tr.appendChild(noteTd);
+            tr.appendChild(policyTd);
             tr.appendChild(actionsTd);
 
             return tr;
         }
 
 
-        function selectExternalInteractionsPolicy(row, value) {
+        function selectFirewallPolicy(direction, row, value) {
             var seg = row.querySelector('.external-interactions-segmented');
             if (!seg) return;
             Array.prototype.forEach.call(seg.querySelectorAll('.external-interactions-segment'), function (btn) {
@@ -2410,8 +2531,9 @@
             });
         }
 
-        function setExternalInteractionsIpPolicy(ip, value, btn) {
-            fetchWithHandshake('/api/external-interactions-ips/' + encodeURIComponent(ip), {
+        function setFirewallIpPolicy(direction, ip, value, btn) {
+            var cfg = firewallTableConfig(direction);
+            fetchWithHandshake(cfg.base + '/' + encodeURIComponent(ip), {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: value })
@@ -2419,39 +2541,210 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (!data || typeof data !== 'object') return;
-                    if (ip in data) {
-                        var row = btn.closest('tr');
-                        if (row) selectExternalInteractionsPolicy(row, value);
-                        externalInteractionsIpsList = externalInteractionsIpsList.map(function (entry) {
-                            if (Object.keys(entry)[0] === ip) {
-                                var updated = {};
-                                updated[ip] = value;
-                                updated['Note'] = entry['Note'] || '';
-                                return updated;
+                    if (data.ip) {
+                        var list = firewallList(direction).map(function (entry) {
+                            if (entry.ip === ip) {
+                                return { ip: data.ip, plugins: entry.plugins, action: value, Note: entry.Note || '' };
                             }
                             return entry;
                         });
+                        setFirewallList(direction, list);
+                        var row = btn.closest('tr');
+                        if (row) selectFirewallPolicy(direction, row, value);
                     }
                 })
                 .catch(function () {});
         }
 
-        function toggleExternalInteractionsNoteEdit(ip, btn) {
-            var row = btn.closest('tr');
-            if (!row) return;
-            if (row.dataset.editing === '1') {
-                finalizeExternalInteractionsNote(ip, row, btn);
+        function canonicalFirewallIp(value) {
+            var s = String(value || '').trim().toLowerCase();
+            if (!s) return '';
+            if (s.indexOf(':') !== -1) {
+                try {
+                    return maximizeIpv6(s);
+                } catch (e) {
+                    return s;
+                }
+            }
+            return s;
+        }
+
+        function isFirewallIpDuplicate(direction, value, excludeIp) {
+            var canon = canonicalFirewallIp(value);
+            if (!canon) return false;
+            var excl = canonicalFirewallIp(excludeIp);
+            return firewallList(direction).some(function (entry) {
+                var existing = canonicalFirewallIp(entry.ip);
+                return existing === canon && existing !== excl;
+            });
+        }
+
+        function refreshFirewallIpInvalid(direction, input, excludeIp) {
+            var value = input.value.trim();
+            var dup = !!value && isValidIp(value) && isFirewallIpDuplicate(direction, value, excludeIp);
+            if (!input._flashTimer) {
+                input.classList.toggle('api-key-input-invalid', dup);
+            }
+            if (!dup) {
+                hideErrorTooltip();
             } else {
-                enterExternalInteractionsNoteEdit(row, btn);
+                showErrorTooltip(input, 'That IP is already in the list.');
             }
         }
 
-        function enterExternalInteractionsNoteEdit(row, btn) {
+        function flashFirewallInputRed(input, refresh) {
+            if (input.classList.contains('api-key-input-invalid')) return;
+            if (input._flashTimer) clearTimeout(input._flashTimer);
+            input.classList.remove('api-key-input-invalid');
+            void input.offsetWidth;
+            input.classList.add('api-key-input-invalid');
+            input._flashTimer = setTimeout(function () {
+                input._flashTimer = null;
+                refresh();
+            }, 600);
+        }
+
+        function toggleFirewallIpEdit(direction, ip, btn) {
+            var row = btn.closest('tr');
+            if (!row) return;
+            if (row.dataset.editing === 'row') {
+                finalizeFirewallRowEdit(direction, ip, row, btn);
+            } else if (row.dataset.editing === '0') {
+                enterFirewallIpEdit(direction, row, btn);
+            }
+        }
+
+        function enterFirewallIpEdit(direction, row, btn) {
+            var ipTd = row.querySelector('.external-interactions-ip-cell');
+            var current = row.dataset.ip || '';
+            row.dataset.editing = 'row';
+            btn.innerHTML = ICONS.save;
+            btn.dataset.tableTooltip = 'Save Changes';
+            ipTd.innerHTML = '';
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'external-interactions-note-input';
+            input.value = current;
+            input.maxLength = 45;
+            input.autocomplete = 'off';
+            input.spellcheck = false;
+            ipTd.appendChild(input);
+            input.focus();
+            input.select();
+            input.addEventListener('input', function () {
+                refreshFirewallIpInvalid(direction, input, current);
+            });
+            input.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') {
+                    finalizeFirewallRowEdit(direction, row.dataset.ip, row, btn);
+                } else if (event.key === 'Escape') {
+                    exitFirewallRowEdit(row);
+                }
+            });
+            refreshFirewallIpInvalid(direction, input, current);
+        }
+
+        function exitFirewallRowEdit(row) {
+            var btn = row.querySelector('[data-action="editip"]');
+            var ip = row.dataset.ip || '';
+            var note = row.dataset.note || '';
+            row.dataset.editing = '0';
+            var ipTd = row.querySelector('.external-interactions-ip-cell');
+            if (ipTd) ipTd.textContent = ip;
+            var noteTd = row.querySelector('.external-interactions-note-cell');
+            if (noteTd) {
+                noteTd.innerHTML = '';
+                var display = document.createElement('span');
+                display.className = 'external-interactions-note-display' + (note ? '' : ' is-empty');
+                display.textContent = note;
+                noteTd.appendChild(display);
+            }
+            if (btn) {
+                btn.innerHTML = ICONS.pen;
+                btn.dataset.tableTooltip = 'Edit IP';
+            }
+            hideTableTooltip();
+            hideErrorTooltip();
+        }
+
+        function finalizeFirewallRowEdit(direction, ip, row, btn) {
+            var ipInput = row.querySelector('.external-interactions-ip-cell input');
+            var noteInput = row.querySelector('.external-interactions-note-cell input');
+            if (!ipInput) return;
+            var value = ipInput.value.trim();
+            if (!value) {
+                showTransientError(ipInput, 'api-key-input-invalid', 'IP address is required.');
+                return;
+            }
+            if (!isValidIp(value)) {
+                flashFirewallInputRed(ipInput, function () { refreshFirewallIpInvalid(direction, ipInput, ip); });
+                showErrorTooltip(ipInput, 'Enter a valid IP address.');
+                return;
+            }
+            if (isFirewallIpDuplicate(direction, value, ip)) {
+                flashFirewallInputRed(ipInput, function () { refreshFirewallIpInvalid(direction, ipInput, ip); });
+                showErrorTooltip(ipInput, 'That IP is already in the list.');
+                return;
+            }
+            if (value.indexOf(':') !== -1) {
+                value = maximizeIpv6(value);
+            }
+            var payload = { new_ip: value };
+            if (noteInput) {
+                var note = noteInput.value;
+                if (PLAINTEXT_PROHIBITED_TEST_RE.test(note)) {
+                    flashFirewallInputRed(noteInput, function () { refreshFirewallNoteInvalid(noteInput); });
+                    showErrorTooltip(noteInput, 'Note contains prohibited characters.');
+                    return;
+                }
+                payload.note = note;
+            }
+            var cfg = firewallTableConfig(direction);
+            fetchWithHandshake(cfg.base + '/' + encodeURIComponent(ip), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(function (r) {
+                    return r.json().catch(function () { return {}; }).then(function (data) {
+                        return { ok: r.ok, data: data };
+                    });
+                })
+                .then(function (res) {
+                    if (!res.ok || !res.data || !res.data.ip) {
+                        var target = (res.data && res.data.error && res.data.error.indexOf('IP') !== -1) ? ipInput : (noteInput || ipInput);
+                        showErrorTooltip(target, (res.data && res.data.error) || 'Failed to update the entry.');
+                        return;
+                    }
+                    var list = firewallList(direction).map(function (entry) {
+                        return entry.ip === ip ? res.data : entry;
+                    });
+                    setFirewallList(direction, list);
+                    hideErrorTooltip();
+                    renderFirewallTable(direction, list);
+                })
+                .catch(function () {});
+        }
+
+        function refreshFirewallNoteInvalid(input) {
+            var value = input.value;
+            var invalid = PLAINTEXT_PROHIBITED_TEST_RE.test(value);
+            if (!input._flashTimer) {
+                input.classList.toggle('api-key-input-invalid', invalid);
+            }
+            if (!invalid) {
+                hideErrorTooltip();
+            } else {
+                showErrorTooltip(input, 'Note contains prohibited characters.');
+            }
+            return invalid;
+        }
+
+        function enterFirewallNoteEdit(direction, row) {
+            if (row.dataset.editing !== 'row') return;
+            if (row.querySelector('.external-interactions-note-cell input')) return;
             var noteTd = row.querySelector('.external-interactions-note-cell');
             var current = row.dataset.note || '';
-            row.dataset.editing = '1';
-            btn.innerHTML = ICONS.save;
-            btn.dataset.tableTooltip = 'Save Note';
             noteTd.innerHTML = '';
             var input = document.createElement('input');
             input.type = 'text';
@@ -2463,59 +2756,56 @@
             noteTd.appendChild(input);
             input.focus();
             input.addEventListener('keydown', function (event) {
-                if (event.key === 'Enter') {
-                    finalizeExternalInteractionsNote(row.dataset.ip, row, btn);
-                } else if (event.key === 'Escape') {
-                    exitExternakAccessNoteEdit(row, btn, current);
+                if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
+                    event.preventDefault();
+                    flashFirewallInputRed(input, function () { refreshFirewallNoteInvalid(input); });
+                    return;
                 }
+                if (event.key === 'Enter') {
+                    finalizeFirewallRowEdit(direction, row.dataset.ip, row);
+                } else if (event.key === 'Escape') {
+                    exitFirewallRowEdit(row);
+                }
+            });
+            input.addEventListener('input', function () {
+                var before = this.value;
+                this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
+                if (this.value !== before) {
+                    flashFirewallInputRed(input, function () { refreshFirewallNoteInvalid(input); });
+                }
+                refreshFirewallNoteInvalid(this);
             });
         }
 
-        function exitExternakAccessNoteEdit(row, btn, note) {
-            var noteTd = row.querySelector('.external-interactions-note-cell');
-            row.dataset.editing = '0';
-            row.dataset.note = note;
-            btn.innerHTML = ICONS.pen;
-            btn.dataset.tableTooltip = 'Edit Note';
-            noteTd.innerHTML = '';
-            var display = document.createElement('span');
-            display.className = 'external-interactions-note-display' + (note ? '' : ' is-empty');
-            display.textContent = note;
-            noteTd.appendChild(display);
+        function removeFirewallPlugin(direction, ip, plugin, btn) {
+            if (!plugin) return;
             hideTableTooltip();
-            hideErrorTooltip();
-        }
-
-        function finalizeExternalInteractionsNote(ip, row, btn) {
-            var input = row.querySelector('.external-interactions-note-input');
-            var note = input ? input.value : '';
-            var seg = row.querySelector('.external-interactions-segment.selected');
-            var action = seg ? seg.dataset.value : 'unknown';
-            fetchWithHandshake('/api/external-interactions-ips/' + encodeURIComponent(ip), {
+            var cfg = firewallTableConfig(direction);
+            fetchWithHandshake(cfg.base + '/' + encodeURIComponent(ip), {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: action, note: note })
+                body: JSON.stringify({ remove_plugin: plugin })
             })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    if (!data || typeof data !== 'object') return;
-                    if (ip in data) {
-                        externalInteractionsIpsList = externalInteractionsIpsList.map(function (entry) {
-                            if (Object.keys(entry)[0] === ip) {
-                                var updated = {};
-                                updated[ip] = entry[ip];
-                                updated['Note'] = note;
-                                return updated;
-                            }
-                            return entry;
-                        });
-                        exitExternakAccessNoteEdit(row, btn, note);
+                .then(function (r) {
+                    return r.json().catch(function () { return {}; }).then(function (data) {
+                        return { ok: r.ok, data: data };
+                    });
+                })
+                .then(function (res) {
+                    if (!res.ok || !res.data || !res.data.ip) {
+                        if (btn) showTableTooltip((res.data && res.data.error) || 'Failed to remove the plugin.', btn);
+                        return;
                     }
+                    var list = firewallList(direction).map(function (entry) {
+                        return entry.ip === ip ? res.data : entry;
+                    });
+                    setFirewallList(direction, list);
+                    renderFirewallTable(direction, list);
                 })
                 .catch(function () {});
         }
 
-        function deleteExternalAccessIp(ip, btn) {
+        function deleteFirewallIp(direction, ip, btn) {
             var row = btn.closest('tr');
             var table = row.closest('table');
             var wrap = row.closest('.table-wrap');
@@ -2538,14 +2828,26 @@
             row.classList.add('table-row-deleting');
             if (isLast && table) table.classList.add('data-table-deleting');
             setTimeout(function () {
-                fetchWithHandshake('/api/external-interactions-ips/' + encodeURIComponent(ip), { method: 'DELETE' })
+                var cfg = firewallTableConfig(direction);
+                fetchWithHandshake(cfg.base + '/' + encodeURIComponent(ip), { method: 'DELETE' })
                     .then(function (r) { return r.json(); })
                     .catch(function () {});
                 overlay.remove();
-                externalInteractionsIpsList = externalInteractionsIpsList.filter(function (entry) { return Object.keys(entry)[0] !== ip; });
+                setFirewallList(direction, firewallList(direction).filter(function (entry) { return entry.ip !== ip; }));
                 row.remove();
                 if (tbody && tbody.children.length === 0) {
-                    renderExternalInteractionsTable([]);
+                    renderFirewallTable(direction, []);
+                    if (wrap) {
+                        var h2 = wrap.offsetHeight;
+                        wrap.style.height = h1 + 'px';
+                        wrap.style.transition = 'height 0.4s ease';
+                        void wrap.offsetHeight;
+                        wrap.style.height = h2 + 'px';
+                        setTimeout(function () {
+                            wrap.style.height = '';
+                            wrap.style.transition = '';
+                        }, 400);
+                    }
                 } else if (wrap) {
                     var h2 = wrap.offsetHeight;
                     wrap.style.height = h1 + 'px';
@@ -2561,20 +2863,223 @@
             }, 1050);
         }
 
-        function wireExternalInteractionsTable() {
-            var table = document.getElementById('externalInteractionsTable');
+        var firewallDragState = null;
+        var firewallDropIndicator = null;
+
+        function firewallClearDropIndicator() {
+            if (firewallDropIndicator && firewallDropIndicator.parentNode) {
+                firewallDropIndicator.parentNode.removeChild(firewallDropIndicator);
+            }
+            firewallDropIndicator = null;
+        }
+
+        function firewallCancelDrag() {
+            var state = firewallDragState;
+            firewallDragState = null;
+            firewallClearDropIndicator();
+            document.removeEventListener('dragover', firewallDocumentDragOver);
+            if (state) {
+                renderFirewallTable(state.direction, firewallList(state.direction));
+            }
+        }
+
+        function firewallDocumentDragOver(event) {
+            if (!firewallDragState) return;
+            var cell = event.target && event.target.closest ? event.target.closest('.firewall-plugins-cell') : null;
+            if (!cell) {
+                if (event.dataTransfer) {
+                    try { event.dataTransfer.dropEffect = 'none'; } catch (e) {}
+                }
+                firewallClearDropIndicator();
+            }
+        }
+
+        function firewallTagDragStart(direction, ip, plugin, tag, event) {
+            var rect = tag.getBoundingClientRect();
+            if (event.dataTransfer) {
+                try { event.dataTransfer.setData('text/plain', plugin); } catch (e) {}
+                try { event.dataTransfer.effectAllowed = 'move'; } catch (e) {}
+                try { event.dataTransfer.setDragImage(tag, event.clientX - rect.left, event.clientY - rect.top); } catch (e) {}
+            }
+            firewallDragState = { direction: direction, ip: ip, plugin: plugin, width: rect.width, height: rect.height };
+            tag.classList.add('event-plugin-tag-dragging');
+            // Hide after the drag image is captured so the tag stays visible at the cursor
+            setTimeout(function () {
+                if (!firewallDragState) return;
+                var placeholder = document.createElement('span');
+                placeholder.className = 'event-plugin-tag firewall-drop-source';
+                placeholder.setAttribute('aria-hidden', 'true');
+                placeholder.style.width = Math.round(firewallDragState.width) + 'px';
+                placeholder.style.height = Math.round(firewallDragState.height) + 'px';
+                tag.parentNode.insertBefore(placeholder, tag);
+                tag.style.display = 'none';
+            }, 0);
+            document.addEventListener('dragover', firewallDocumentDragOver);
+        }
+
+        function firewallTagDragOver(direction, cell, event) {
+            if (!firewallDragState) return;
+            var box = cell.querySelector('.event-plugin-tags');
+            if (!box) return;
+            var row = cell.closest('tr');
+            var targetIp = row ? row.dataset.ip : null;
+            // Drops are only possible inside the same table on another entry:
+            // anywhere else the operation is shown as disabled.
+            if (firewallDragState.direction !== direction || firewallDragState.ip === targetIp) {
+                if (event.dataTransfer) {
+                    try { event.dataTransfer.dropEffect = 'none'; } catch (e) {}
+                }
+                firewallClearDropIndicator();
+                return;
+            }
+            event.preventDefault();
+            if (event.dataTransfer) {
+                try { event.dataTransfer.dropEffect = 'move'; } catch (e) {}
+            }
+            if (!firewallDropIndicator) {
+                firewallDropIndicator = document.createElement('span');
+                firewallDropIndicator.className = 'event-plugin-tag firewall-drop-target';
+                firewallDropIndicator.setAttribute('aria-hidden', 'true');
+                firewallDropIndicator.style.width = Math.round(firewallDragState.width) + 'px';
+                firewallDropIndicator.style.height = Math.round(firewallDragState.height) + 'px';
+            }
+            // The cloud is always sorted (akupara first, then alphabetical), so the
+            // indicator goes where the tag will actually end up, not where hovered.
+            var targetEntry = null;
+            var list = firewallList(direction);
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].ip === targetIp) { targetEntry = list[i]; break; }
+            }
+            var current = [];
+            var tags = box.querySelectorAll('.event-plugin-tag');
+            for (var j = 0; j < tags.length; j++) {
+                var t = tags[j];
+                if (t === firewallDropIndicator || t.style.display === 'none') continue;
+                var lab = t.querySelector('.event-plugin-tag-label');
+                current.push({ el: t, name: lab ? lab.textContent : '' });
+            }
+            var merged = sortedEntryPlugins(current.map(function (c) { return c.name; }).concat([firewallDragState.plugin]));
+            var wanted = -1;
+            for (var k = 0; k < merged.length; k++) {
+                if (merged[k].toLowerCase() === firewallDragState.plugin.toLowerCase()) { wanted = k; break; }
+            }
+            if (targetEntry === null || wanted < 0) {
+                // Fallback: position by hover when the entry cannot be resolved
+                var placed = false;
+                for (var m = 0; m < current.length; m++) {
+                    var r = current[m].el.getBoundingClientRect();
+                    if (event.clientX < r.left + r.width / 2) {
+                        box.insertBefore(firewallDropIndicator, current[m].el);
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) {
+                    box.appendChild(firewallDropIndicator);
+                }
+                return;
+            }
+            if (wanted < current.length) {
+                box.insertBefore(firewallDropIndicator, current[wanted].el);
+            } else {
+                box.appendChild(firewallDropIndicator);
+            }
+        }
+
+        function firewallTagDrop(direction, cell, event) {
+            if (!firewallDragState) return;
+            event.preventDefault();
+            var state = firewallDragState;
+            var row = cell.closest('tr');
+            var targetIp = row ? row.dataset.ip : null;
+            firewallDragState = null;
+            document.removeEventListener('dragover', firewallDocumentDragOver);
+            firewallClearDropIndicator();
+            if (!targetIp || state.direction !== direction || state.ip === targetIp) {
+                renderFirewallTable(state.direction, firewallList(state.direction));
+                return;
+            }
+            moveFirewallPlugin(state.direction, state.ip, direction, targetIp, state.plugin);
+        }
+
+        function moveFirewallPlugin(fromDirection, fromIp, toDirection, toIp, plugin) {
+            var toCfg = firewallTableConfig(toDirection);
+            var fromCfg = firewallTableConfig(fromDirection);
+            var targetEntry = null;
+            var targetList = firewallList(toDirection);
+            for (var i = 0; i < targetList.length; i++) {
+                if (targetList[i].ip === toIp) { targetEntry = targetList[i]; break; }
+            }
+            var present = targetEntry && (targetEntry.plugins || []).some(function (p) {
+                return String(p).toLowerCase() === String(plugin).toLowerCase();
+            });
+            if (present) {
+                loadFirewallIps(fromDirection);
+                if (toDirection !== fromDirection) loadFirewallIps(toDirection);
+                return;
+            }
+            fetchWithHandshake(toCfg.base + '/' + encodeURIComponent(toIp), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ add_plugin: plugin })
+            })
+                .then(function (r) {
+                    return r.json().catch(function () { return {}; }).then(function (data) {
+                        return { ok: r.ok, data: data };
+                    });
+                })
+                .then(function (res) {
+                    if (!res.ok) {
+                        loadFirewallIps(fromDirection);
+                        if (toDirection !== fromDirection) loadFirewallIps(toDirection);
+                        return;
+                    }
+                    fetchWithHandshake(fromCfg.base + '/' + encodeURIComponent(fromIp), {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ remove_plugin: plugin })
+                    })
+                        .then(function () {
+                            loadFirewallIps(fromDirection);
+                            if (toDirection !== fromDirection) loadFirewallIps(toDirection);
+                        })
+                        .catch(function () {
+                            loadFirewallIps(fromDirection);
+                            if (toDirection !== fromDirection) loadFirewallIps(toDirection);
+                        });
+                })
+                .catch(function () {
+                    loadFirewallIps(fromDirection);
+                    if (toDirection !== fromDirection) loadFirewallIps(toDirection);
+                });
+        }
+
+        function wireFirewallTable(direction) {
+            var cfg = firewallTableConfig(direction);
+            var table = document.getElementById(cfg.tableId);
             if (!table) return;
             table.addEventListener('click', function (event) {
+                var noteCell = event.target.closest('.external-interactions-note-cell');
+                if (noteCell && !noteCell.querySelector('input')) {
+                    var noteRow = noteCell.closest('tr');
+                    if (noteRow && noteRow.dataset.editing === 'row') {
+                        enterFirewallNoteEdit(direction, noteRow);
+                    }
+                    return;
+                }
                 var btn = event.target.closest('[data-action]');
                 if (!btn) return;
+                if (btn.disabled) return;
                 var ip = btn.dataset.ip;
                 var action = btn.getAttribute('data-action');
                 if (action === 'policy') {
-                    setExternalInteractionsIpPolicy(ip, btn.dataset.value, btn);
-                } else if (action === 'editnote') {
-                    toggleExternalInteractionsNoteEdit(ip, btn);
+                    setFirewallIpPolicy(direction, ip, btn.dataset.value, btn);
+                } else if (action === 'editip') {
+                    toggleFirewallIpEdit(direction, ip, btn);
+                } else if (action === 'removeplugin') {
+                    removeFirewallPlugin(direction, ip, btn.dataset.plugin, btn);
                 } else if (action === 'delete') {
-                    deleteExternalAccessIp(ip, btn);
+                    deleteFirewallIp(direction, ip, btn);
                 }
             });
             table.addEventListener('mouseover', function (event) {
@@ -2590,58 +3095,42 @@
                 if (to && el.contains(to)) return;
                 hideTableTooltip();
             });
-        }
-
-        function loadExternalInteractionsIps() {
-            if (!document.getElementById('externalInteractionsTableBody')) return;
-            fetchWithHandshake('/api/external-interactions-ips')
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (data) {
-                    if (!data || !Array.isArray(data.externalInteractionsIps)) return;
-                    externalInteractionsIpsList = data.externalInteractionsIps.slice();
-                    renderExternalInteractionsTable(data.externalInteractionsIps);
-                })
-                .catch(function () {});
-        }
-
-        function isExternalInteractionsIpDuplicate(value) {
-            value = String(value || '').toLowerCase();
-            if (!value) return false;
-            return externalInteractionsIpsList.some(function (entry) {
-                return Object.keys(entry)[0].toLowerCase() === value;
+            table.addEventListener('dragstart', function (event) {
+                var tag = event.target.closest ? event.target.closest('.event-plugin-tag') : null;
+                if (!tag || tag.classList.contains('firewall-drop-source') || tag.classList.contains('firewall-drop-target')) return;
+                var row = tag.closest('tr');
+                if (!row) return;
+                var label = tag.querySelector('.event-plugin-tag-label');
+                var plugin = label ? label.textContent : '';
+                if (!plugin) return;
+                firewallTagDragStart(direction, row.dataset.ip, plugin, tag, event);
+            });
+            table.addEventListener('dragover', function (event) {
+                var cell = event.target.closest ? event.target.closest('.firewall-plugins-cell') : null;
+                if (!cell) return;
+                firewallTagDragOver(direction, cell, event);
+            });
+            table.addEventListener('drop', function (event) {
+                var cell = event.target.closest ? event.target.closest('.firewall-plugins-cell') : null;
+                if (!cell) return;
+                firewallTagDrop(direction, cell, event);
+            });
+            table.addEventListener('dragend', function () {
+                firewallCancelDrag();
             });
         }
 
-        function refreshExternalInteractionsIpInputInvalid(input) {
-            var dup = isExternalInteractionsIpDuplicate(input.value);
-            if (!input._flashTimer) {
-                input.classList.toggle('api-key-input-invalid', dup);
-            }
-            if (!dup) {
-                hideErrorTooltip();
-            } else {
-                showErrorTooltip(input, 'That IP is already in the list.');
-            }
-        }
-
-        function flashExternalInteractionsIpInputRed(input) {
-            if (input.classList.contains('api-key-input-invalid')) return;
-            if (input._flashTimer) clearTimeout(input._flashTimer);
-            input.classList.remove('api-key-input-invalid');
-            void input.offsetWidth;
-            input.classList.add('api-key-input-invalid');
-            input._flashTimer = setTimeout(function () {
-                input._flashTimer = null;
-                refreshExternalInteractionsIpInputInvalid(input);
-            }, 600);
-        }
-
-        function refreshExternalInteractionsInsertBtn() {
-            var input = document.getElementById('externalInteractionsIpInput');
-            var btn = document.getElementById('insertExternalInteractionsEntryBtn');
-            if (!input || !btn) return;
-            var ip = input.value.trim();
-            btn.disabled = isExternalInteractionsIpDuplicate(ip);
+        function loadFirewallIps(direction) {
+            var cfg = firewallTableConfig(direction);
+            if (!document.getElementById(cfg.tbodyId)) return;
+            fetchWithHandshake(cfg.base)
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (!data || !Array.isArray(data[cfg.listKey])) return;
+                    setFirewallList(direction, data[cfg.listKey].slice());
+                    renderFirewallTable(direction, data[cfg.listKey]);
+                })
+                .catch(function () {});
         }
 
         function isValidIpv4(s) {
@@ -2720,60 +3209,6 @@
             var full = left.slice();
             for (var z = 0; z < zeros; z++) full.push('0000');
             return full.concat(right).join(':');
-        }
-
-        function insertExternalInteractionsEntry() {
-            var input = document.getElementById('externalInteractionsIpInput');
-            if (!input) return;
-            var ip = input.value.trim();
-            if (!ip) {
-                showTransientError(input, 'api-key-input-invalid', 'IP address is required.');
-                return;
-            }
-            if (!isValidIp(ip)) {
-                flashExternalInteractionsIpInputRed(input);
-                showErrorTooltip(input, 'Enter a valid IP address.');
-                return;
-            }
-            if (ip.indexOf(':') !== -1) {
-                ip = maximizeIpv6(ip);
-                input.value = ip;
-            }
-            if (isExternalInteractionsIpDuplicate(ip)) {
-                flashExternalInteractionsIpInputRed(input);
-                showErrorTooltip(input, 'That IP is already in the list.');
-                return;
-            }
-            var seg = document.getElementById('externalInteractionsInsertSegmented');
-            var selected = seg ? seg.querySelector('.external-interactions-segment.selected') : null;
-            var action = selected ? selected.dataset.value : 'unknown';
-            var noteInput = document.getElementById('externalInteractionsNoteInput');
-            var note = noteInput ? noteInput.value : '';
-            fetchWithHandshake('/api/external-interactions-ips', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ip: ip, action: action, note: note })
-            })
-                .then(function (r) {
-                    return r.json().then(function (data) { return { status: r.status, data: data }; });
-                })
-                .then(function (res) {
-                    var data = res.data;
-                    if (!data || typeof data !== 'object') return;
-                    if (!(ip in data)) return;
-                    if (res.status === 201) {
-                        input.value = '';
-                        if (noteInput) noteInput.value = '';
-                        refreshExternalInteractionsIpInputInvalid(input);
-                        refreshExternalInteractionsInsertBtn();
-                        hideErrorTooltip();
-                        loadExternalInteractionsIps();
-                    } else {
-                        flashExternalInteractionsIpInputRed(input);
-                        showErrorTooltip(input, (res.data && res.data.error) || 'Failed to add the IP.');
-                    }
-                })
-                .catch(function () {});
         }
 
         function wireUserRegistration() {
@@ -3122,7 +3557,7 @@
                 rebuildRegisteredUsernames();
                 row.remove();
                 if (tbody && tbody.children.length === 0) {
-                    renderUsersTable([]);
+                    animateTableWrapToContent(wrap, function () { renderUsersTable([]); }, h1);
                 } else if (wrap) {
                     var h2 = wrap.offsetHeight;
                     wrap.style.height = h1 + 'px';
@@ -3336,54 +3771,207 @@
                 .catch(function () {});
         }
 
-        function wireExtenralInteractionsInsert() {
-            var input = document.getElementById('externalInteractionsIpInput');
-            if (input) {
-                input.addEventListener('keydown', function (event) {
-                    if (event.key.length === 1 && !/[0-9a-fA-F:.]/.test(event.key) && !event.ctrlKey && !event.metaKey) {
-                        event.preventDefault();
-                        flashExternalInteractionsIpInputRed(this);
+        function renderInstalledPluginsTable(plugins) {
+            var table = document.getElementById('installedPluginsTable');
+            var tbody = document.getElementById('installedPluginsTableBody');
+            var empty = document.getElementById('installedPluginsEmpty');
+            if (!table || !tbody) return;
+            table.classList.remove('data-table-deleting');
+            hideTableTooltip();
+            tbody.innerHTML = '';
+            var has = Array.isArray(plugins) && plugins.length > 0;
+            var prevTableVisible = !table.hidden;
+            table.hidden = !has;
+            if (empty) empty.hidden = has;
+            if (!has) {
+                if (empty) {
+                    if (prevTableVisible) {
+                        empty.classList.remove('table-empty-fade-in');
+                        void empty.offsetWidth;
+                        empty.classList.add('table-empty-fade-in');
+                    } else {
+                        empty.classList.remove('table-empty-fade-in');
                     }
-                });
-                input.addEventListener('input', function () {
-                    var before = this.value;
-                    this.value = this.value.replace(/[^0-9a-fA-F:.]/g, '');
-                    if (this.value !== before) {
-                        flashExternalInteractionsIpInputRed(this);
-                    }
-                    refreshExternalInteractionsIpInputInvalid(this);
-                    refreshExternalInteractionsInsertBtn();
-                });
+                }
+                return;
             }
-            var seg = document.getElementById('externalInteractionsInsertSegmented');
-            if (seg) {
-                seg.addEventListener('click', function (event) {
-                    var btn = event.target.closest('.external-interactions-segment');
-                    if (!btn) return;
-                    Array.prototype.forEach.call(seg.querySelectorAll('.external-interactions-segment'), function (b) {
-                        b.classList.toggle('selected', b === btn);
+            plugins.forEach(function (entry) {
+                tbody.appendChild(buildInstalledPluginRow(entry));
+            });
+        }
+
+        function buildInstalledPluginRow(entry) {
+            var tr = document.createElement('tr');
+            tr.dataset.folder = entry.folder;
+            tr.dataset.dev = entry.dev ? 'true' : 'false';
+
+            var nameTd = document.createElement('td');
+            nameTd.className = 'installed-plugin-name-cell';
+            nameTd.textContent = entry.name;
+            tr.appendChild(nameTd);
+
+            var effTd = document.createElement('td');
+            effTd.className = 'installed-plugin-hash-cell';
+            var effSpan = document.createElement('span');
+            effSpan.textContent = entry.effective || '';
+            if (entry.effective) effSpan.title = entry.effective;
+            effTd.appendChild(effSpan);
+            tr.appendChild(effTd);
+
+            var indTd = document.createElement('td');
+            indTd.className = 'installed-plugin-hash-cell';
+            var indSpan = document.createElement('span');
+            indSpan.textContent = entry.indicated || '';
+            if (entry.indicated) indSpan.title = entry.indicated;
+            indTd.appendChild(indSpan);
+            tr.appendChild(indTd);
+
+            var actionsTd = document.createElement('td');
+            actionsTd.className = 'table-actions-cell';
+            var actionsDiv = document.createElement('div');
+            actionsDiv.className = 'actions-cell';
+
+            var upgradeBtn = document.createElement('button');
+            upgradeBtn.type = 'button';
+            upgradeBtn.className = 'generate-api-key-btn';
+            upgradeBtn.dataset.action = 'upgrade';
+            upgradeBtn.dataset.folder = entry.folder;
+            upgradeBtn.textContent = 'Update';
+            if (entry.dev) {
+                upgradeBtn.disabled = true;
+                upgradeBtn.title = 'Dev plugins cannot be upgraded';
+            }
+            actionsDiv.appendChild(upgradeBtn);
+
+            var deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'icon-btn';
+            deleteBtn.dataset.action = 'delete';
+            deleteBtn.dataset.folder = entry.folder;
+            deleteBtn.dataset.tableTooltip = 'Delete Plugin';
+            deleteBtn.innerHTML = ICONS.trash;
+            actionsDiv.appendChild(deleteBtn);
+
+            actionsTd.appendChild(actionsDiv);
+            tr.appendChild(actionsTd);
+
+            return tr;
+        }
+
+        function upgradeInstalledPlugin(folder, btn) {
+            if (!btn || btn.disabled) return;
+            btn.disabled = true;
+            var prevText = btn.textContent;
+            btn.textContent = 'Updating...';
+            fetchWithHandshake('/api/installed-plugins/' + encodeURIComponent(folder), { method: 'POST' })
+                .then(function (r) {
+                    return r.json().catch(function () { return {}; }).then(function (data) {
+                        return { ok: r.ok, data: data };
                     });
-                });
-            }
-            var insertBtn = document.getElementById('insertExternalInteractionsEntryBtn');
-            if (insertBtn) {
-                insertBtn.addEventListener('click', insertExternalInteractionsEntry);
-            }
-            var noteInput = document.getElementById('externalInteractionsNoteInput');
-            if (noteInput) {
-                noteInput.addEventListener('keydown', function (event) {
-                    if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
-                        event.preventDefault();
-                        flashExternalInteractionsIpInputRed(this);
+                })
+                .then(function (res) {
+                    if (!res.ok) {
+                        btn.textContent = prevText;
+                        btn.disabled = false;
+                        if (res.data && res.data.error) showTableTooltip(res.data.error, btn);
+                        return;
                     }
+                    loadInstalledPlugins();
+                    checkForPluginUpgrades();
+                })
+                .catch(function () {
+                    btn.textContent = prevText;
+                    btn.disabled = false;
                 });
-                noteInput.addEventListener('input', function () {
-                    var before = this.value;
-                    this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
-                    if (this.value !== before) flashExternalInteractionsIpInputRed(this);
-                });
-            }
-            refreshExternalInteractionsInsertBtn();
+        }
+
+        function deleteInstalledPlugin(folder, btn) {
+            var row = btn.closest('tr');
+            var table = row.closest('table');
+            var wrap = row.closest('.table-wrap');
+            var tbody = row.closest('tbody');
+            var isLast = tbody ? tbody.children.length === 1 : false;
+            var below = getRowsBelow(row);
+            var firstTops = below.map(function (e) { return e.getBoundingClientRect().top; });
+            var h1 = wrap ? wrap.offsetHeight : 0;
+            hideTableTooltip();
+            var rect = row.getBoundingClientRect();
+            var overlay = document.createElement('div');
+            overlay.className = 'table-row-overlay';
+            overlay.style.left = Math.round(rect.left) + 'px';
+            overlay.style.top = Math.round(rect.top) + 'px';
+            overlay.style.width = Math.round(rect.width) + 'px';
+            overlay.style.height = Math.round(rect.height) + 'px';
+            document.body.appendChild(overlay);
+            void overlay.offsetWidth;
+            overlay.classList.add('table-row-overlay-active');
+            row.classList.add('table-row-deleting');
+            if (isLast && table) table.classList.add('data-table-deleting');
+            setTimeout(function () {
+                fetchWithHandshake('/api/installed-plugins/' + encodeURIComponent(folder), { method: 'DELETE' })
+                    .then(function (r) { return r.json(); })
+                    .catch(function () {});
+                overlay.remove();
+                installedPluginsList = installedPluginsList.filter(function (p) { return p.folder !== folder; });
+                row.remove();
+                if (tbody && tbody.children.length === 0) {
+                    animateTableWrapToContent(wrap, function () { renderInstalledPluginsTable([]); }, h1);
+                } else if (wrap) {
+                    var h2 = wrap.offsetHeight;
+                    wrap.style.height = h1 + 'px';
+                    wrap.style.transition = 'height 0.4s ease';
+                    void wrap.offsetHeight;
+                    wrap.style.height = h2 + 'px';
+                    if (below.length) flipRows(below, firstTops);
+                    setTimeout(function () {
+                        wrap.style.height = '';
+                        wrap.style.transition = '';
+                    }, 400);
+                }
+                checkForPluginUpgrades();
+            }, 1050);
+        }
+
+        function wireInstalledPluginsTable() {
+            var table = document.getElementById('installedPluginsTable');
+            if (!table) return;
+            table.addEventListener('click', function (event) {
+                var btn = event.target.closest('[data-action]');
+                if (!btn) return;
+                if (btn.disabled) return;
+                var folder = btn.dataset.folder;
+                var action = btn.getAttribute('data-action');
+                if (action === 'upgrade') {
+                    upgradeInstalledPlugin(folder, btn);
+                } else if (action === 'delete') {
+                    deleteInstalledPlugin(folder, btn);
+                }
+            });
+            table.addEventListener('mouseover', function (event) {
+                var el = event.target.closest('[data-table-tooltip]');
+                if (!el) return;
+                if (el.disabled) return;
+                showTableTooltip(el.dataset.tableTooltip, el, el.dataset.tableTooltipSide || 'near');
+            });
+            table.addEventListener('mouseout', function (event) {
+                var el = event.target.closest('[data-table-tooltip]');
+                if (!el) return;
+                var to = event.relatedTarget;
+                if (to && el.contains(to)) return;
+                hideTableTooltip();
+            });
+        }
+
+        function loadInstalledPlugins() {
+            if (!document.getElementById('installedPluginsTableBody')) return;
+            fetchWithHandshake('/api/installed-plugins')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (!data || !Array.isArray(data.plugins)) return;
+                    installedPluginsList = data.plugins.slice();
+                    renderInstalledPluginsTable(data.plugins);
+                })
+                .catch(function () {});
         }
 
         function updateInternalInteractions(value, animate) {
@@ -3421,6 +4009,7 @@
                     revealCard(card);
                 } else {
                     card.hidden = false;
+                    card.removeAttribute('hidden');
                 }
             } else {
                 hideCard(card);
@@ -3453,6 +4042,105 @@
             if (!toggle) return;
             toggle.classList.toggle('on', value);
             toggle.setAttribute('aria-checked', value ? 'true' : 'false');
+        }
+
+        function updateThemeToggle(value) {
+            var toggle = document.getElementById('themeToggle');
+            var root = document.documentElement;
+            var previousTheme = root.getAttribute('data-theme');
+            root.classList.add('theme-transition');
+            document.documentElement.setAttribute('data-theme', value);
+            var afterglow = document.getElementById('themeLightAfterglow');
+            var progress = document.getElementById('themeLightProgress');
+            if (value === 'dark' && afterglow) {
+                afterglow.classList.remove('active');
+                if (progress) progress.classList.remove('active');
+            }
+            if (previousTheme === 'dark' && value === 'light') {
+                if (afterglow) {
+                    afterglow.classList.remove('active');
+                    void afterglow.offsetWidth;
+                    afterglow.classList.add('active');
+                }
+                if (progress) {
+                    progress.classList.remove('active');
+                    void progress.offsetWidth;
+                    progress.classList.add('active');
+                }
+            }
+            window.clearTimeout(updateThemeToggle.transitionTimer);
+            updateThemeToggle.transitionTimer = window.setTimeout(function () {
+                root.classList.remove('theme-transition');
+            }, 600);
+            if (!toggle) return;
+            toggle.classList.toggle('on', value === 'dark');
+            toggle.setAttribute('aria-checked', value === 'dark' ? 'true' : 'false');
+        }
+
+        function skipThemeLightAfterglow() {
+            var afterglow = document.getElementById('themeLightAfterglow');
+            var progress = document.getElementById('themeLightProgress');
+            if (afterglow) afterglow.classList.remove('active');
+            if (progress) {
+                progress.classList.remove('active');
+                progress.classList.add('retreating');
+                window.clearTimeout(skipThemeLightAfterglow.retreatTimer);
+                skipThemeLightAfterglow.retreatTimer = window.setTimeout(function () {
+                    progress.classList.remove('retreating');
+                    progress.setAttribute('aria-valuenow', '0');
+                }, 450);
+            }
+        }
+
+        document.getElementById('themeLightAfterglow').addEventListener('animationend', function (event) {
+            if (event.animationName === 'themeLightAfterglowFade') skipThemeLightAfterglow();
+        });
+
+        document.getElementById('themeLightProgressSkip').addEventListener('click', skipThemeLightAfterglow);
+
+        function getSystemThemePreference() {
+            return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function getStoredThemePreference() {
+            try {
+                var stored = window.localStorage.getItem('akupara-theme');
+                return stored === 'dark' || stored === 'light' ? stored : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function getThemePreference() {
+            return getStoredThemePreference() || getSystemThemePreference();
+        }
+
+        var themeMediaQuery = null;
+        var themeMediaQueryWired = false;
+
+        function initializeThemeToggle() {
+            updateThemeToggle(getThemePreference());
+            if (themeMediaQueryWired || !window.matchMedia) return;
+            themeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            var syncSystemTheme = function () {
+                if (!getStoredThemePreference()) updateThemeToggle(getSystemThemePreference());
+            };
+            if (themeMediaQuery.addEventListener) {
+                themeMediaQuery.addEventListener('change', syncSystemTheme);
+            } else if (themeMediaQuery.addListener) {
+                themeMediaQuery.addListener(syncSystemTheme);
+            }
+            themeMediaQueryWired = true;
+        }
+
+        function toggleThemePreference() {
+            var toggle = document.getElementById('themeToggle');
+            if (!toggle) return;
+            var next = toggle.classList.contains('on') ? 'light' : 'dark';
+            try {
+                window.localStorage.setItem('akupara-theme', next);
+            } catch (e) {}
+            updateThemeToggle(next);
         }
 
         function updatePlayAudios(value) {
@@ -3522,9 +4210,6 @@
                     }
                     if (data && typeof data.displayPromotion === 'boolean') {
                         updateDisplayPromotion(data.displayPromotion);
-                    }
-                    if (data && typeof data.externalInteractionsAllowNew === 'boolean') {
-                        updateExternalInteractionsAllowNew(data.externalInteractionsAllowNew);
                     }
                     cardIndicatorSync();
                 })
@@ -4169,8 +4854,96 @@
             });
         }
 
-        function morphAllowNewIcons(value) {
-            var toggle = document.getElementById('externalInteractionsAllowNewToggle');
+        var pluginUpgradeStatusTimer = null;
+
+        function setPluginUpgradeButtonState(upgradesAvailable) {
+            var btn = document.getElementById('checkForPluginUpgradesBtn');
+            if (!btn) return;
+            if (upgradesAvailable) {
+                btn.textContent = 'Update All';
+                btn.dataset.mode = 'update';
+                btn.disabled = false;
+                btn.removeAttribute('title');
+            } else {
+                btn.textContent = 'Check for Updates';
+                btn.dataset.mode = 'check';
+                btn.disabled = false;
+                btn.removeAttribute('title');
+            }
+        }
+
+        function checkForPluginUpgrades() {
+            var btn = document.getElementById('checkForPluginUpgradesBtn');
+            var statusText = document.getElementById('pluginUpgradeStatusText');
+            if (!btn) return;
+            if (statusText) {
+                statusText.hidden = true;
+                if (pluginUpgradeStatusTimer) { clearTimeout(pluginUpgradeStatusTimer); pluginUpgradeStatusTimer = null; }
+            }
+            btn.disabled = true;
+            var prevText = btn.textContent;
+            btn.style.minWidth = btn.offsetWidth + 'px';
+            btn.innerHTML = '<span class="update-spinner" aria-hidden="true"></span>';
+            fetchWithHandshake('/api/check-for-plugin-upgrades', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var found = !!(data && data.upgradesAvailable === true);
+                    setPluginUpgradeButtonState(found);
+                    btn.style.minWidth = '';
+                    if (!found && statusText) {
+                        statusText.hidden = false;
+                        pluginUpgradeStatusTimer = setTimeout(function () {
+                            statusText.hidden = true;
+                            pluginUpgradeStatusTimer = null;
+                        }, 3000);
+                    }
+                })
+                .catch(function () {
+                    btn.style.minWidth = '';
+                    btn.textContent = prevText;
+                    btn.disabled = false;
+                });
+        }
+
+        function upgradeAllPlugins() {
+            var btn = document.getElementById('checkForPluginUpgradesBtn');
+            if (!btn) return;
+            btn.disabled = true;
+            btn.textContent = 'Upgrading...';
+            fetchWithHandshake('/api/upgrade-all-plugins', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var stillPending = !!(data && data.stillPending === true);
+                    setPluginUpgradeButtonState(stillPending);
+                    btn.style.minWidth = '';
+                    loadInstalledPlugins();
+                })
+                .catch(function () {
+                    btn.textContent = 'Update All';
+                    btn.disabled = false;
+                });
+        }
+
+        function wirePluginUpgradeButtons() {
+            var btn = document.getElementById('checkForPluginUpgradesBtn');
+            if (!btn || btn.dataset.wiredPluginUpgrade) return;
+            btn.dataset.wiredPluginUpgrade = '1';
+            if (btn.dataset.updateAvailable === 'true') {
+                setPluginUpgradeButtonState(true);
+            } else {
+                setPluginUpgradeButtonState(false);
+            }
+            btn.addEventListener('click', function () {
+                if (btn.dataset.mode === 'update') {
+                    upgradeAllPlugins();
+                } else {
+                    checkForPluginUpgrades();
+                }
+            });
+        }
+
+        function morphAllowNewIconsById(toggleId, value) {
+            var toggle = document.getElementById(toggleId);
             if (!toggle) return;
             toggle.classList.toggle('on', value);
             toggle.setAttribute('aria-checked', value ? 'true' : 'false');
@@ -4200,7 +4973,7 @@
             var toggle = document.getElementById('externalInteractionsAllowNewToggle');
             if (!toggle) return;
             if (toggle.classList.contains('on') === value) return;
-            morphAllowNewIcons(value);
+            morphAllowNewIconsById('externalInteractionsAllowNewToggle', value);
         }
 
         function toggleExternalInteractionsAllowNew() {
@@ -4210,9 +4983,84 @@
             var next = !toggle.classList.contains('on');
             var previous = !next;
             updateExternalInteractionsAllowNew(next);
-            sendSetting({ externalInteractionsAllowNew: next }, function () {
-                updateExternalInteractionsAllowNew(previous);
-            });
+            fetchWithHandshake('/api/external-interactions-allow-new', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ externalInteractionsAllowNew: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.externalInteractionsAllowNew === 'boolean') {
+                        updateExternalInteractionsAllowNew(data.externalInteractionsAllowNew);
+                    }
+                })
+                .catch(function () {
+                    updateExternalInteractionsAllowNew(previous);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
+        }
+
+        function fetchExternalInteractionsAllowNew() {
+            return fetchWithHandshake('/api/external-interactions-allow-new')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (data && typeof data.externalInteractionsAllowNew === 'boolean') {
+                        updateExternalInteractionsAllowNew(data.externalInteractionsAllowNew);
+                    }
+                })
+                .catch(function () {});
+        }
+
+        function updateExternalInteractionsAllowNewOutgoing(value) {
+            var toggle = document.getElementById('externalInteractionsAllowNewOutgoingToggle');
+            if (!toggle) return;
+            if (toggle.classList.contains('on') === value) return;
+            morphAllowNewIconsById('externalInteractionsAllowNewOutgoingToggle', value);
+        }
+
+        function toggleExternalInteractionsAllowNewOutgoing() {
+            var toggle = document.getElementById('externalInteractionsAllowNewOutgoingToggle');
+            if (!toggle || settingsPending) return;
+            settingsPending = true;
+            var next = !toggle.classList.contains('on');
+            var previous = !next;
+            updateExternalInteractionsAllowNewOutgoing(next);
+            fetchWithHandshake('/api/external-interactions-allow-new-outgoing', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ externalInteractionsAllowNewOutgoing: next })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data.externalInteractionsAllowNewOutgoing === 'boolean') {
+                        updateExternalInteractionsAllowNewOutgoing(data.externalInteractionsAllowNewOutgoing);
+                    }
+                })
+                .catch(function () {
+                    updateExternalInteractionsAllowNewOutgoing(previous);
+                })
+                .then(function () {
+                    settingsPending = false;
+                    if (!sliderTooltip.hidden && hoveredToggle) {
+                        showSliderTooltip(hoveredToggle);
+                    }
+                });
+        }
+
+        function fetchExternalInteractionsAllowNewOutgoing() {
+            return fetchWithHandshake('/api/external-interactions-allow-new-outgoing')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (data && typeof data.externalInteractionsAllowNewOutgoing === 'boolean') {
+                        updateExternalInteractionsAllowNewOutgoing(data.externalInteractionsAllowNewOutgoing);
+                    }
+                })
+                .catch(function () {});
         }
 
         function updateApiKeysEnabled(value, animate) {
@@ -4229,6 +5077,7 @@
                     revealCard(card);
                 } else {
                     card.hidden = false;
+                    card.removeAttribute('hidden');
                 }
             } else {
                 hideCard(card);
@@ -4685,6 +5534,31 @@
             });
         }
 
+        function showImportButtonTooltip(button) {
+            var text = button.getAttribute('data-tooltip');
+            if (!text) return;
+            tableTooltip.textContent = text;
+            placeTooltip(registerTooltipAnchor(tableTooltip, button, 'side'));
+        }
+
+        function refreshImportButtonTooltip(button) {
+            if (button.matches(':hover')) showImportButtonTooltip(button);
+        }
+
+        function hideImportButtonTooltip() {
+            hideTableTooltip();
+        }
+
+        function wireImportButtonTooltips() {
+            var buttons = document.querySelectorAll('#sharedVariableImportBtn, #eventStreamingImportBtn');
+            Array.prototype.forEach.call(buttons, function (button) {
+                if (button.getAttribute('data-tooltip-wired')) return;
+                button.setAttribute('data-tooltip-wired', '1');
+                button.addEventListener('mouseenter', function () { showImportButtonTooltip(button); });
+                button.addEventListener('mouseleave', hideImportButtonTooltip);
+            });
+        }
+
         var sectionTooltip = document.getElementById('sectionTooltip');
 
         function showSectionTooltip(chevron) {
@@ -4820,6 +5694,8 @@
             if (toggle) {
                 if (toggle.id === 'apiKeysEnabledToggle') {
                     toggleApiKeysEnabled();
+                } else if (toggle.id === 'themeToggle') {
+                    toggleThemePreference();
                 } else if (toggle.id === 'displayPromotionToggle') {
                     toggleDisplayPromotion();
                 } else if (toggle.id === 'playAudiosToggle') {
@@ -4834,6 +5710,8 @@
                     toggleExternalInteractions();
                 } else if (toggle.id === 'externalInteractionsAllowNewToggle') {
                     toggleExternalInteractionsAllowNew();
+                } else if (toggle.id === 'externalInteractionsAllowNewOutgoingToggle') {
+                    toggleExternalInteractionsAllowNewOutgoing();
                 } else if (toggle.id === 'internalInteractionsToggle') {
                     toggleInternalInteractions();
                 } else if (toggle.id === 'automaticUpdateToggle') {

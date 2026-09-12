@@ -30,7 +30,7 @@ const PARALLELISM = 1;
 const password = process.argv[2];
 if (!password) {
     console.error('Usage: node generate-password-hash.js <password>');
-    console.error('Prints the Argon2id encoded hash to use as the PASSWORD value in .env');
+    console.error('Prints the Argon2id encoded hash to use as a USERS entry password in .env');
     process.exit(1);
 }
 
