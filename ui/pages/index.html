@@ -5285,7 +5285,6 @@
             var slot = document.getElementById('card-slot-' + cardId);
             if (!slot || loadedCards[cardId]) return;
             loadedCards[cardId] = true;
-            console.log('[Akupara] Loading card: ' + cardId);
             var loadingEl = slot.querySelector('.card-slot-loading');
             if (loadingEl) loadingEl.hidden = false;
             fetchWithHandshake('/ui/cards/settings/' + cardId)
