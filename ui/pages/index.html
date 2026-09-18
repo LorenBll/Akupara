@@ -163,16 +163,13 @@
             hideSectionTooltip();
             hideErrorTooltip();
             animateCardIndicatorsOut();
-            var keysReq = Promise.resolve(null);
             fetchWithHandshake('/ui/pages/' + page + '.html')
                 .then(function (r) {
                     if (!r.ok) throw new Error('Failed to load ' + page);
-                    return Promise.all([r.text(), keysReq]);
+                    return r.text();
                 })
-                .then(function (results) {
+                .then(function (html) {
                     setTimeout(function () {
-                        var html = results[0];
-                        var keysData = results[1];
                         if (html.indexOf('loginForm') !== -1) {
                             window.location.href = '/login';
                             return;
@@ -194,98 +191,9 @@
                     isFirstLoad = false;
                     setActivePage(page);
                     if (page === 'settings') {
+                        initializeSettingsShell();
                         fetchSettings();
-                        initializeThemeToggle();
-                        wireToggleTooltips();
-                        wireApiKeyGenerator();
-                        wireApiKeysTable();
-                        wireAccountSection();
-                        wireLogout();
-                        wireUpdateButtons();
-                        wirePluginUpdateButtons();
-                        wirePluginUpgradeButtons();
- wireSoundDropdowns();
-                        wireAudioSoundDropdowns();
-                        fetchPlayLogSounds();
-                        fetchPlayStartupSound();
-                        wireSharedVariableGenerator();
-                        wireImportButtonTooltips();
-                        wireSharedMemoryTable();
-                        wireEventStreamingGenerator();
-                        wireEventStreamingTable();
-                        loadPluginEvents();
-                        wireUserRegistration();
-                        var usersTbody = document.getElementById('usersTableBody');
-                        if (usersTbody && usersTbody.dataset.users) {
-                            try {
-                                usersList = JSON.parse(usersTbody.dataset.users);
-                            } catch (e) {
-                                usersList = [];
-                            }
-                        }
-                        currentUsername = (usersTbody && usersTbody.dataset.current) || '';
-                        var roleEl = document.getElementById('accountRoleValue');
-                        lastSessionAdmin = roleEl ? roleEl.dataset.admin === 'true' : false;
-                        currentSessionRoot = roleEl ? roleEl.dataset.root === 'true' : false;
-                        rebuildRegisteredUsernames();
-                        renderUsersTable(usersList);
-                        wireUsersTable();
-                        loadUsers();
-                        var installedTbody = document.getElementById('installedPluginsTableBody');
-                        if (installedTbody && installedTbody.dataset.installedPlugins) {
-                            try {
-                                installedPluginsList = JSON.parse(installedTbody.dataset.installedPlugins);
-                            } catch (e) {
-                                installedPluginsList = [];
-                            }
-                        }
-                        renderInstalledPluginsTable(installedPluginsList);
-                        wireInstalledPluginsTable();
-                        loadInstalledPlugins();
-                        var sharedTbody = document.getElementById('sharedMemoryTableBody');
-                        if (sharedTbody && sharedTbody.dataset.variables) {
-                            try {
-                                sharedVariablesList = JSON.parse(sharedTbody.dataset.variables);
-                                renderSharedMemoryTable(sharedVariablesList);
-                            } catch (e) {}
-                        }
-                        loadSharedMemory();
-                        var emptyEl = document.getElementById('apiKeysEmpty');
-                        if (emptyEl) emptyEl.hidden = true;
-                        var keysTbody = document.getElementById('apiKeysTableBody');
-                        var rendered = false;
-                        if (keysData && Array.isArray(keysData.apiKeys)) {
-                            apiKeysList = keysData.apiKeys.slice();
-                            renderApiKeysTable(apiKeysList);
-                            rendered = true;
-                        } else if (keysTbody && keysTbody.dataset.keys) {
-                            try {
-                                apiKeysList = JSON.parse(keysTbody.dataset.keys);
-                                renderApiKeysTable(apiKeysList);
-                                rendered = true;
-                            } catch (e) {}
-                        }
-                        if (!rendered) loadApiKeys();
-                        var netTbody = document.getElementById('externalInteractionsTableBody');
-                        if (netTbody && netTbody.dataset.externalInteractionsIps) {
-                            try {
-                                incomingIpsList = JSON.parse(netTbody.dataset.externalInteractionsIps);
-                                renderFirewallTable('incoming', incomingIpsList);
-                            } catch (e) {}
-                        }
-                        var netOutgoingTbody = document.getElementById('externalInteractionsOutgoingTableBody');
-                        if (netOutgoingTbody && netOutgoingTbody.dataset.externalInteractionsOutgoingIps) {
-                            try {
-                                outgoingIpsList = JSON.parse(netOutgoingTbody.dataset.externalInteractionsOutgoingIps);
-                                renderFirewallTable('outgoing', outgoingIpsList);
-                            } catch (e) {}
-                        }
-                        wireFirewallTable('incoming');
-                        wireFirewallTable('outgoing');
-                        loadFirewallIps('incoming');
-                        loadFirewallIps('outgoing');
-                        fetchExternalInteractionsAllowNew();
-                        fetchExternalInteractionsAllowNewOutgoing();
+                        observeCardSlots();
                     }
                     buildCardIndicators();
                         animateCardIndicatorsIn(loadInDelay);
@@ -314,6 +222,7 @@
         var outgoingIpsList = [];
         var usersList = [];
         var installedPluginsList = [];
+        var loadedCards = {};
         var currentUsername = '';
         var currentPage = '';
         var lastSessionAdmin = false;
@@ -3980,15 +3889,19 @@
                 toggle.classList.toggle('on', value);
                 toggle.setAttribute('aria-checked', value ? 'true' : 'false');
             }
-            var card = document.getElementById('internalInteractionsCard');
+            var card = document.getElementById('card-slot-internal-interactions');
             if (!card) return;
             if (value) {
-                var shouldAnimate = animate && (card.hidden || cardHideTimers['internalInteractionsCard'] != null);
+                var shouldAnimate = animate && (card.hidden || cardHideTimers[card.id] != null);
                 if (shouldAnimate) {
                     revealCard(card);
                     fetchSharedMemoryEnabled();
                 } else {
+                    var wasHidden = card.hidden;
                     card.hidden = false;
+                    card.removeAttribute('hidden');
+                    if (wasHidden) showCardIndicator('internal-interactions');
+                    observeCardSlot(card);
                 }
             } else {
                 hideCard(card);
@@ -4001,15 +3914,18 @@
                 toggle.classList.toggle('on', value);
                 toggle.setAttribute('aria-checked', value ? 'true' : 'false');
             }
-            var card = document.getElementById('externalInteractionsCard');
+            var card = document.getElementById('card-slot-external-interactions');
             if (!card) return;
             if (value) {
-                var shouldAnimate = animate && (card.hidden || cardHideTimers['externalInteractionsCard'] != null);
+                var shouldAnimate = animate && (card.hidden || cardHideTimers[card.id] != null);
                 if (shouldAnimate) {
                     revealCard(card);
                 } else {
+                    var wasHidden = card.hidden;
                     card.hidden = false;
                     card.removeAttribute('hidden');
+                    if (wasHidden) showCardIndicator('external-interactions');
+                    observeCardSlot(card);
                 }
             } else {
                 hideCard(card);
@@ -5069,15 +4985,18 @@
                 toggle.classList.toggle('on', value);
                 toggle.setAttribute('aria-checked', value ? 'true' : 'false');
             }
-            var card = document.getElementById('apiKeysCard');
+            var card = document.getElementById('card-slot-api-keys');
             if (!card) return;
             if (value) {
-                var shouldAnimate = animate && (card.hidden || cardHideTimers['apiKeysCard'] != null);
+                var shouldAnimate = animate && (card.hidden || cardHideTimers[card.id] != null);
                 if (shouldAnimate) {
                     revealCard(card);
                 } else {
+                    var wasHidden = card.hidden;
                     card.hidden = false;
                     card.removeAttribute('hidden');
+                    if (wasHidden) showCardIndicator('api-keys');
+                    observeCardSlot(card);
                 }
             } else {
                 hideCard(card);
@@ -5129,6 +5048,8 @@
             card.classList.add('api-keys-reveal');
             flipBelow(below, first);
             cardIndicatorAppear(card);
+            var cardId = card.getAttribute && card.getAttribute('data-card-id');
+            if (cardId) ensureCardLoaded(cardId);
         }
 
         function hideCard(card) {
@@ -5152,7 +5073,24 @@
         var cardIndicatorList = null;
 
         function getCardIndicatorList() {
-            if (!cardIndicatorList) {
+            var inView = document.getElementById('cardIndicatorList');
+            if (inView && inView.isConnected) {
+                if (cardIndicatorList && cardIndicatorList !== inView && cardIndicatorList.parentNode === document.body) {
+                    cardIndicatorList.parentNode.removeChild(cardIndicatorList);
+                }
+                cardIndicatorList = inView;
+                // Keep the list outside the animated page content so the
+                // indicators do not inherit the content's fade opacity.
+                if (cardIndicatorList.parentNode !== document.body) {
+                    document.body.appendChild(cardIndicatorList);
+                }
+                if (!cardIndicatorList._resizeWired) {
+                    cardIndicatorList._resizeWired = true;
+                    window.addEventListener('resize', positionCardIndicators);
+                }
+                return cardIndicatorList;
+            }
+            if (!cardIndicatorList || !cardIndicatorList.isConnected) {
                 cardIndicatorList = document.createElement('div');
                 cardIndicatorList.className = 'card-indicator-list';
                 cardIndicatorList.setAttribute('aria-label', 'Cards');
@@ -5213,8 +5151,51 @@
             return card._indicator || null;
         }
 
+        function showCardIndicator(cardId) {
+            if (!cardId) return;
+            var el = getCardIndicatorList().querySelector('.card-indicator[data-card-id="' + cardId + '"]');
+            if (!el) return;
+            el.hidden = false;
+            el.style.opacity = '';
+            el.animate([
+                { opacity: '0', transform: 'translateX(24px)' },
+                { opacity: '1', transform: 'translateX(0px)' }
+            ], { duration: 200, easing: 'ease', fill: 'both' });
+        }
+
+        function hideCardIndicator(cardId) {
+            if (!cardId) return;
+            var el = getCardIndicatorList().querySelector('.card-indicator[data-card-id="' + cardId + '"]');
+            if (!el) return;
+            el.animate([
+                { opacity: '1', transform: 'translateX(0px)' },
+                { opacity: '0', transform: 'translateX(24px)' }
+            ], { duration: 200, easing: 'ease', fill: 'forwards' });
+            var id = cardId;
+            setTimeout(function () {
+                var target = getCardIndicatorList().querySelector('.card-indicator[data-card-id="' + id + '"]');
+                if (target) target.hidden = true;
+            }, 200);
+        }
+
         function buildCardIndicators() {
             var list = getCardIndicatorList();
+            var staticIndicators = list.querySelectorAll('.card-indicator[data-card-id]');
+            if (staticIndicators.length) {
+                Array.prototype.forEach.call(staticIndicators, function (el) {
+                    if (!el._card) {
+                        el._card = document.getElementById('card-slot-' + el.getAttribute('data-card-id'));
+                        el.addEventListener('click', function () { scrollToCard(el._card); });
+                    }
+                    var role = el.getAttribute('data-card-role') || 'all';
+                    var slot = document.getElementById('card-slot-' + el.getAttribute('data-card-id'));
+                    var visible = slot && !slot.hidden;
+                    if (role === 'admin' && !lastSessionAdmin) visible = false;
+                    el.hidden = !visible;
+                });
+                positionCardIndicators();
+                return;
+            }
             list.innerHTML = '';
             var cards = viewEl.querySelectorAll('.page-card');
             for (var i = 0; i < cards.length; i++) {
@@ -5226,6 +5207,11 @@
 
         function cardIndicatorSync() {
             var list = getCardIndicatorList();
+            var staticIndicators = list.querySelectorAll('.card-indicator[data-card-id]');
+            if (staticIndicators.length) {
+                buildCardIndicators();
+                return;
+            }
             var cards = viewEl.querySelectorAll('.page-card');
             var cur = [];
             for (var i = 0; i < cards.length; i++) {
@@ -5242,77 +5228,13 @@
         }
 
         function cardIndicatorAppear(card) {
-            var list = getCardIndicatorList();
-            if (indicatorForCard(card)) return;
-            var el = createCardIndicator(card);
-            var ref = null;
-            var cards = viewEl.querySelectorAll('.page-card');
-            var seen = false;
-            for (var i = 0; i < cards.length; i++) {
-                if (cards[i] === card) { seen = true; continue; }
-                if (cards[i].hidden) continue;
-                if (seen && cards[i]._indicator) { ref = cards[i]._indicator; break; }
-            }
-            var before = [];
-            var items = list.children;
-            for (var j = 0; j < items.length; j++) {
-                before.push(items[j].getBoundingClientRect().top);
-            }
-            if (ref) list.insertBefore(el, ref); else list.appendChild(el);
-            positionCardIndicators();
-            el.style.opacity = '0';
-            if (before.length) {
-                var ai = 0;
-                var newItems = list.children;
-                for (var n = 0; n < newItems.length; n++) {
-                    if (newItems[n] === el) continue;
-                    var d = before[ai] - newItems[n].getBoundingClientRect().top;
-                    ai++;
-                    if (!d) continue;
-                    newItems[n].animate([{ transform: 'translateY(' + d + 'px)' }, { transform: 'translateY(0px)' }], { duration: 300, easing: 'ease', fill: 'backwards' });
-                }
-                setTimeout(function () { showCardIndicator(el); }, 300);
-            } else {
-                showCardIndicator(el);
-            }
-        }
-
-        function showCardIndicator(el) {
-            el.style.opacity = '';
-            el.animate([
-                { opacity: '0', transform: 'translateX(24px)' },
-                { opacity: '1', transform: 'translateX(0px)' }
-            ], { duration: 200, easing: 'ease', fill: 'backwards' });
+            var id = (card.getAttribute && card.getAttribute('data-card-id')) || card.id;
+            showCardIndicator(id);
         }
 
         function cardIndicatorVanish(card) {
-            var list = getCardIndicatorList();
-            var el = indicatorForCard(card);
-            if (!list || !el) return;
-            el.animate([
-                { opacity: '1', transform: 'translateX(0px)' },
-                { opacity: '0', transform: 'translateX(24px)' }
-            ], { duration: 300, easing: 'ease', fill: 'forwards' });
-            setTimeout(function () {
-                var before = [];
-                for (var j = 0; j < list.children.length; j++) {
-                    before.push({ el: list.children[j], top: list.children[j].getBoundingClientRect().top });
-                }
-                if (el.parentNode) el.parentNode.removeChild(el);
-                if (card._indicator === el) card._indicator = null;
-                positionCardIndicators();
-                var rest = list.children;
-                for (var i = 0; i < rest.length; i++) {
-                    var b = null;
-                    for (var k = 0; k < before.length; k++) {
-                        if (before[k].el === rest[i]) { b = before[k].top; break; }
-                    }
-                    if (b === null) continue;
-                    var d = b - rest[i].getBoundingClientRect().top;
-                    if (!d) continue;
-                    rest[i].animate([{ transform: 'translateY(' + d + 'px)' }, { transform: 'translateY(0px)' }], { duration: 300, easing: 'ease', fill: 'backwards' });
-                }
-            }, 300);
+            var id = (card.getAttribute && card.getAttribute('data-card-id')) || card.id;
+            hideCardIndicator(id);
         }
 
         function animateCardIndicatorsOut() {
@@ -5334,7 +5256,7 @@
                 items[i].animate([
                     { opacity: '0', transform: 'translateX(24px)' },
                     { opacity: '1', transform: 'translateX(0px)' }
-                ], { duration: 300, easing: 'ease', delay: delayMs + i * 40, fill: 'backwards' });
+                ], { duration: 300, easing: 'ease', delay: delayMs + i * 40, fill: 'both' });
             }
         }
 
@@ -5343,6 +5265,229 @@
             var target = card.getBoundingClientRect().top - viewEl.getBoundingClientRect().top + viewEl.scrollTop - 1;
             if (target < 0) target = 0;
             viewEl.scrollTo({ top: target, behavior: 'smooth' });
+        }
+
+        function initializeSettingsShell() {
+            var section = viewEl.querySelector('.page-content');
+            var adminVal = section ? section.getAttribute('data-admin') : 'false';
+            lastSessionAdmin = adminVal === 'true';
+            var rootVal = section ? section.getAttribute('data-root') : 'false';
+            currentSessionRoot = rootVal === 'true';
+            loadedCards = {};
+            if (cardScrollHandler) {
+                viewEl.removeEventListener('scroll', cardScrollHandler);
+                cardScrollHandler = null;
+            }
+            cardLoadOrder = [];
+        }
+
+        function ensureCardLoaded(cardId) {
+            var slot = document.getElementById('card-slot-' + cardId);
+            if (!slot || loadedCards[cardId]) return;
+            loadedCards[cardId] = true;
+            console.log('[Akupara] Loading card: ' + cardId);
+            var loadingEl = slot.querySelector('.card-slot-loading');
+            if (loadingEl) loadingEl.hidden = false;
+            fetchWithHandshake('/ui/cards/settings/' + cardId)
+                .then(function (r) {
+                    if (r.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    if (!r.ok) {
+                        if (r.status === 403 || r.status === 404) {
+                            var denied = document.getElementById('card-slot-' + cardId);
+                            if (denied) {
+                                denied.classList.remove('card-slot-loading');
+                                denied.classList.add('card-slot-error');
+                                denied.textContent = 'Card unavailable.';
+                            }
+                            return null;
+                        }
+                        throw new Error('card ' + cardId);
+                    }
+                    return r.text();
+                })
+                .then(function (html) {
+                    if (!html) return;
+                    if (html.indexOf('loginForm') !== -1) {
+                        window.location.href = '/login';
+                        return;
+                    }
+                    var slotEl = document.getElementById('card-slot-' + cardId);
+                    if (!slotEl) return;
+                    slotEl.classList.remove('card-slot-loading');
+                    slotEl.style.minHeight = '0';
+                    slotEl.innerHTML = html;
+                    var card = slotEl.firstElementChild;
+                    if (card) {
+                        card.classList.add('load-in');
+                        card.addEventListener('animationend', function () {
+                            this.classList.remove('load-in');
+                            this.style.animationDelay = '';
+                        }, { once: true });
+                    }
+                    try { wireSettingsCard(cardId); } catch (e) {}
+                    try { wireToggleTooltips(); } catch (e) {}
+                    buildCardIndicators();
+                    onCardScroll();
+                })
+                .catch(function () {
+                    loadedCards[cardId] = false;
+                    var slotEl = document.getElementById('card-slot-' + cardId);
+                    if (slotEl) {
+                        slotEl.classList.remove('card-slot-loading');
+                        slotEl.classList.add('card-slot-error');
+                        slotEl.textContent = 'Failed to load card.';
+                    }
+                });
+        }
+
+        var cardLoadOrder = [];
+        var cardScrollHandler = null;
+
+        function buildCardLoadOrder() {
+            cardLoadOrder = [];
+            Array.prototype.forEach.call(document.querySelectorAll('.card-slot'), function (slot) {
+                if (!slot.hidden) cardLoadOrder.push(slot.getAttribute('data-card-id'));
+            });
+        }
+
+        function onCardScroll() {
+            if (!viewEl) return;
+            var viewportRect = viewEl.getBoundingClientRect();
+            var threshold = 160;
+            for (var i = 0; i < cardLoadOrder.length; i++) {
+                var id = cardLoadOrder[i];
+                if (loadedCards[id]) continue;
+                var slot = document.getElementById('card-slot-' + id);
+                if (!slot || slot.hidden) continue;
+                var rect = slot.getBoundingClientRect();
+                if (rect.top <= viewportRect.bottom + threshold) {
+                    ensureCardLoaded(id);
+                }
+                break;
+            }
+        }
+
+        function observeCardSlot(slot) {
+            if (!slot || slot.hidden) return;
+            buildCardLoadOrder();
+            onCardScroll();
+        }
+
+        function observeCardSlots() {
+            buildCardLoadOrder();
+            if (!cardLoadOrder.length) return;
+            if (cardScrollHandler) {
+                viewEl.removeEventListener('scroll', cardScrollHandler);
+            }
+            cardScrollHandler = onCardScroll;
+            viewEl.addEventListener('scroll', cardScrollHandler);
+            // Load the first card; the completion chain then loads the cards
+            // that are (or are about to become) visible, and scroll loads the rest.
+            ensureCardLoaded(cardLoadOrder[0]);
+        }
+
+        var SETTINGS_CARD_WIRING = {
+            'general': function () {
+                wireUpdateButtons();
+            },
+            'plugins': function () {
+                wirePluginUpdateButtons();
+                wirePluginUpgradeButtons();
+                var tbody = document.getElementById('installedPluginsTableBody');
+                if (tbody && tbody.dataset.installedPlugins) {
+                    try { installedPluginsList = JSON.parse(tbody.dataset.installedPlugins); } catch (e) { installedPluginsList = []; }
+                }
+                renderInstalledPluginsTable(installedPluginsList);
+                wireInstalledPluginsTable();
+                loadInstalledPlugins();
+            },
+            'api-keys': function () {
+                wireApiKeyGenerator();
+                wireApiKeysTable();
+                var tbody = document.getElementById('apiKeysTableBody');
+                if (tbody && tbody.dataset.keys) {
+                    try {
+                        apiKeysList = JSON.parse(tbody.dataset.keys);
+                        renderApiKeysTable(apiKeysList);
+                    } catch (e) {}
+                }
+                loadApiKeys();
+            },
+            'internal-interactions': function () {
+                wireSharedVariableGenerator();
+                wireSharedMemoryTable();
+                var tbody = document.getElementById('sharedMemoryTableBody');
+                if (tbody && tbody.dataset.variables) {
+                    try {
+                        sharedVariablesList = JSON.parse(tbody.dataset.variables);
+                        renderSharedMemoryTable(sharedVariablesList);
+                    } catch (e) {}
+                }
+                loadSharedMemory();
+                wireEventStreamingGenerator();
+                wireEventStreamingTable();
+                loadPluginEvents();
+                wireImportButtonTooltips();
+            },
+            'external-interactions': function () {
+                var inTbody = document.getElementById('externalInteractionsTableBody');
+                if (inTbody && inTbody.dataset.externalInteractionsIps) {
+                    try {
+                        incomingIpsList = JSON.parse(inTbody.dataset.externalInteractionsIps);
+                        renderFirewallTable('incoming', incomingIpsList);
+                    } catch (e) {}
+                }
+                var outTbody = document.getElementById('externalInteractionsOutgoingTableBody');
+                if (outTbody && outTbody.dataset.externalInteractionsOutgoingIps) {
+                    try {
+                        outgoingIpsList = JSON.parse(outTbody.dataset.externalInteractionsOutgoingIps);
+                        renderFirewallTable('outgoing', outgoingIpsList);
+                    } catch (e) {}
+                }
+                wireFirewallTable('incoming');
+                wireFirewallTable('outgoing');
+                loadFirewallIps('incoming');
+                loadFirewallIps('outgoing');
+                fetchExternalInteractionsAllowNew();
+                fetchExternalInteractionsAllowNewOutgoing();
+            },
+            'users': function () {
+                var tbody = document.getElementById('usersTableBody');
+                if (tbody && tbody.dataset.users) {
+                    try { usersList = JSON.parse(tbody.dataset.users); } catch (e) { usersList = []; }
+                    currentUsername = tbody.dataset.current || '';
+                }
+                rebuildRegisteredUsernames();
+                wireUserRegistration();
+                renderUsersTable(usersList);
+                wireUsersTable();
+                loadUsers();
+            },
+            'account': function () {
+                var roleEl = document.getElementById('accountRoleValue');
+                if (roleEl) {
+                    lastSessionAdmin = roleEl.dataset.admin === 'true';
+                    currentSessionRoot = roleEl.dataset.root === 'true';
+                }
+                wireAccountSection();
+                wireLogout();
+            },
+            'customisation': function () {
+                initializeThemeToggle();
+                wireToggleTooltips();
+                wireSoundDropdowns();
+                wireAudioSoundDropdowns();
+                fetchPlayLogSounds();
+                fetchPlayStartupSound();
+            }
+        };
+
+        function wireSettingsCard(cardId) {
+            var fn = SETTINGS_CARD_WIRING[cardId];
+            if (fn) fn();
         }
 
         function toggleApiKeysEnabled() {

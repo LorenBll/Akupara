@@ -38,6 +38,8 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+import github_api
+
 from logginglib import log_error, log_info, log_warn
 
 
@@ -102,10 +104,14 @@ def _fetch_latest_commit_sha(timeout: int = 8) -> str | None:
             _REMOTE_COMMITS_URL,
             headers={"User-Agent": "Akupara/1.0", "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
             sha = data.get("sha")
             return sha.strip() if isinstance(sha, str) and sha.strip() else None
+    except github_api.GithubRateLimitedError:
+        # Version check: rate limit must not be considered an error — keep running.
+        log_warn("GitHub API rate limit exceeded while resolving latest commit — skipping version check (offline?)", {"url": _REMOTE_COMMITS_URL})
+        return None
     except Exception:
         return None
 
@@ -119,11 +125,14 @@ def _fetch_remote_hash(timeout: int = 8) -> str | None:
     url = _REMOTE_HASH_URL.format(commit=commit)
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             data = resp.read().decode("utf-8", errors="replace").strip()
             if data:
                 return data.split()[0].strip()
             return ""
+    except github_api.GithubRateLimitedError:
+        log_warn("GitHub API rate limit exceeded while fetching remote plugins-lib hash — skipping version check", {"url": url})
+        return None
     except Exception:
         return None
 
@@ -872,6 +881,12 @@ def _fetch_github_latest_release(owner: str, repo: str, timeout: int = 10) -> di
 
     Uses ``GET https://api.github.com/repos/{owner}/{repo}/releases/latest``.
     Returns the decoded JSON dict on success, ``None`` on network/error/404.
+
+    Rate-limit handling: when both token-authenticated and unauthenticated
+    requests are rate limited, this version-check helper returns ``None`` with
+    a warning instead of an error so Akupara keeps running. Callers that need
+    the data for non-check functionality should treat ``None`` as a rate-limit
+    and log an error without crashing (see ``GithubRateLimitedError``).
     """
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
     ctx = ssl.create_default_context()
@@ -880,10 +895,13 @@ def _fetch_github_latest_release(owner: str, repo: str, timeout: int = 10) -> di
             url,
             headers={"User-Agent": "Akupara/1.0", "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
             if isinstance(data, dict):
                 return data
+    except github_api.GithubRateLimitedError:
+        log_warn("GitHub API rate limit exceeded while fetching latest release — skipping version check", {"owner": owner, "repo": repo, "url": url})
+        return None
     except Exception as exc:
         log_warn("Failed to fetch latest GitHub release", {"owner": owner, "repo": repo, "error": str(exc)})
         return None
@@ -894,7 +912,8 @@ def _fetch_github_release_by_tag(owner: str, repo: str, tag: str, timeout: int =
     """Fetch a specific GitHub release by tag ``tag`` for ``owner/repo``.
 
     Tries ``GET /repos/{owner}/{repo}/releases/tags/{tag}`` and fallback
-    ``/releases/tags/v{tag}``. Returns dict or None.
+    ``/releases/tags/v{tag}``. Returns dict or None. Rate-limit is handled
+    as a version-check (warning, no error) so the caller can keep running.
     """
     ctx = ssl.create_default_context()
     for t in (tag, f"v{tag}", tag.lstrip("vV")):
@@ -906,10 +925,13 @@ def _fetch_github_release_by_tag(owner: str, repo: str, tag: str, timeout: int =
                 url,
                 headers={"User-Agent": "Akupara/1.0", "Accept": "application/vnd.github+json"},
             )
-            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
                 data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 if isinstance(data, dict) and not data.get("message"):
                     return data
+        except github_api.GithubRateLimitedError:
+            log_warn("GitHub API rate limit exceeded while fetching release by tag — skipping version check", {"owner": owner, "repo": repo, "tag": t, "url": url})
+            return None
         except Exception:
             continue
     return None
@@ -995,13 +1017,23 @@ def _fetch_manifest_akupara_version(owner: str, repo: str, release: dict, timeou
 
 
 def _fetch_url_text(url: str, timeout: int = 15) -> str | None:
-    """Download ``url`` and return its UTF-8 text (stripped), or ``None`` on failure."""
+    """Download ``url`` and return its UTF-8 text (stripped), or ``None`` on failure.
+
+    GitHub-related URLs use the token-aware helper so a configured
+    ``GITHUB_TOKEN`` is applied and rate-limit fallback is honoured. For
+    version-check callers a rate limit is a warning (``None``); for
+    functionality that requires the data the caller should treat ``None``
+    due to rate limit as an error and log it, but must not crash.
+    """
     ctx = ssl.create_default_context()
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             data = resp.read().decode("utf-8", errors="replace").strip()
             return data
+    except github_api.GithubRateLimitedError:
+        log_warn("GitHub API rate limit exceeded while fetching text asset", {"url": url})
+        return None
     except Exception as exc:
         log_warn("Failed to fetch hash asset", {"url": url, "error": str(exc)})
         return None
@@ -1012,8 +1044,15 @@ def _fetch_url_bytes(url: str, timeout: int = 15) -> bytes | None:
     ctx = ssl.create_default_context()
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             return resp.read()
+    except github_api.GithubRateLimitedError:
+        # This download is required for plugin upgrades (not just a version
+        # check) — rate limit is an error, but the process must not crash.
+        # The caller (discover_installed_plugins) keeps the plugin verified and
+        # skips the upgrade, which satisfies "raise an error, but do not crash".
+        log_error("GitHub API rate limit exceeded while downloading asset (required for upgrade)", {"url": url})
+        return None
     except Exception as exc:
         log_warn("Failed to download asset", {"url": url, "error": str(exc)})
         return None
@@ -1048,9 +1087,12 @@ def _hash_url_content(url: str, timeout: int = 15) -> str | None:
     ctx = ssl.create_default_context()
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             data = resp.read()
             return hashlib.sha256(data).hexdigest()
+    except github_api.GithubRateLimitedError:
+        log_warn("GitHub API rate limit exceeded while hashing url content", {"url": url})
+        return None
     except Exception as exc:
         log_warn("Failed to download asset", {"url": url, "error": str(exc)})
         return None

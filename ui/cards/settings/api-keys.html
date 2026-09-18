@@ -1,0 +1,27 @@
+    <div class="page-card" id="apiKeysCard"{{ '' if api_keys_enabled else ' hidden' }}>
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+            API Keys
+        </h3>
+        <div class="api-key-generator" style="gap: 8px;">
+            <input type="text" id="apiKeyNameInput" class="api-key-name-input" placeholder="API Key Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="API key name">
+            <button type="button" class="random-name-btn" id="randomNameBtn" data-tooltip="Generate Random Name" aria-label="Generate random name">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+            </button>
+            <button type="button" class="generate-api-key-btn" id="generateApiKeyBtn" style="width:168px; min-width:168px; max-width:168px;">Generate API Key</button>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="apiKeysTable"{{ '' if has_api_keys else ' hidden' }}>
+                <thead>
+                    <tr>
+                        <th>Key</th>
+                        <th></th>
+                        <th>Name</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="apiKeysTableBody" data-keys="{{ api_keys_json|e }}"></tbody>
+            </table>
+            <p class="table-empty" id="apiKeysEmpty"{{ '' if not has_api_keys else ' hidden' }}>No API keys saved</p>
+        </div>
+    </div>

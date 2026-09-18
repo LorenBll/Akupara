@@ -1,0 +1,64 @@
+    <div class="page-card" id="pluginsCard" {% if not plugin_integrity_ok %}data-disabled="true" style="opacity:0.6; pointer-events:none;"{% endif %}>
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg>
+            Plugins
+        </h3>
+        {% if is_admin %}
+        <div {% if not plugin_integrity_ok %}style="pointer-events:auto; opacity:1;"{% endif %}>
+        <h4 class="card-section-title">Plugin Library Version</h4>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Effective Version</span>
+            </div>
+            <p class="data-indicator-description"><span id="effectivePluginsLibVersionDisplay">{{ effective_plugins_lib_version }}</span> <span class="data-indicator-label" style="margin-left: 1.5em;">Indicated Version</span> <span id="indicatedPluginsLibVersionDisplay">{{ indicated_plugins_lib_version }}</span></p>
+            <span class="update-status-text" id="pluginUpdateStatusText" hidden>Plugin library up to date</span>
+            <button type="button" class="generate-api-key-btn" id="checkForPluginUpdatesBtn" data-update-available="{{ 'true' if plugins_lib_update_available else 'false' }}">{{ 'Update Now' if plugins_lib_update_available else 'Check for Updates' }}</button>
+        </div>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Automatic Update</span>
+            </div>
+            <p class="data-indicator-description">Controls whether the plugin library automatically updates to the latest version.</p>
+            <button type="button" class="toggle{{ ' on' if automatic_plugin_library_update else '' }}" id="automaticPluginLibraryUpdateToggle" role="switch" aria-checked="{{ 'true' if automatic_plugin_library_update else 'false' }}" aria-label="Enable automatic plugin library updates">
+                <span class="toggle-thumb"></span>
+            </button>
+        </div>
+        {% if not plugin_integrity_ok %}
+        <p style="color: #b91c1c; margin-top: 8px;">Plugin library integrity check failed — bridge stopped.</p>
+        {% endif %}
+        </div>
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Installed Plugins Version</h4>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Installed Plugins</span>
+            </div>
+            <p class="data-indicator-description">Check whether installed plugins are up to date.</p>
+            <span class="update-status-text" id="pluginUpgradeStatusText" hidden>Plugins up to date</span>
+            <button type="button" class="generate-api-key-btn" id="checkForPluginUpgradesBtn" data-update-available="{{ 'true' if installed_plugins_upgrade_available else 'false' }}">{{ 'Update All' if installed_plugins_upgrade_available else 'Check for Updates' }}</button>
+        </div>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Automatic Plugin Update</span>
+            </div>
+            <p class="data-indicator-description">Controls whether plugins with available updates are automatically updated.</p>
+            <button type="button" class="toggle{{ ' on' if automatic_plugin_upgrade else '' }}" id="automaticPluginUpgradeToggle" role="switch" aria-checked="{{ 'true' if automatic_plugin_upgrade else 'false' }}" aria-label="Enable automatic plugin updates">
+                <span class="toggle-thumb"></span>
+            </button>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="installedPluginsTable"{{ '' if has_installed_plugins else ' hidden' }}>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Effective Hash</th>
+                        <th>Indicated Hash</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="installedPluginsTableBody" data-installed-plugins="{{ installed_plugins_json|e }}"></tbody>
+            </table>
+            <p class="table-empty" id="installedPluginsEmpty"{{ '' if not has_installed_plugins else ' hidden' }}>No plugins installed</p>
+        </div>
+        {% endif %}
+    </div>
