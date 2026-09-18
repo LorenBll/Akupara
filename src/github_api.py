@@ -84,7 +84,13 @@ def _is_github_host(url: str) -> bool:
     if not host:
         return False
     # api.github.com, github.com, raw.githubusercontent.com, gist.github.com, etc.
-    return host == "github.com" or host.endswith(".github.com") or host.endswith("githubusercontent.com")
+    # The leading dot on the suffix checks prevents lookalike hosts such as
+    # "evilgithubusercontent.com" from being treated as GitHub-owned.
+    return (
+        host in {"github.com", "githubusercontent.com"}
+        or host.endswith(".github.com")
+        or host.endswith(".githubusercontent.com")
+    )
 
 
 def _is_rate_limited_error(exc: BaseException) -> bool:
