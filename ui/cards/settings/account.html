@@ -1,0 +1,25 @@
+    <div class="page-card" id="accountCard">
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20a6 6 0 0 0-6-6 6 6 0 0 0-6 6"/><circle cx="12" cy="10" r="4"/><circle cx="12" cy="12" r="10"/></svg>
+            Account
+        </h3>
+        <div class="account-summary">
+            <div class="account-summary-item">
+                <span class="pill-label">USERNAME</span>
+                <span class="pill-value" id="accountUsernameValue">{{ account_username|e }}</span>
+            </div>
+            <div class="account-summary-item">
+                <span class="pill-label">ROLE</span>
+                <span class="pill-value" id="accountRoleValue" data-admin="{{ 'true' if is_admin else 'false' }}" data-root="{{ 'true' if is_root else 'false' }}">{{ 'Root' if is_root else ('Admin' if is_admin else 'Standard User') }}</span>
+                <button type="button" class="icon-btn" id="logoutBtn" data-table-tooltip="Log Out" aria-label="Log Out">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>
+                </button>
+            </div>
+        </div>
+        <div class="password-change-row">
+            <input type="password" id="currentPasswordInput" class="api-key-name-input account-password-input" placeholder="Current Password" autocomplete="current-password" aria-label="Current password">
+            <input type="password" id="newPasswordInput" class="api-key-name-input account-password-input" placeholder="New Password" autocomplete="new-password" aria-label="New password" disabled>
+            <input type="password" id="confirmPasswordInput" class="api-key-name-input account-password-input" placeholder="Confirm New Password" autocomplete="new-password" aria-label="Confirm new password" disabled>
+            <button type="button" class="generate-api-key-btn" id="changePasswordBtn" disabled>Confirm Change</button>
+        </div>
+    </div>

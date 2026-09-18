@@ -55,6 +55,8 @@ import network
 
 import plugin_bridge
 
+import github_api
+
 from logginglib import init_logging, log_debug, log_error, log_info, log_warn
 
 import env_store as _env_store
@@ -1828,10 +1830,14 @@ def _fetch_remote_project_hash(timeout: int = 8) -> str | None:
     ctx = ssl.create_default_context()
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             data = resp.read().decode("utf-8", errors="replace").strip().split()[0]
             if data:
                 return data
+    except github_api.GithubRateLimitedError:
+        # Version check: rate limit on both token and anonymous → not an error, keep running.
+        log_warn("GitHub API rate limit exceeded while fetching remote project hash — skipping version check", {"url": url})
+        raise
     except Exception:
         pass
     # Fallback: the raw hash file at the highest version tag (releases without an asset yet)
@@ -1841,10 +1847,13 @@ def _fetch_remote_project_hash(timeout: int = 8) -> str | None:
     url = f"https://raw.githubusercontent.com/LorenBll/Akupara/{tag}/hash"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             data = resp.read().decode("utf-8", errors="replace").strip().split()[0]
             if data:
                 return data
+    except github_api.GithubRateLimitedError:
+        log_warn("GitHub API rate limit exceeded while fetching remote project hash (fallback) — skipping version check", {"url": url})
+        raise
     except Exception:
         return None
     return None
@@ -1858,25 +1867,41 @@ def _fetch_release_hash_for_tag(tag: str, timeout: int = 8) -> str | None:
     url = f"https://raw.githubusercontent.com/LorenBll/Akupara/{tag}/hash"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
             data = resp.read().decode("utf-8", errors="replace").strip().split()
             if data:
                 return data[0]
+    except github_api.GithubRateLimitedError:
+        log_warn("GitHub API rate limit exceeded while fetching release hash for tag — skipping version check", {"tag": tag, "url": url})
+        raise
     except Exception:
         return None
     return None
 
 
 def _is_known_release_hash(local_hash: str | None) -> bool:
-    """Return True when ``local_hash`` matches the latest or any previous release's hash."""
+    """Return True when ``local_hash`` matches the latest or any previous release's hash.
+
+    If GitHub is rate limited (both token and anonymous), the check is skipped
+    and ``True`` is returned so the startup does **not** treat a version check
+    rate limit as an illicit interaction and does **not** crash.
+    """
     local = (local_hash or "").strip().lower()
     if not local:
         return False
-    latest = _fetch_remote_project_hash()
+    try:
+        latest = _fetch_remote_project_hash()
+    except github_api.GithubRateLimitedError:
+        log_warn("GitHub rate limit during known-release check — assuming known to keep running", {"local": local})
+        return True
     if latest and latest.strip().lower() == local:
         return True
     for tag in reversed(_get_version_tags()):
-        known = _fetch_release_hash_for_tag(tag)
+        try:
+            known = _fetch_release_hash_for_tag(tag)
+        except github_api.GithubRateLimitedError:
+            log_warn("GitHub rate limit during known-release tag fetch — assuming known to keep running", {"tag": tag})
+            return True
         if known and known.strip().lower() == local:
             return True
     return False
@@ -1907,7 +1932,12 @@ def _is_update_available() -> bool:
     local = effective or indicated
     if not local:
         local = _get_local_project_hash()
-    remote = _fetch_remote_project_hash()
+    try:
+        remote = _fetch_remote_project_hash()
+    except github_api.GithubRateLimitedError:
+        # Version check rate limit → not an error, keep running as if no update.
+        log_warn("GitHub API rate limit during update check — assuming no update", {"local": local})
+        return False
     if not local or not remote:
         return False
     return local.strip().lower() != remote.strip().lower()
@@ -2015,7 +2045,12 @@ def _perform_project_update() -> bool:
             # Fallback: checkout main and reset hard to origin/main but keep untracked (not deleting)
             subprocess.run(["git", "checkout", "main"], cwd=root, capture_output=True, timeout=10)
             subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=root, capture_output=True, timeout=30)
-        log_info("Project updated to latest version", {"remote_hash": _fetch_remote_project_hash()})
+        try:
+            remote_hash = _fetch_remote_project_hash()
+        except github_api.GithubRateLimitedError:
+            remote_hash = None
+            log_warn("GitHub rate limit while fetching remote hash after project update — continuing")
+        log_info("Project updated to latest version", {"remote_hash": remote_hash})
         return True
     except Exception as exc:
         log_error("Project update failed", {"error": str(exc)})
@@ -3135,6 +3170,226 @@ def ui_page(filename: str):
     return send_from_directory(pages_dir, filename)
 
 
+# ---------------------------------------------------------------------------
+# Settings page: decoupled card indicators + on-demand card fragments
+# ---------------------------------------------------------------------------
+# The settings page is served as a light shell: the page title, the card
+# indicators (always present, independently of whether the corresponding card
+# has been loaded) and the page actions (terminate/restart, which are not part
+# of a card and are never subject to on-demand loading). Each card lives in its
+# own fragment under ``ui/cards/settings/`` and is loaded by the client only
+# when it is relevant to the viewport (see ``ui/pages/index.html``). The
+# fragment endpoint enforces the same authorization as the old single page, so
+# card *contents* are still sent only to users allowed to see them.
+
+_SETTINGS_CARDS = [
+    {
+        "id": "general",
+        "title": "General",
+        "fragment": "general.html",
+        "roles": ("all",),
+        "icon": '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+    },
+    {
+        "id": "plugins",
+        "title": "Plugins",
+        "fragment": "plugins.html",
+        "roles": ("admin",),
+        "icon": '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg>',
+    },
+    {
+        "id": "api-keys",
+        "title": "API Keys",
+        "fragment": "api-keys.html",
+        "roles": ("admin",),
+        "icon": '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>',
+    },
+    {
+        "id": "internal-interactions",
+        "title": "Internal Interactions",
+        "fragment": "internal-interactions.html",
+        "roles": ("admin",),
+        "icon": '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>',
+    },
+    {
+        "id": "external-interactions",
+        "title": "External Interactions",
+        "fragment": "external-interactions.html",
+        "roles": ("admin",),
+        "icon": '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.247 7.761a6 6 0 0 1 0 8.478"/><path d="M19.075 4.933a10 10 0 0 1 0 14.134"/><path d="M4.925 19.067a10 10 0 0 1 0-14.134"/><path d="M7.753 16.239a6 6 0 0 1 0-8.478"/><circle cx="12" cy="12" r="2"/></svg>',
+    },
+    {
+        "id": "users",
+        "title": "Users",
+        "fragment": "users.html",
+        "roles": ("admin",),
+        "icon": '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    },
+    {
+        "id": "account",
+        "title": "Account",
+        "fragment": "account.html",
+        "roles": ("all",),
+        "icon": '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20a6 6 0 0 0-6-6 6 6 0 0 0-6 6"/><circle cx="12" cy="10" r="4"/><circle cx="12" cy="12" r="10"/></svg>',
+    },
+    {
+        "id": "customisation",
+        "title": "Customisation",
+        "fragment": "customisation.html",
+        "roles": ("all",),
+        "icon": '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>',
+    },
+]
+
+
+def _settings_static_context() -> dict:
+    """Return the session-independent settings context, cached briefly.
+
+    Building this context is expensive (project/plugin-library hash
+    computation, installed-plugins folder hashing). The on-demand card
+    fragments are fetched immediately after the shell, so caching it for a
+    short TTL avoids recomputing it once per fragment.
+    """
+    global _SETTINGS_STATIC_CACHE, _SETTINGS_STATIC_TS
+    now = time.time()
+    if _SETTINGS_STATIC_CACHE is not None and (now - _SETTINGS_STATIC_TS) < _SETTINGS_STATIC_TTL:
+        return _SETTINGS_STATIC_CACHE
+    api_keys = sorted(_api_key_store, key=lambda k: (k.get("name") or "").lower())
+    shared_memory = _load_shared_memory()
+    incoming_interactions_ips = _load_external_interactions_entries("incoming")
+    outgoing_interactions_ips = _load_external_interactions_entries("outgoing")
+    users = _list_users()
+    installed_plugins_list = _list_installed_plugins()
+    ctx: dict = {
+        "api_keys": api_keys,
+        "has_api_keys": bool(api_keys),
+        "api_keys_json": json.dumps(api_keys),
+        "shared_memory": shared_memory,
+        "has_shared_memory": bool(shared_memory),
+        "shared_memory_json": json.dumps(shared_memory),
+        "has_external_interactions_ips": bool(incoming_interactions_ips),
+        "external_interactions_ips_json": json.dumps(incoming_interactions_ips),
+        "has_external_interactions_outgoing_ips": bool(outgoing_interactions_ips),
+        "external_interactions_outgoing_ips_json": json.dumps(outgoing_interactions_ips),
+        "users": users,
+        "has_users": bool(users),
+        "users_json": json.dumps(users),
+        "installed_plugins_list": installed_plugins_list,
+        "has_installed_plugins": bool(installed_plugins_list),
+        "installed_plugins_json": json.dumps(installed_plugins_list),
+        "current_version": _get_current_project_version(),
+        "effective_version": _get_effective_project_version(),
+        "indicated_version": _get_indicated_project_version(),
+        "current_plugins_lib_version": _get_current_plugins_lib_version(),
+        "effective_plugins_lib_version": _get_effective_plugins_lib_version(),
+        "indicated_plugins_lib_version": _get_indicated_plugins_lib_version(),
+        "sounds": {event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
+        "available_audios": audio.list_audio_files(),
+        "sound_events": [(event, event.capitalize()) for event in audio.SOUND_EVENTS],
+    }
+    _SETTINGS_STATIC_CACHE = ctx
+    _SETTINGS_STATIC_TS = now
+    return ctx
+
+
+def _settings_render_context(session: dict | None) -> dict:
+    """Return the full Jinja context for the settings shell and card fragments."""
+    ctx = dict(_settings_static_context())
+    is_admin = bool(session and session["admin"])
+    ctx.update({
+        "is_admin": is_admin,
+        "is_root": bool(session and session.get("root", False)),
+        "account_username": session["username"] if session else "",
+        "current_username": session["username"] if session else "",
+        "internal_interactions": _read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS),
+        "api_keys_enabled": _read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
+        "display_promotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
+        "play_audios": _read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
+        "play_log_sounds": _read_env_bool("PLAY_LOG_SOUNDS", PLAY_LOG_SOUNDS),
+        "play_startup_sound": _read_env_bool("PLAY_STARTUP_SOUND", PLAY_STARTUP_SOUND),
+        "shared_memory_enabled": _read_env_bool("SHARED_MEMORY_ENABLED", SHARED_MEMORY_ENABLED),
+        "external_interactions_allow_new": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", EXTERNAL_INTERACTIONS_ALLOW_NEW),
+        "external_interactions_allow_new_outgoing": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING),
+        "external_interactions_enabled": _external_interactions_enabled(),
+        "external_interactions_worker_bind": _external_interactions_worker_bind_address(),
+        "automatic_update": _read_env_bool("AUTOMATIC_UPDATE", AUTOMATIC_UPDATE),
+        "update_available": _UPDATE_AVAILABLE_AT_STARTUP,
+        "project_integrity_ok": _PROJECT_INTEGRITY_OK,
+        "development": DEVELOPMENT,
+        "project_update_disabled": DEVELOPMENT,
+        "automatic_plugin_library_update": _read_env_bool("AUTOMATIC_PLUGIN_LIBRARY_UPDATE", AUTOMATIC_PLUGIN_LIBRARY_UPDATE),
+        "automatic_plugin_upgrade": _read_env_bool("AUTOMATIC_PLUGIN_UPGRADE", AUTOMATIC_PLUGIN_UPGRADE),
+        "installed_plugins_upgrade_available": bool(_INSTALLED_PLUGINS_PENDING_UPGRADES),
+        "plugins_lib_update_available": _PLUGIN_UPDATE_AVAILABLE_AT_STARTUP,
+        "plugin_integrity_ok": _PLUGIN_INTEGRITY_OK,
+    })
+    return ctx
+
+
+def _settings_card_indicators(session: dict | None) -> list[dict]:
+    """Return the card-indicator metadata for the shell (all cards, role tagged).
+
+    Every card's indicator is sent to the client regardless of whether the card
+    is actually loaded; the client filters by role. The ``hidden`` flag mirrors
+    the feature-enabled state (e.g. API Keys card hidden when the functionality
+    is disabled), which is a separate concern from the loading state.
+    """
+    is_admin = bool(session and session["admin"])
+    indicators: list[dict] = []
+    for card in _SETTINGS_CARDS:
+        hidden = False
+        if card["id"] == "api-keys" and not _read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED):
+            hidden = True
+        elif card["id"] == "internal-interactions" and not _read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS):
+            hidden = True
+        elif card["id"] == "external-interactions" and not _read_env_bool("EXTERNAL_INTERACTIONS", EXTERNAL_INTERACTIONS):
+            hidden = True
+        indicators.append({
+            "id": card["id"],
+            "title": card["title"],
+            "icon": card["icon"],
+            "role": "admin" if "admin" in card["roles"] else "all",
+            "hidden": hidden,
+            "admin": not is_admin and "admin" in card["roles"],
+        })
+    return indicators
+
+
+_SETTINGS_STATIC_CACHE: dict | None = None
+_SETTINGS_STATIC_TS: float = 0.0
+_SETTINGS_STATIC_TTL: float = 30.0
+
+
+def _settings_cards_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "ui" / "cards" / "settings"
+
+
+@network.external_interactions_worker_callable
+@session_authenticated
+@standard_endpoint("GET", "HEAD", "OPTIONS")
+def ui_settings_card(card_id: str) -> tuple:
+    """Serve a single settings card fragment, authorized for the session.
+
+    Card contents are sent only when the user is allowed to see them (the
+    same authorization the monolithic settings page used to apply). Unknown
+    card ids and unauthorized cards return a small JSON error that the client
+    turns into an unobtrusive placeholder.
+    """
+    session = _active_session()
+    if session is None:
+        return _unauthorized_response()
+    entry = next((card for card in _SETTINGS_CARDS if card["id"] == card_id), None)
+    if entry is None:
+        return jsonify({"error": "Unknown card."}), 404
+    if "admin" in entry["roles"] and not session["admin"]:
+        log_warn("Settings card denied: logged-in user is not an admin", {"client": request.remote_addr, "card": card_id})
+        return jsonify({"error": "Admin privileges required."}), 403
+    fragment = (_settings_cards_dir() / entry["fragment"]).read_text(encoding="utf-8")
+    ctx = _settings_render_context(session)
+    rendered = render_template_string(fragment, **ctx)
+    return rendered, 200
+
+
 @network.external_interactions_worker_callable
 @session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
@@ -3194,62 +3449,10 @@ def ui_settings_page():
         pass
     pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
     template = (pages_dir / "settings.html").read_text(encoding="utf-8")
-    api_keys = sorted(_api_key_store, key=lambda k: (k.get("name") or "").lower())
-    shared_memory = _load_shared_memory()
-    incoming_interactions_ips = _load_external_interactions_entries("incoming")
-    outgoing_interactions_ips = _load_external_interactions_entries("outgoing")
-    users = _list_users()
-    installed_plugins_list = _list_installed_plugins()
     session = _active_session()
-    return render_template_string(
-        template,
-        is_admin=bool(session and session["admin"]),
-        is_root=bool(session and session.get("root", False)),
-        account_username=session["username"] if session else "",
-        internal_interactions=_read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS),
-        api_keys_enabled=_read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
-        display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
-        play_audios=_read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
-        play_log_sounds=_read_env_bool("PLAY_LOG_SOUNDS", PLAY_LOG_SOUNDS),
-        play_startup_sound=_read_env_bool("PLAY_STARTUP_SOUND", PLAY_STARTUP_SOUND),
-        sounds={event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
-        available_audios=audio.list_audio_files(),
-        sound_events=[(event, event.capitalize()) for event in audio.SOUND_EVENTS],
-        shared_memory_enabled=_read_env_bool("SHARED_MEMORY_ENABLED", SHARED_MEMORY_ENABLED),
-        has_api_keys=bool(api_keys),
-        api_keys_json=json.dumps(api_keys),
-        has_shared_memory=bool(shared_memory),
-        shared_memory_json=json.dumps(shared_memory),
-        has_external_interactions_ips=bool(incoming_interactions_ips),
-        external_interactions_ips_json=json.dumps(incoming_interactions_ips),
-        has_external_interactions_outgoing_ips=bool(outgoing_interactions_ips),
-        external_interactions_outgoing_ips_json=json.dumps(outgoing_interactions_ips),
-        external_interactions_allow_new_outgoing=_read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING),
-        external_interactions_enabled=_external_interactions_enabled(),
-        external_interactions_allow_new=_read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", EXTERNAL_INTERACTIONS_ALLOW_NEW),
-        external_interactions_worker_bind=_external_interactions_worker_bind_address(),
-        automatic_update=_read_env_bool("AUTOMATIC_UPDATE", AUTOMATIC_UPDATE),
-        current_version=_get_current_project_version(),
-        effective_version=_get_effective_project_version(),
-        indicated_version=_get_indicated_project_version(),
-        update_available=_UPDATE_AVAILABLE_AT_STARTUP,
-        project_integrity_ok=_PROJECT_INTEGRITY_OK,
-        development=DEVELOPMENT,
-        project_update_disabled=DEVELOPMENT,
-        automatic_plugin_library_update=_read_env_bool("AUTOMATIC_PLUGIN_LIBRARY_UPDATE", AUTOMATIC_PLUGIN_LIBRARY_UPDATE),
-        automatic_plugin_upgrade=_read_env_bool("AUTOMATIC_PLUGIN_UPGRADE", AUTOMATIC_PLUGIN_UPGRADE),
-        installed_plugins_upgrade_available=bool(_INSTALLED_PLUGINS_PENDING_UPGRADES),
-        has_installed_plugins=bool(installed_plugins_list),
-        installed_plugins_json=json.dumps(installed_plugins_list),
-        current_plugins_lib_version=_get_current_plugins_lib_version(),
-        effective_plugins_lib_version=_get_effective_plugins_lib_version(),
-        indicated_plugins_lib_version=_get_indicated_plugins_lib_version(),
-        plugins_lib_update_available=_PLUGIN_UPDATE_AVAILABLE_AT_STARTUP,
-        plugin_integrity_ok=_PLUGIN_INTEGRITY_OK,
-        has_users=bool(users),
-        users_json=json.dumps(users),
-        current_username=session["username"] if session else "",
-    )
+    ctx = _settings_render_context(session)
+    ctx["card_indicators"] = _settings_card_indicators(session)
+    return render_template_string(template, **ctx)
 
 
 @network.external_interactions_worker_callable
@@ -3535,6 +3738,11 @@ def _register_ui_routes(app_instance: Flask) -> None:
         "/ui/pages/plugins.html",
         methods=["GET", "HEAD", "OPTIONS"],
         view_func=ui_plugins_page,
+    )
+    app_instance.add_url_rule(
+        "/ui/cards/settings/<string:card_id>",
+        methods=["GET", "HEAD", "OPTIONS"],
+        view_func=ui_settings_card,
     )
     app_instance.add_url_rule(
         "/ui/css/<path:filename>",

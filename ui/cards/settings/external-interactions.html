@@ -1,0 +1,79 @@
+    <div class="page-card" id="externalInteractionsCard"{{ '' if external_interactions_enabled else ' hidden' }}>
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.247 7.761a6 6 0 0 1 0 8.478"/><path d="M19.075 4.933a10 10 0 0 1 0 14.134"/><path d="M4.925 19.067a10 10 0 0 1 0-14.134"/><path d="M7.753 16.239a6 6 0 0 1 0-8.478"/><circle cx="12" cy="12" r="2"/></svg>
+            External Interactions
+        </h3>
+        <div class="external-interactions-worker-bind">
+            <div class="pill-item">
+                <span class="pill-label">BIND ADDRESS</span>
+                <span class="pill-value">{{ external_interactions_worker_bind.address or 'Disabled' }}</span>
+            </div>
+            <div class="pill-item">
+                <span class="pill-label">PORT</span>
+                <span class="pill-value">{{ external_interactions_worker_bind.port }}</span>
+            </div>
+        </div>
+        <div class="shared-variable-generator" id="externalInteractionsGenerator" style="grid-template-columns: 1fr auto auto; gap: 8px;">
+            <input type="text" id="externalInteractionsJsonInput" class="shared-variable-name-input" placeholder='{"incoming": [], "outgoing": []}' autocomplete="off" spellcheck="false" aria-label="External interactions JSON" style="min-width:0;" disabled>
+            <button type="button" class="generate-api-key-btn" id="externalInteractionsImportBtn" aria-label="Import External Interactions" style="width:80px; min-width:80px; max-width:80px;" disabled>Import</button>
+            <button type="button" class="generate-api-key-btn" id="exportExternalInteractionsBtn" aria-label="Export External Interactions" style="width:80px; min-width:80px; max-width:80px;" disabled>Export</button>
+        </div>
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Incoming Interactions</h4>
+            <div class="settings-row">
+                <div class="data-indicator">
+                    <span class="data-indicator-label">Policy for New IPs</span>
+                </div>
+                <p class="data-indicator-description">Controls whether IPs not yet in the known list are allowed to interact.</p>
+                <button type="button" class="toggle{{ ' on' if external_interactions_allow_new else '' }}" id="externalInteractionsAllowNewToggle" role="switch" aria-checked="{{ 'true' if external_interactions_allow_new else 'false' }}" aria-label="Allow new IPs by default" data-tooltip-on="Allow" data-tooltip-off="Block">
+                    <span class="toggle-thumb">
+                        <svg class="toggle-lock" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <svg class="toggle-lock-open" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+                    </span>
+                </button>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table" id="externalInteractionsTable"{{ '' if has_external_interactions_ips else ' hidden' }}>
+                    <thead>
+                        <tr>
+                            <th>IP</th>
+                            <th>Plugins</th>
+                            <th>Note</th>
+                            <th></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="externalInteractionsTableBody" data-external-interactions-ips="{{ external_interactions_ips_json|e }}"></tbody>
+                </table>
+                <p class="table-empty" id="externalInteractionsEmpty"{{ '' if not has_external_interactions_ips else ' hidden' }}>No IPs recorded</p>
+            </div>
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Outgoing Interactions</h4>
+            <div class="settings-row">
+                <div class="data-indicator">
+                    <span class="data-indicator-label">Default Policy</span>
+                </div>
+                <p class="data-indicator-description">Controls whether outgoing requests not matching any entry are let through or blocked.</p>
+                <button type="button" class="toggle{{ ' on' if external_interactions_allow_new_outgoing else '' }}" id="externalInteractionsAllowNewOutgoingToggle" role="switch" aria-checked="{{ 'true' if external_interactions_allow_new_outgoing else 'false' }}" aria-label="Allow outgoing requests by default" data-tooltip-on="Allow" data-tooltip-off="Block">
+                    <span class="toggle-thumb">
+                        <svg class="toggle-lock" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <svg class="toggle-lock-open" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+                    </span>
+                </button>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table" id="externalInteractionsOutgoingTable"{{ '' if has_external_interactions_outgoing_ips else ' hidden' }}>
+                    <thead>
+                        <tr>
+                            <th>Plugins</th>
+                            <th>IP</th>
+                            <th>Note</th>
+                            <th></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="externalInteractionsOutgoingTableBody" data-external-interactions-outgoing-ips="{{ external_interactions_outgoing_ips_json|e }}"></tbody>
+                </table>
+                <p class="table-empty" id="externalInteractionsOutgoingEmpty"{{ '' if not has_external_interactions_outgoing_ips else ' hidden' }}>No IPs recorded</p>
+            </div>
+    </div>

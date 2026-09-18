@@ -1,0 +1,93 @@
+    <div class="page-card" id="internalInteractionsCard"{{ '' if internal_interactions else ' hidden' }}>
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"/></svg>
+            Internal Interactions
+        </h3>
+        <h4 class="card-section-title">Shared Memory</h4>
+        <div class="settings-row">
+            <div class="data-indicator">
+                <span class="data-indicator-label">Shared Memory</span>
+            </div>
+            <p class="data-indicator-description">Controls whether plugins can share memory with one another.</p>
+            <button type="button" class="toggle{{ ' on' if shared_memory_enabled else '' }}" id="sharedMemoryEnabledToggle" role="switch" aria-checked="{{ 'true' if shared_memory_enabled else 'false' }}" aria-label="Enable the shared memory feature">
+                <span class="toggle-thumb"></span>
+            </button>
+        </div>
+        <div class="shared-memory-content{{ '' if shared_memory_enabled else ' shared-memory-disabled' }}">
+        <div class="shared-variable-generator" id="sharedVariableGenerator" style="grid-template-columns: 1fr auto 1fr auto auto; gap: 8px;">
+            <input type="text" id="sharedVariableNameInput" class="shared-variable-name-input" placeholder="Variable Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Variable name">
+            <div class="sound-dropdown" id="sharedVariableTypeDropdown">
+                <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="Variable type" disabled>
+                    <span class="sound-select-value" data-value="">Type</span>
+                    <svg class="sound-select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <ul class="sound-select-menu" role="listbox">
+                    <li class="sound-select-option selected" role="option" aria-selected="true" data-value=""><span class="sound-select-option-label">Type</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option" role="option" aria-selected="false" data-value="string"><span class="sound-select-option-label">string</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option" role="option" aria-selected="false" data-value="list"><span class="sound-select-option-label">list</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option" role="option" aria-selected="false" data-value="dictionary"><span class="sound-select-option-label">dictionary</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option" role="option" aria-selected="false" data-value="integer"><span class="sound-select-option-label">integer</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option" role="option" aria-selected="false" data-value="float"><span class="sound-select-option-label">float</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option" role="option" aria-selected="false" data-value="boolean"><span class="sound-select-option-label">boolean</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                </ul>
+            </div>
+            <input type="text" id="sharedVariableValueInput" class="shared-variable-value-input" placeholder="Value" autocomplete="off" spellcheck="false" aria-label="Variable value" disabled>
+            <div class="sound-dropdown flex-fill" id="sharedVariableBooleanDropdown" hidden>
+                <button type="button" class="sound-select" aria-haspopup="listbox" aria-expanded="false" aria-label="Variable boolean value" disabled>
+                    <span class="sound-select-value" data-value="">Select...</span>
+                    <svg class="sound-select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <ul class="sound-select-menu" role="listbox">
+                    <li class="sound-select-option selected" role="option" aria-selected="true" data-value=""><span class="sound-select-option-label">Select...</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option" role="option" aria-selected="false" data-value="true"><span class="sound-select-option-label">true</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                    <li class="sound-select-option" role="option" aria-selected="false" data-value="false"><span class="sound-select-option-label">false</span><svg class="sound-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></li>
+                </ul>
+            </div>
+            <input type="text" id="sharedVariableJsonInput" class="shared-variable-name-input" placeholder='[{"name": "...", "type": "...", "value": ...}]' autocomplete="off" spellcheck="false" aria-label="Variables JSON" style="display:none; min-width:0; grid-column: 1 / span 3;">
+            <button type="button" class="generate-api-key-btn" id="addSharedVariableBtn" style="width:168px; min-width:168px; max-width:168px;">Add Variable</button>
+            <button type="button" class="generate-api-key-btn" id="exportSharedVariableBtn" aria-label="Export Shared Variables" style="width:80px; min-width:80px; max-width:80px;" hidden>Export</button>
+            <button type="button" class="generate-api-key-btn" id="sharedVariableImportBtn" data-tooltip="Import/Export Shared Variables" aria-label="Import/Export Shared Variables" style="width:36px; height:29px; padding:0; display:inline-flex; align-items:center; justify-content:center;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>
+            </button>
+        </div>
+        <div class="table-wrap" id="sharedMemoryTableWrap">
+            <table class="data-table" id="sharedMemoryTable"{{ '' if has_shared_memory else ' hidden' }}>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Value</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="sharedMemoryTableBody" data-variables="{{ shared_memory_json|e }}"></tbody>
+            </table>
+            <p class="table-empty" id="sharedMemoryEmpty"{{ '' if not has_shared_memory else ' hidden' }}>No shared variables</p>
+        </div>
+        </div>
+        <hr class="card-section-separator">
+        <h4 class="card-section-title">Event Streaming</h4>
+        <div class="shared-variable-generator" id="eventStreamingGenerator" style="grid-template-columns: 1fr 1fr auto auto; gap: 8px;">
+            <input type="text" id="eventStreamingEventInput" class="shared-variable-name-input" placeholder="Event Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Event name" style="min-width:0;">
+            <input type="text" id="eventStreamingPluginInput" class="shared-variable-name-input" placeholder="Plugin Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Plugin name" style="min-width:0;">
+            <input type="text" id="eventStreamingJsonInput" class="shared-variable-name-input" placeholder='{"event1": ["plugin1"], "event2": ["plugin2"]}' autocomplete="off" spellcheck="false" aria-label="Events JSON" style="display:none; min-width:0; grid-column: 1 / span 2;">
+            <button type="button" class="generate-api-key-btn" id="addEventStreamingBtn" style="width:168px; min-width:168px; max-width:168px;">Add Event</button>
+            <button type="button" class="generate-api-key-btn" id="exportEventStreamingBtn" aria-label="Export Events and Subscriptions" style="width:80px; min-width:80px; max-width:80px;" hidden>Export</button>
+            <button type="button" class="generate-api-key-btn" id="eventStreamingImportBtn" data-tooltip="Import/Export Events and Subscriptions" aria-label="Import/Export Events and Subscriptions" style="width:36px; height:29px; padding:0; display:inline-flex; align-items:center; justify-content:center;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>
+            </button>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="eventStreamingTable" hidden>
+                <thead>
+                    <tr>
+                        <th>Event</th>
+                        <th>Plugins</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="eventStreamingTableBody"></tbody>
+            </table>
+            <p class="table-empty" id="eventStreamingEmpty">No events</p>
+        </div>
+    </div>

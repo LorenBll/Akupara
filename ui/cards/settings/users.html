@@ -1,0 +1,29 @@
+    <div class="page-card" id="usersCard">
+        <h3 class="card-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Users
+        </h3>
+        <div class="password-change-row">
+            <input type="text" id="registerUsernameInput" class="api-key-name-input account-password-input" placeholder="Username" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="New username">
+            <input type="password" id="registerPasswordInput" class="api-key-name-input account-password-input" placeholder="Password" autocomplete="new-password" aria-label="New password">
+            <input type="password" id="registerConfirmInput" class="api-key-name-input account-password-input" placeholder="Confirm Password" autocomplete="new-password" aria-label="Confirm password" disabled>
+            <div class="external-interactions-segmented" id="registerAdminSegmented">
+                <button type="button" class="external-interactions-segment selected" data-value="false">Standard</button>
+                <button type="button" class="external-interactions-segment" data-value="true">Admin</button>
+            </div>
+            <button type="button" class="generate-api-key-btn" id="registerUserBtn" disabled>Register User</button>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="usersTable"{{ '' if has_users else ' hidden' }}>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody" data-users="{{ users_json|e }}" data-current="{{ current_username|e }}"></tbody>
+            </table>
+            <p class="table-empty" id="usersEmpty"{{ '' if not has_users else ' hidden' }}>No users registered</p>
+        </div>
+    </div>

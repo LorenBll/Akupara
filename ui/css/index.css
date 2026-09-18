@@ -507,6 +507,7 @@ body {
     white-space: nowrap;
     pointer-events: auto;
     cursor: pointer;
+    opacity: 0;
 }
 
 .card-indicator:hover {
@@ -529,6 +530,47 @@ body {
     .card-indicator-list {
         display: none;
     }
+}
+
+.card-indicator[hidden] {
+    display: none;
+}
+
+.card-slot {
+    min-height: 120px;
+    margin-bottom: 16px;
+}
+
+.card-slot[hidden] {
+    display: none;
+}
+
+.card-slot-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+}
+
+.card-slot-loading[hidden] {
+    display: none;
+}
+
+.card-slot-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    border: 1px dashed #dc2626;
+    border-radius: 12px;
+    color: #b91c1c;
+    font-size: 0.85rem;
+}
+
+.card-slot .page-card {
+    margin-bottom: 0;
 }
 
 .settings-row {
