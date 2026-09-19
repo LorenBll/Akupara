@@ -83,37 +83,6 @@ import signing
 from app_factory import _options_response, _head_response, set_connection_header, standard_endpoint, _register_ui_routes
 
 # Explicit imports for the web/bootstrap layer (no namespace magic, no aliases)
-from state import (  # noqa: E402
-    API_KEYS_ENABLED,
-    AUTOMATIC_PLUGIN_LIBRARY_UPDATE,
-    AUTOMATIC_PLUGIN_UPGRADE,
-    AUTOMATIC_UPDATE,
-    DEVELOPMENT,
-    DISPLAY_PROMOTION,
-    EXTERNAL_INTERACTIONS,
-    EXTERNAL_INTERACTIONS_ALLOW_NEW,
-    EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING,
-    GUI_ENABLED,
-    INTERNAL_INTERACTIONS,
-    PLAY_AUDIOS,
-    PLAY_LOG_SOUNDS,
-    PLAY_STARTUP_SOUND,
-    SERVICE_HOST,
-    SERVICE_PORT,
-    SESSION_COOKIE_NAME,
-    SHARED_MEMORY_ENABLED,
-    _FORBIDDEN_KEY_NAME_CHARS,
-    _INSTALLED_PLUGINS_PENDING_UPGRADES,
-    _PLUGIN_INTEGRITY_OK,
-    _PLUGIN_UPDATE_AVAILABLE,
-    _PLUGIN_UPDATE_AVAILABLE_AT_STARTUP,
-    _PROJECT_INTEGRITY_OK,
-    _SESSION_LOCK,
-    _SESSION_STORE,
-    _UPDATE_AVAILABLE,
-    _UPDATE_AVAILABLE_AT_STARTUP,
-    _api_key_store,
-)
 from config import _get_local_device_addresses, _initialize_service_config  # noqa: E402
 from auth import (  # noqa: E402
     AccountNotFoundError,
@@ -186,13 +155,12 @@ from integrity import (  # noqa: E402
     _verify_local_project_integrity,
 )
 from updates import (  # noqa: E402
-    _is_known_release_hash,
     _is_plugin_update_available,
     _is_update_available,
     _perform_plugins_lib_update,
     _perform_project_update,
 )
-from validation import _is_valid_event_name, _is_valid_key_name, _validate_plaintext_string, _validate_plaintext_value  # noqa: E402
+from validation import _FORBIDDEN_KEY_NAME_CHARS, _is_valid_event_name, _is_valid_key_name, _validate_plaintext_string, _validate_plaintext_value  # noqa: E402
 
 
 def _format_exc() -> str:
@@ -220,7 +188,7 @@ app.after_request(set_connection_header)
 def health() -> tuple:
     log_info("Health check", {"client": request.remote_addr})
 
-    bind_address = SERVICE_HOST
+    bind_address = state.SERVICE_HOST
     # Requests arriving through the external interactions worker (non-local
     # client) see the worker's bind address instead of loopback.
     if state._external_interactions_worker is not None and request.remote_addr not in _get_local_device_addresses():
@@ -232,7 +200,7 @@ def health() -> tuple:
         "status": "ok",
         "service": "Akupara",
         "bind_address": bind_address,
-        "port": SERVICE_PORT,
+        "port": state.SERVICE_PORT,
         "hostname": socket.gethostname(),
         "pid": os.getpid(),
     }), 200
@@ -273,8 +241,7 @@ def restart() -> tuple:
 
 @audio.play_audio("acknowledge")
 def _set_internal_interactions(value: bool) -> None:
-    global INTERNAL_INTERACTIONS
-    INTERNAL_INTERACTIONS = value
+    state.INTERNAL_INTERACTIONS = value
     _write_env_bool("INTERNAL_INTERACTIONS", value)
 
 
@@ -282,58 +249,51 @@ def _set_internal_interactions(value: bool) -> None:
 def _set_automatic_update(value: bool) -> None:
     if _is_project_functionality_disabled():
         raise FeatureDisabledError("Project functionalities disabled due to integrity check failure in development mode.")
-    global AUTOMATIC_UPDATE
-    AUTOMATIC_UPDATE = value
+    state.AUTOMATIC_UPDATE = value
     _write_env_bool("AUTOMATIC_UPDATE", value)
 
 
 @audio.play_audio("acknowledge")
 def _set_automatic_plugin_library_update(value: bool) -> None:
-    global AUTOMATIC_PLUGIN_LIBRARY_UPDATE
-    AUTOMATIC_PLUGIN_LIBRARY_UPDATE = value
+    state.AUTOMATIC_PLUGIN_LIBRARY_UPDATE = value
     _write_env_bool("AUTOMATIC_PLUGIN_LIBRARY_UPDATE", value)
 
 
 @audio.play_audio("acknowledge")
 def _set_automatic_plugin_upgrade(value: bool) -> None:
-    global AUTOMATIC_PLUGIN_UPGRADE
-    AUTOMATIC_PLUGIN_UPGRADE = value
+    state.AUTOMATIC_PLUGIN_UPGRADE = value
     _write_env_bool("AUTOMATIC_PLUGIN_UPGRADE", value)
 
 
 @audio.play_audio("acknowledge")
 def _set_api_keys_enabled(value: bool) -> None:
-    global API_KEYS_ENABLED
-    API_KEYS_ENABLED = value
+    state.API_KEYS_ENABLED = value
     _write_env_bool("API_KEYS_ENABLED", value)
 
 
 def _set_display_promotion(value: bool) -> None:
-    global DISPLAY_PROMOTION
-    DISPLAY_PROMOTION = value
+    state.DISPLAY_PROMOTION = value
     _write_env_bool("DISPLAY_PROMOTION", value)
 
 
 def _set_play_audios(value: bool) -> None:
-    global PLAY_AUDIOS
-    PLAY_AUDIOS = value
+    state.PLAY_AUDIOS = value
     _write_env_bool("PLAY_AUDIOS", value)
     audio.set_audio_worker_enabled(value)
     try:
         import logginglib
-        logginglib.set_log_sounds_config(PLAY_AUDIOS, PLAY_LOG_SOUNDS)
+        logginglib.set_log_sounds_config(state.PLAY_AUDIOS, state.PLAY_LOG_SOUNDS)
     except Exception:
         pass
 
 
 def _set_play_log_sounds(value: bool) -> None:
     _require_play_audios_enabled()
-    global PLAY_LOG_SOUNDS
-    PLAY_LOG_SOUNDS = value
+    state.PLAY_LOG_SOUNDS = value
     _write_env_bool("PLAY_LOG_SOUNDS", value)
     try:
         import logginglib
-        logginglib.set_log_sounds_config(PLAY_AUDIOS, PLAY_LOG_SOUNDS)
+        logginglib.set_log_sounds_config(state.PLAY_AUDIOS, state.PLAY_LOG_SOUNDS)
     except Exception:
         pass
     try:
@@ -353,8 +313,7 @@ STARTUP_SOUND_FILE = "logo-reveal.wav"
 @audio.play_audio("acknowledge")
 def _set_play_startup_sound(value: bool) -> None:
     _require_play_audios_enabled()
-    global PLAY_STARTUP_SOUND
-    PLAY_STARTUP_SOUND = value
+    state.PLAY_STARTUP_SOUND = value
     _write_env_bool("PLAY_STARTUP_SOUND", value)
 
 
@@ -364,9 +323,9 @@ def _play_startup_sound() -> None:
     The sound is not customisable (always ``logo-reveal.wav``) and plays only
     when both ``PLAY_AUDIOS`` and ``PLAY_STARTUP_SOUND`` are on.
     """
-    if not PLAY_AUDIOS:
+    if not state.PLAY_AUDIOS:
         return
-    if not PLAY_STARTUP_SOUND:
+    if not state.PLAY_STARTUP_SOUND:
         return
     try:
         path = audio.AUDIOS_DIR / STARTUP_SOUND_FILE
@@ -378,8 +337,17 @@ def _play_startup_sound() -> None:
 
 
 def _require_play_audios_enabled() -> None:
-    if not PLAY_AUDIOS:
+    if not state.PLAY_AUDIOS:
         raise FeatureDisabledError("The audio functionality is disabled.")
+
+
+def _require_internal_interactions_enabled() -> None:
+    if not _read_env_bool("INTERNAL_INTERACTIONS", state.INTERNAL_INTERACTIONS):
+        raise FeatureDisabledError("The internal interactions functionality is disabled.")
+
+
+def _effective_shared_memory_enabled() -> bool:
+    return _read_env_bool("INTERNAL_INTERACTIONS", state.INTERNAL_INTERACTIONS) and _read_env_bool("SHARED_MEMORY_ENABLED", state.SHARED_MEMORY_ENABLED)
 
 
 def _is_valid_sound_file_name(file_name: str) -> bool:
@@ -424,8 +392,7 @@ def _play_sound_event(event_name: str) -> None:
 @audio.play_audio("acknowledge")
 def _set_shared_memory_enabled(value: bool) -> None:
     _require_internal_interactions_enabled()
-    global SHARED_MEMORY_ENABLED
-    SHARED_MEMORY_ENABLED = value
+    state.SHARED_MEMORY_ENABLED = value
     _write_env_bool("SHARED_MEMORY_ENABLED", value)
 
 
@@ -437,9 +404,9 @@ def settings() -> tuple:
     if request.method == "GET":
         log_info("Settings read", {"client": request.remote_addr})
         return jsonify({
-            "internalInteractions": _read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS),
-            "displayPromotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
-            "externalInteractions": _read_env_bool("EXTERNAL_INTERACTIONS", EXTERNAL_INTERACTIONS),
+            "internalInteractions": _read_env_bool("INTERNAL_INTERACTIONS", state.INTERNAL_INTERACTIONS),
+            "displayPromotion": _read_env_bool("DISPLAY_PROMOTION", state.DISPLAY_PROMOTION),
+            "externalInteractions": _read_env_bool("EXTERNAL_INTERACTIONS", state.EXTERNAL_INTERACTIONS),
         }), 200
     denied = _require_admin_session()
     if denied is not None:
@@ -461,11 +428,11 @@ def settings() -> tuple:
                 return jsonify({"error": "Functionality disabled."}), 403
         else:
             _set_display_promotion(value)
-    log_info("Settings updated", {"client": request.remote_addr, "internalInteractions": INTERNAL_INTERACTIONS, "displayPromotion": DISPLAY_PROMOTION, "externalInteractions": EXTERNAL_INTERACTIONS})
+    log_info("Settings updated", {"client": request.remote_addr, "internalInteractions": state.INTERNAL_INTERACTIONS, "displayPromotion": state.DISPLAY_PROMOTION, "externalInteractions": state.EXTERNAL_INTERACTIONS})
     return jsonify({
-        "internalInteractions": INTERNAL_INTERACTIONS,
-        "displayPromotion": DISPLAY_PROMOTION,
-        "externalInteractions": EXTERNAL_INTERACTIONS,
+        "internalInteractions": state.INTERNAL_INTERACTIONS,
+        "displayPromotion": state.DISPLAY_PROMOTION,
+        "externalInteractions": state.EXTERNAL_INTERACTIONS,
     }), 200
 
 
@@ -478,7 +445,7 @@ def audio_playback() -> tuple:
     if request.method == "GET":
         log_info("Audio settings read", {"client": request.remote_addr})
         return jsonify({
-            "playAudios": _read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
+            "playAudios": _read_env_bool("PLAY_AUDIOS", state.PLAY_AUDIOS),
             "sounds": {event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
             "available": audio.list_audio_files(),
         }), 200
@@ -501,9 +468,9 @@ def audio_playback() -> tuple:
             return jsonify({"error": "Functionality disabled."}), 403
         except ValueError:
             return jsonify({"error": "Invalid request."}), 400
-    log_info("Audio settings updated", {"client": request.remote_addr, "playAudios": PLAY_AUDIOS})
+    log_info("Audio settings updated", {"client": request.remote_addr, "playAudios": state.PLAY_AUDIOS})
     return jsonify({
-        "playAudios": PLAY_AUDIOS,
+        "playAudios": state.PLAY_AUDIOS,
         "sounds": {event: _read_env_var(audio.SOUND_ENV_VARS[event], audio.DEFAULT_SOUND_FILES.get(event, "")) for event in audio.SOUND_EVENTS},
         "available": audio.list_audio_files(),
     }), 200
@@ -517,7 +484,7 @@ def audio_playback() -> tuple:
 def log_sounds_enabled() -> tuple:
     if request.method == "GET":
         log_info("Log sounds enabled setting read", {"client": request.remote_addr})
-        return jsonify({"playLogSounds": PLAY_LOG_SOUNDS}), 200
+        return jsonify({"playLogSounds": state.PLAY_LOG_SOUNDS}), 200
 
     data = request.get_json(silent=True) or {}
     if "playLogSounds" not in data or not isinstance(data["playLogSounds"], bool):
@@ -527,8 +494,8 @@ def log_sounds_enabled() -> tuple:
         _set_play_log_sounds(value)
     except FeatureDisabledError:
         return jsonify({"error": "Functionality disabled."}), 403
-    log_info("Log sounds enabled set", {"client": request.remote_addr, "playLogSounds": PLAY_LOG_SOUNDS})
-    return jsonify({"playLogSounds": PLAY_LOG_SOUNDS}), 200
+    log_info("Log sounds enabled set", {"client": request.remote_addr, "playLogSounds": state.PLAY_LOG_SOUNDS})
+    return jsonify({"playLogSounds": state.PLAY_LOG_SOUNDS}), 200
 
 
 @app.route("/api/startup-sound-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -539,7 +506,7 @@ def log_sounds_enabled() -> tuple:
 def startup_sound_enabled() -> tuple:
     if request.method == "GET":
         log_info("Startup sound enabled setting read", {"client": request.remote_addr})
-        return jsonify({"playStartupSound": PLAY_STARTUP_SOUND}), 200
+        return jsonify({"playStartupSound": state.PLAY_STARTUP_SOUND}), 200
 
     data = request.get_json(silent=True) or {}
     if "playStartupSound" not in data or not isinstance(data["playStartupSound"], bool):
@@ -549,8 +516,8 @@ def startup_sound_enabled() -> tuple:
         _set_play_startup_sound(value)
     except FeatureDisabledError:
         return jsonify({"error": "Functionality disabled."}), 403
-    log_info("Startup sound enabled set", {"client": request.remote_addr, "playStartupSound": PLAY_STARTUP_SOUND})
-    return jsonify({"playStartupSound": PLAY_STARTUP_SOUND}), 200
+    log_info("Startup sound enabled set", {"client": request.remote_addr, "playStartupSound": state.PLAY_STARTUP_SOUND})
+    return jsonify({"playStartupSound": state.PLAY_STARTUP_SOUND}), 200
 
 
 @app.route("/api/audio/play", methods=["POST", "HEAD", "OPTIONS"])
@@ -581,7 +548,7 @@ def play_audio_event() -> tuple:
 def shared_memory_enabled() -> tuple:
     if request.method == "GET":
         log_info("Shared memory enabled setting read", {"client": request.remote_addr})
-        return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
+        return jsonify({"sharedMemoryEnabled": state.SHARED_MEMORY_ENABLED}), 200
 
     data = request.get_json(silent=True) or {}
     if "sharedMemoryEnabled" not in data or not isinstance(data["sharedMemoryEnabled"], bool):
@@ -591,8 +558,8 @@ def shared_memory_enabled() -> tuple:
         _set_shared_memory_enabled(value)
     except FeatureDisabledError:
         return jsonify({"error": "Functionality disabled."}), 403
-    log_info("Shared memory enabled set", {"client": request.remote_addr, "sharedMemoryEnabled": SHARED_MEMORY_ENABLED})
-    return jsonify({"sharedMemoryEnabled": SHARED_MEMORY_ENABLED}), 200
+    log_info("Shared memory enabled set", {"client": request.remote_addr, "sharedMemoryEnabled": state.SHARED_MEMORY_ENABLED})
+    return jsonify({"sharedMemoryEnabled": state.SHARED_MEMORY_ENABLED}), 200
 
 
 @app.route("/api/api-keys-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -603,15 +570,15 @@ def shared_memory_enabled() -> tuple:
 def api_keys_enabled() -> tuple:
     if request.method == "GET":
         log_info("API keys enabled setting read", {"client": request.remote_addr})
-        return jsonify({"apiKeysEnabled": API_KEYS_ENABLED}), 200
+        return jsonify({"apiKeysEnabled": state.API_KEYS_ENABLED}), 200
 
     data = request.get_json(silent=True) or {}
     if "apiKeysEnabled" not in data or not isinstance(data["apiKeysEnabled"], bool):
         return jsonify({"error": "Invalid request."}), 400
     value = data["apiKeysEnabled"]
     _set_api_keys_enabled(value)
-    log_info("API keys enabled set", {"client": request.remote_addr, "apiKeysEnabled": API_KEYS_ENABLED})
-    return jsonify({"apiKeysEnabled": API_KEYS_ENABLED}), 200
+    log_info("API keys enabled set", {"client": request.remote_addr, "apiKeysEnabled": state.API_KEYS_ENABLED})
+    return jsonify({"apiKeysEnabled": state.API_KEYS_ENABLED}), 200
 
 
 @app.route("/api/external-interactions-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -641,23 +608,23 @@ def external_interactions_enabled() -> tuple:
 def automatic_update_enabled() -> tuple:
     if _is_project_functionality_disabled():
         log_warn("Automatic update toggle disabled due to integrity check failure in development mode")
-        return jsonify({"automaticUpdate": AUTOMATIC_UPDATE, "disabled": True, "error": "Project functionalities disabled due to integrity check failure."}), 403
+        return jsonify({"automaticUpdate": state.AUTOMATIC_UPDATE, "disabled": True, "error": "Project functionalities disabled due to integrity check failure."}), 403
     if request.method == "GET":
         log_info("Automatic update enabled setting read", {"client": request.remote_addr})
-        return jsonify({"automaticUpdate": AUTOMATIC_UPDATE}), 200
+        return jsonify({"automaticUpdate": state.AUTOMATIC_UPDATE}), 200
 
     # The toggle never changes in development mode (it is disabled there)
-    if DEVELOPMENT:
+    if state.DEVELOPMENT:
         log_warn("Automatic update toggle disabled in development mode", {"client": request.remote_addr})
-        return jsonify({"automaticUpdate": AUTOMATIC_UPDATE, "disabled": True, "error": "Automatic updates are disabled in development mode."}), 403
+        return jsonify({"automaticUpdate": state.AUTOMATIC_UPDATE, "disabled": True, "error": "Automatic updates are disabled in development mode."}), 403
 
     data = request.get_json(silent=True) or {}
     if "automaticUpdate" not in data or not isinstance(data["automaticUpdate"], bool):
         return jsonify({"error": "Invalid request."}), 400
     value = data["automaticUpdate"]
     _set_automatic_update(value)
-    log_info("Automatic update enabled set", {"client": request.remote_addr, "automaticUpdate": AUTOMATIC_UPDATE})
-    return jsonify({"automaticUpdate": AUTOMATIC_UPDATE}), 200
+    log_info("Automatic update enabled set", {"client": request.remote_addr, "automaticUpdate": state.AUTOMATIC_UPDATE})
+    return jsonify({"automaticUpdate": state.AUTOMATIC_UPDATE}), 200
 
 
 @app.route("/api/automatic-plugin-library-update-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -668,15 +635,15 @@ def automatic_update_enabled() -> tuple:
 def automatic_plugin_library_update_enabled() -> tuple:
     if request.method == "GET":
         log_info("Automatic plugin library update enabled setting read", {"client": request.remote_addr})
-        return jsonify({"automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE}), 200
+        return jsonify({"automaticPluginLibraryUpdate": state.AUTOMATIC_PLUGIN_LIBRARY_UPDATE}), 200
 
     data = request.get_json(silent=True) or {}
     if "automaticPluginLibraryUpdate" not in data or not isinstance(data["automaticPluginLibraryUpdate"], bool):
         return jsonify({"error": "Invalid request."}), 400
     value = data["automaticPluginLibraryUpdate"]
     _set_automatic_plugin_library_update(value)
-    log_info("Automatic plugin library update enabled set", {"client": request.remote_addr, "automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE})
-    return jsonify({"automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE}), 200
+    log_info("Automatic plugin library update enabled set", {"client": request.remote_addr, "automaticPluginLibraryUpdate": state.AUTOMATIC_PLUGIN_LIBRARY_UPDATE})
+    return jsonify({"automaticPluginLibraryUpdate": state.AUTOMATIC_PLUGIN_LIBRARY_UPDATE}), 200
 
 
 @app.route("/api/automatic-plugin-upgrade-enabled", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -687,15 +654,15 @@ def automatic_plugin_library_update_enabled() -> tuple:
 def automatic_plugin_upgrade_enabled() -> tuple:
     if request.method == "GET":
         log_info("Automatic plugin upgrade enabled setting read", {"client": request.remote_addr})
-        return jsonify({"automaticPluginUpgrade": AUTOMATIC_PLUGIN_UPGRADE}), 200
+        return jsonify({"automaticPluginUpgrade": state.AUTOMATIC_PLUGIN_UPGRADE}), 200
 
     data = request.get_json(silent=True) or {}
     if "automaticPluginUpgrade" not in data or not isinstance(data["automaticPluginUpgrade"], bool):
         return jsonify({"error": "Invalid request."}), 400
     value = data["automaticPluginUpgrade"]
     _set_automatic_plugin_upgrade(value)
-    log_info("Automatic plugin upgrade enabled set", {"client": request.remote_addr, "automaticPluginUpgrade": AUTOMATIC_PLUGIN_UPGRADE})
-    return jsonify({"automaticPluginUpgrade": AUTOMATIC_PLUGIN_UPGRADE}), 200
+    log_info("Automatic plugin upgrade enabled set", {"client": request.remote_addr, "automaticPluginUpgrade": state.AUTOMATIC_PLUGIN_UPGRADE})
+    return jsonify({"automaticPluginUpgrade": state.AUTOMATIC_PLUGIN_UPGRADE}), 200
 
 
 @app.route("/api/check-for-updates", methods=["POST", "HEAD", "OPTIONS"])
@@ -704,40 +671,25 @@ def automatic_plugin_upgrade_enabled() -> tuple:
 @admin_session_authenticated
 @standard_endpoint("POST", "HEAD", "OPTIONS")
 def check_for_updates() -> tuple:
-    global _UPDATE_AVAILABLE, _UPDATE_AVAILABLE_AT_STARTUP
     # No version check in development mode — never fetch the remote hash
-    if DEVELOPMENT:
+    if state.DEVELOPMENT:
         log_info("Check for updates skipped in development mode", {"client": request.remote_addr})
-        return jsonify({"updateAvailable": False, "currentVersion": _get_current_project_version(), "integrityOk": _PROJECT_INTEGRITY_OK}), 200
+        return jsonify({"updateAvailable": False, "currentVersion": _get_current_project_version(), "integrityOk": state._PROJECT_INTEGRITY_OK}), 200
     # Integrity check happens inside _is_update_available (effective vs indicated)
     available = _is_update_available()
     # If project integrity failed in development mode, update checks are disabled
-    if not _PROJECT_INTEGRITY_OK and DEVELOPMENT:
+    if not state._PROJECT_INTEGRITY_OK and state.DEVELOPMENT:
         log_warn("Check for updates skipped due to project integrity failure in development mode")
         return jsonify({"updateAvailable": False, "currentVersion": _get_current_project_version(), "integrityOk": False}), 200
-    # Repeat the startup checks (development is off here): integrity failure crashes,
-    # and so does a local hash matching no known release (latest or previous).
-    if not _PROJECT_INTEGRITY_OK:
+    # Repeat the startup checks (development is off here): integrity failure crashes.
+    if not state._PROJECT_INTEGRITY_OK:
         log_error("Project integrity check failed on manual update check — not continuing")
         exit(1)
-    if available:
-        local_hash = _get_local_project_hash() or _compute_local_project_hash()
-        if not _is_known_release_hash(local_hash):
-            log_error("Project version unknown: local hash matches no Akupara release (illicit interaction?)", {"local": local_hash})
-            try:
-                audio.get_audio_orchestrator().start()
-            except Exception:
-                pass
-            try:
-                audio.play_sound("error")
-            except Exception:
-                pass
-            exit(1)
     # Cache the result so the server-rendered button stays consistent with the check
-    _UPDATE_AVAILABLE = available
-    _UPDATE_AVAILABLE_AT_STARTUP = available
+    state._UPDATE_AVAILABLE = available
+    state._UPDATE_AVAILABLE_AT_STARTUP = available
     log_info("Check for updates", {"client": request.remote_addr, "available": available, "current": _get_current_project_version()})
-    return jsonify({"updateAvailable": available, "currentVersion": _get_current_project_version(), "integrityOk": _PROJECT_INTEGRITY_OK}), 200
+    return jsonify({"updateAvailable": available, "currentVersion": _get_current_project_version(), "integrityOk": state._PROJECT_INTEGRITY_OK}), 200
 
 
 @app.route("/api/update-now", methods=["POST", "HEAD", "OPTIONS"])
@@ -751,14 +703,14 @@ def update_now() -> tuple:
         log_warn("Update rejected: not localhost", {"client": request.remote_addr})
         return jsonify({"error": "Local device access only."}), 403
     # Manual updates never run in development mode (the button is disabled there)
-    if DEVELOPMENT:
+    if state.DEVELOPMENT:
         log_warn("Update rejected: updates are disabled in development mode", {"client": request.remote_addr})
         return jsonify({"error": "Updates are disabled in development mode."}), 403
     # Integrity check before update
     effective = _compute_local_project_hash()
     indicated = _get_local_project_hash()
     if effective and indicated and effective.strip().lower() != indicated.strip().lower():
-        if not DEVELOPMENT:
+        if not state.DEVELOPMENT:
             log_error("Update rejected: project integrity check failed and development is false")
             return jsonify({"error": "Project integrity check failed."}), 500
         else:
@@ -781,14 +733,13 @@ def update_now() -> tuple:
 @admin_session_authenticated
 @standard_endpoint("POST", "HEAD", "OPTIONS")
 def check_for_plugin_updates() -> tuple:
-    global _PLUGIN_UPDATE_AVAILABLE, _PLUGIN_UPDATE_AVAILABLE_AT_STARTUP
     # Integrity check happens inside _is_plugin_update_available (effective vs indicated)
     available = _is_plugin_update_available()
-    if not _PLUGIN_INTEGRITY_OK:
+    if not state._PLUGIN_INTEGRITY_OK:
         log_warn("Check for plugin library updates skipped due to integrity failure")
         return jsonify({"updateAvailable": False, "currentVersion": _get_current_plugins_lib_version(), "integrityOk": False}), 200
-    _PLUGIN_UPDATE_AVAILABLE = available
-    _PLUGIN_UPDATE_AVAILABLE_AT_STARTUP = available
+    state._PLUGIN_UPDATE_AVAILABLE = available
+    state._PLUGIN_UPDATE_AVAILABLE_AT_STARTUP = available
     log_info("Check for plugin library updates", {"client": request.remote_addr, "available": available, "current": _get_current_plugins_lib_version()})
     return jsonify({"updateAvailable": available, "currentVersion": _get_current_plugins_lib_version(), "integrityOk": True}), 200
 
@@ -823,15 +774,14 @@ def update_plugins_now() -> tuple:
 @admin_session_authenticated
 @standard_endpoint("POST", "HEAD", "OPTIONS")
 def check_for_plugin_upgrades() -> tuple:
-    global _INSTALLED_PLUGINS_PENDING_UPGRADES
     # Manual availability check only — never applies automatic upgrades,
     # independently of AUTOMATIC_PLUGIN_UPGRADE.
     try:
-        _, pending = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT, auto_upgrade=False)
+        _, pending = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=state.DEVELOPMENT, auto_upgrade=False)
     except Exception as exc:
         log_warn("Manual installed plugins upgrade check failed", {"client": request.remote_addr, "error": str(exc)})
         return jsonify({"error": "Upgrade check failed."}), 500
-    _INSTALLED_PLUGINS_PENDING_UPGRADES = pending
+    state._INSTALLED_PLUGINS_PENDING_UPGRADES = pending
     log_info("Manual installed plugins upgrade check", {"client": request.remote_addr, "pending": len(pending)})
     return jsonify({
         "upgradesAvailable": bool(pending),
@@ -845,13 +795,12 @@ def check_for_plugin_upgrades() -> tuple:
 @admin_session_authenticated
 @standard_endpoint("POST", "HEAD", "OPTIONS")
 def upgrade_all_plugins() -> tuple:
-    global _INSTALLED_PLUGINS_PENDING_UPGRADES
     try:
-        _, pending = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT, auto_upgrade=True)
+        _, pending = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=state.DEVELOPMENT, auto_upgrade=True)
     except Exception as exc:
         log_warn("Upgrade all plugins failed", {"client": request.remote_addr, "error": str(exc)})
         return jsonify({"error": "Upgrade failed."}), 500
-    _INSTALLED_PLUGINS_PENDING_UPGRADES = pending
+    state._INSTALLED_PLUGINS_PENDING_UPGRADES = pending
     log_info("Upgrade all plugins requested", {"client": request.remote_addr, "stillPending": len(pending)})
     return jsonify({
         "status": "ok",
@@ -938,7 +887,6 @@ def installed_plugins() -> tuple:
 @admin_session_authenticated
 @standard_endpoint("POST", "DELETE", "OPTIONS")
 def installed_plugin_item(folder: str) -> tuple:
-    global _INSTALLED_PLUGINS_PENDING_UPGRADES
     if request.method == "DELETE":
         try:
             deleted = _delete_installed_plugin(folder)
@@ -947,7 +895,7 @@ def installed_plugin_item(folder: str) -> tuple:
             return jsonify({"error": "Deletion failed."}), 500
         if not deleted:
             return jsonify({"error": "Not found."}), 404
-        _INSTALLED_PLUGINS_PENDING_UPGRADES = [item for item in _INSTALLED_PLUGINS_PENDING_UPGRADES if item.get("folder") != folder.strip()]
+        state._INSTALLED_PLUGINS_PENDING_UPGRADES = [item for item in state._INSTALLED_PLUGINS_PENDING_UPGRADES if item.get("folder") != folder.strip()]
         log_info("Installed plugin deleted", {"client": request.remote_addr, "folder": folder})
         return jsonify({"status": "ok"}), 200
     # POST upgrades only the singular plugin (dev plugins cannot be upgraded)
@@ -965,25 +913,25 @@ def installed_plugin_item(folder: str) -> tuple:
         if file_hash and re.fullmatch(r"[0-9a-fA-F]{64}", file_hash.strip()):
             only = file_hash.strip()
     try:
-        _, pending_before = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT, auto_upgrade=False)
+        _, pending_before = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=state.DEVELOPMENT, auto_upgrade=False)
     except Exception as exc:
         log_warn("Single plugin upgrade check failed", {"client": request.remote_addr, "folder": folder, "error": str(exc)})
         return jsonify({"error": "Upgrade check failed."}), 500
     if not any(item.get("folder") == folder.strip() for item in pending_before):
         log_info("Single plugin upgrade not needed", {"client": request.remote_addr, "folder": folder})
         audio.play_audio("acknowledge")()
-        return jsonify({"status": "ok", "upgraded": False, "upToDate": True, "stillPending": bool(_INSTALLED_PLUGINS_PENDING_UPGRADES)}), 200
+        return jsonify({"status": "ok", "upgraded": False, "upToDate": True, "stillPending": bool(state._INSTALLED_PLUGINS_PENDING_UPGRADES)}), 200
     try:
-        _, pending_after = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT, auto_upgrade=True, only_hash=only)
+        _, pending_after = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=state.DEVELOPMENT, auto_upgrade=True, only_hash=only)
     except Exception as exc:
         log_warn("Single plugin upgrade failed", {"client": request.remote_addr, "folder": folder, "error": str(exc)})
         return jsonify({"error": "Upgrade failed."}), 500
-    _INSTALLED_PLUGINS_PENDING_UPGRADES = [item for item in _INSTALLED_PLUGINS_PENDING_UPGRADES if item.get("folder") != folder.strip()] + pending_after
+    state._INSTALLED_PLUGINS_PENDING_UPGRADES = [item for item in state._INSTALLED_PLUGINS_PENDING_UPGRADES if item.get("folder") != folder.strip()] + pending_after
     upgraded = not any(item.get("folder") == folder.strip() for item in pending_after)
     if upgraded:
         audio.play_audio("success")()
     log_info("Single plugin upgrade requested", {"client": request.remote_addr, "folder": folder, "upgraded": upgraded})
-    return jsonify({"status": "ok", "upgraded": upgraded, "upToDate": False, "stillPending": bool(_INSTALLED_PLUGINS_PENDING_UPGRADES)}), 200
+    return jsonify({"status": "ok", "upgraded": upgraded, "upToDate": False, "stillPending": bool(state._INSTALLED_PLUGINS_PENDING_UPGRADES)}), 200
 
 
 @app.route("/api/api-keys", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -1002,7 +950,7 @@ def api_keys() -> tuple:
 
     data = request.get_json(silent=True) or {}
     name = data.get("name")
-    if not API_KEYS_ENABLED:
+    if not state.API_KEYS_ENABLED:
         return jsonify({"error": "Functionality disabled."}), 403
     try:
         entry = _create_api_key(name)
@@ -1124,7 +1072,7 @@ def shared_memory_edit(name: str) -> tuple:
 @admin_session_authenticated
 @standard_endpoint("GET", "POST", "HEAD", "OPTIONS")
 def plugin_events() -> tuple:
-    if not INTERNAL_INTERACTIONS:
+    if not state.INTERNAL_INTERACTIONS:
         return jsonify({"error": "Internal interactions disabled."}), 403
     if request.method == "GET":
         data = _load_plugin_event_subscriptions()
@@ -1150,7 +1098,7 @@ def plugin_events() -> tuple:
 @admin_session_authenticated
 @standard_endpoint("DELETE", "OPTIONS")
 def plugin_event_delete(event: str) -> tuple:
-    if not INTERNAL_INTERACTIONS:
+    if not state.INTERNAL_INTERACTIONS:
         return jsonify({"error": "Internal interactions disabled."}), 403
     try:
         deleted = _remove_plugin_event(event)
@@ -1168,7 +1116,7 @@ def plugin_event_delete(event: str) -> tuple:
 @admin_session_authenticated
 @standard_endpoint("POST", "HEAD", "OPTIONS")
 def plugin_event_plugins(event: str) -> tuple:
-    if not INTERNAL_INTERACTIONS:
+    if not state.INTERNAL_INTERACTIONS:
         return jsonify({"error": "Internal interactions disabled."}), 403
     if request.method == "HEAD":
         return jsonify({}), 200
@@ -1190,7 +1138,7 @@ def plugin_event_plugins(event: str) -> tuple:
 @admin_session_authenticated
 @standard_endpoint("DELETE", "OPTIONS")
 def plugin_event_plugin_delete(event: str, plugin: str) -> tuple:
-    if not INTERNAL_INTERACTIONS:
+    if not state.INTERNAL_INTERACTIONS:
         return jsonify({"error": "Internal interactions disabled."}), 403
     try:
         deleted = _remove_plugin_from_event(event, plugin)
@@ -1208,7 +1156,7 @@ def plugin_event_plugin_delete(event: str, plugin: str) -> tuple:
 @admin_session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def external_interactions_incoming_ips() -> tuple:
-    if not EXTERNAL_INTERACTIONS:
+    if not state.EXTERNAL_INTERACTIONS:
         return jsonify({"error": "Functionality disabled."}), 403
     try:
         entries = _list_external_interactions_entries("incoming")
@@ -1224,7 +1172,7 @@ def external_interactions_incoming_ips() -> tuple:
 @admin_session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def external_interactions_outgoing_ips() -> tuple:
-    if not EXTERNAL_INTERACTIONS:
+    if not state.EXTERNAL_INTERACTIONS:
         return jsonify({"error": "Functionality disabled."}), 403
     try:
         entries = _list_external_interactions_entries("outgoing")
@@ -1305,7 +1253,7 @@ def external_interactions_outgoing_ip_item(ip: str) -> tuple:
 def external_interactions_allow_new() -> tuple:
     if request.method == "GET":
         log_info("External interactions allow new setting read", {"client": request.remote_addr})
-        return jsonify({"externalInteractionsAllowNew": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", EXTERNAL_INTERACTIONS_ALLOW_NEW)}), 200
+        return jsonify({"externalInteractionsAllowNew": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", state.EXTERNAL_INTERACTIONS_ALLOW_NEW)}), 200
 
     data = request.get_json(silent=True) or {}
     if "externalInteractionsAllowNew" not in data or not isinstance(data["externalInteractionsAllowNew"], bool):
@@ -1315,8 +1263,8 @@ def external_interactions_allow_new() -> tuple:
         _set_external_interactions_allow_new(value)
     except FeatureDisabledError:
         return jsonify({"error": "Functionality disabled."}), 403
-    log_info("External interactions allow new set", {"client": request.remote_addr, "externalInteractionsAllowNew": EXTERNAL_INTERACTIONS_ALLOW_NEW})
-    return jsonify({"externalInteractionsAllowNew": EXTERNAL_INTERACTIONS_ALLOW_NEW}), 200
+    log_info("External interactions allow new set", {"client": request.remote_addr, "externalInteractionsAllowNew": state.EXTERNAL_INTERACTIONS_ALLOW_NEW})
+    return jsonify({"externalInteractionsAllowNew": state.EXTERNAL_INTERACTIONS_ALLOW_NEW}), 200
 
 
 @app.route("/api/external-interactions-allow-new-outgoing", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -1327,7 +1275,7 @@ def external_interactions_allow_new() -> tuple:
 def external_interactions_allow_new_outgoing() -> tuple:
     if request.method == "GET":
         log_info("Outgoing external interactions allow new setting read", {"client": request.remote_addr})
-        return jsonify({"externalInteractionsAllowNewOutgoing": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING)}), 200
+        return jsonify({"externalInteractionsAllowNewOutgoing": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", state.EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING)}), 200
 
     data = request.get_json(silent=True) or {}
     if "externalInteractionsAllowNewOutgoing" not in data or not isinstance(data["externalInteractionsAllowNewOutgoing"], bool):
@@ -1337,8 +1285,8 @@ def external_interactions_allow_new_outgoing() -> tuple:
         _set_external_interactions_allow_new_outgoing(value)
     except FeatureDisabledError:
         return jsonify({"error": "Functionality disabled."}), 403
-    log_info("Outgoing external interactions allow new set", {"client": request.remote_addr, "externalInteractionsAllowNewOutgoing": EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING})
-    return jsonify({"externalInteractionsAllowNewOutgoing": EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING}), 200
+    log_info("Outgoing external interactions allow new set", {"client": request.remote_addr, "externalInteractionsAllowNewOutgoing": state.EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING})
+    return jsonify({"externalInteractionsAllowNewOutgoing": state.EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING}), 200
 
 
 @app.route("/api/plugins/search", methods=["GET", "POST", "HEAD", "OPTIONS"])
@@ -1377,9 +1325,9 @@ def index():
     session = _active_session()
     return render_template_string(
         template,
-        display_promotion=_read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
+        display_promotion=_read_env_bool("DISPLAY_PROMOTION", state.DISPLAY_PROMOTION),
         is_admin=bool(session and session["admin"]),
-        development=DEVELOPMENT,
+        development=state.DEVELOPMENT,
     )
 
 
@@ -1496,7 +1444,7 @@ def _settings_static_context() -> dict:
     now = time.time()
     if _SETTINGS_STATIC_CACHE is not None and (now - _SETTINGS_STATIC_TS) < _SETTINGS_STATIC_TTL:
         return _SETTINGS_STATIC_CACHE
-    api_keys = sorted(_api_key_store, key=lambda k: (k.get("name") or "").lower())
+    api_keys = sorted(state._api_key_store, key=lambda k: (k.get("name") or "").lower())
     shared_memory = _load_shared_memory()
     incoming_interactions_ips = _load_external_interactions_entries("incoming")
     outgoing_interactions_ips = _load_external_interactions_entries("outgoing")
@@ -1543,27 +1491,27 @@ def _settings_render_context(session: dict | None) -> dict:
         "is_root": bool(session and session.get("root", False)),
         "account_username": session["username"] if session else "",
         "current_username": session["username"] if session else "",
-        "internal_interactions": _read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS),
-        "api_keys_enabled": _read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED),
-        "display_promotion": _read_env_bool("DISPLAY_PROMOTION", DISPLAY_PROMOTION),
-        "play_audios": _read_env_bool("PLAY_AUDIOS", PLAY_AUDIOS),
-        "play_log_sounds": _read_env_bool("PLAY_LOG_SOUNDS", PLAY_LOG_SOUNDS),
-        "play_startup_sound": _read_env_bool("PLAY_STARTUP_SOUND", PLAY_STARTUP_SOUND),
-        "shared_memory_enabled": _read_env_bool("SHARED_MEMORY_ENABLED", SHARED_MEMORY_ENABLED),
-        "external_interactions_allow_new": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", EXTERNAL_INTERACTIONS_ALLOW_NEW),
-        "external_interactions_allow_new_outgoing": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING),
+        "internal_interactions": _read_env_bool("INTERNAL_INTERACTIONS", state.INTERNAL_INTERACTIONS),
+        "api_keys_enabled": _read_env_bool("API_KEYS_ENABLED", state.API_KEYS_ENABLED),
+        "display_promotion": _read_env_bool("DISPLAY_PROMOTION", state.DISPLAY_PROMOTION),
+        "play_audios": _read_env_bool("PLAY_AUDIOS", state.PLAY_AUDIOS),
+        "play_log_sounds": _read_env_bool("PLAY_LOG_SOUNDS", state.PLAY_LOG_SOUNDS),
+        "play_startup_sound": _read_env_bool("PLAY_STARTUP_SOUND", state.PLAY_STARTUP_SOUND),
+        "shared_memory_enabled": _read_env_bool("SHARED_MEMORY_ENABLED", state.SHARED_MEMORY_ENABLED),
+        "external_interactions_allow_new": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", state.EXTERNAL_INTERACTIONS_ALLOW_NEW),
+        "external_interactions_allow_new_outgoing": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", state.EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING),
         "external_interactions_enabled": _external_interactions_enabled(),
         "external_interactions_worker_bind": _external_interactions_worker_bind_address(),
-        "automatic_update": _read_env_bool("AUTOMATIC_UPDATE", AUTOMATIC_UPDATE),
-        "update_available": _UPDATE_AVAILABLE_AT_STARTUP,
-        "project_integrity_ok": _PROJECT_INTEGRITY_OK,
-        "development": DEVELOPMENT,
-        "project_update_disabled": DEVELOPMENT,
-        "automatic_plugin_library_update": _read_env_bool("AUTOMATIC_PLUGIN_LIBRARY_UPDATE", AUTOMATIC_PLUGIN_LIBRARY_UPDATE),
-        "automatic_plugin_upgrade": _read_env_bool("AUTOMATIC_PLUGIN_UPGRADE", AUTOMATIC_PLUGIN_UPGRADE),
-        "installed_plugins_upgrade_available": bool(_INSTALLED_PLUGINS_PENDING_UPGRADES),
-        "plugins_lib_update_available": _PLUGIN_UPDATE_AVAILABLE_AT_STARTUP,
-        "plugin_integrity_ok": _PLUGIN_INTEGRITY_OK,
+        "automatic_update": _read_env_bool("AUTOMATIC_UPDATE", state.AUTOMATIC_UPDATE),
+        "update_available": state._UPDATE_AVAILABLE_AT_STARTUP,
+        "project_integrity_ok": state._PROJECT_INTEGRITY_OK,
+        "development": state.DEVELOPMENT,
+        "project_update_disabled": state.DEVELOPMENT,
+        "automatic_plugin_library_update": _read_env_bool("AUTOMATIC_PLUGIN_LIBRARY_UPDATE", state.AUTOMATIC_PLUGIN_LIBRARY_UPDATE),
+        "automatic_plugin_upgrade": _read_env_bool("AUTOMATIC_PLUGIN_UPGRADE", state.AUTOMATIC_PLUGIN_UPGRADE),
+        "installed_plugins_upgrade_available": bool(state._INSTALLED_PLUGINS_PENDING_UPGRADES),
+        "plugins_lib_update_available": state._PLUGIN_UPDATE_AVAILABLE_AT_STARTUP,
+        "plugin_integrity_ok": state._PLUGIN_INTEGRITY_OK,
     })
     return ctx
 
@@ -1580,11 +1528,11 @@ def _settings_card_indicators(session: dict | None) -> list[dict]:
     indicators: list[dict] = []
     for card in _SETTINGS_CARDS:
         hidden = False
-        if card["id"] == "api-keys" and not _read_env_bool("API_KEYS_ENABLED", API_KEYS_ENABLED):
+        if card["id"] == "api-keys" and not _read_env_bool("API_KEYS_ENABLED", state.API_KEYS_ENABLED):
             hidden = True
-        elif card["id"] == "internal-interactions" and not _read_env_bool("INTERNAL_INTERACTIONS", INTERNAL_INTERACTIONS):
+        elif card["id"] == "internal-interactions" and not _read_env_bool("INTERNAL_INTERACTIONS", state.INTERNAL_INTERACTIONS):
             hidden = True
-        elif card["id"] == "external-interactions" and not _read_env_bool("EXTERNAL_INTERACTIONS", EXTERNAL_INTERACTIONS):
+        elif card["id"] == "external-interactions" and not _read_env_bool("EXTERNAL_INTERACTIONS", state.EXTERNAL_INTERACTIONS):
             hidden = True
         indicators.append({
             "id": card["id"],
@@ -1636,59 +1584,8 @@ def ui_settings_card(card_id: str) -> tuple:
 @session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_settings_page():
-    global _PROJECT_INTEGRITY_OK, _PLUGIN_INTEGRITY_OK
-    # Re-verify integrity on every settings page load (whenever recomputed)
-    try:
-        eff_pl = plugin_bridge._compute_plugins_lib_hash()
-        ind_pl = plugin_bridge._read_stored_hash()
-        if eff_pl and ind_pl and eff_pl.strip().lower() != ind_pl.strip().lower():
-            _PLUGIN_INTEGRITY_OK = False
-            log_error("Plugin library integrity check failed before rendering settings", {"effective": eff_pl, "indicated": ind_pl})
-            try:
-                audio.get_audio_orchestrator().start()
-            except Exception:
-                pass
-            try:
-                audio.play_sound("error")
-            except Exception:
-                pass
-            try:
-                plugin_bridge.get_plugin_bridge().stop()
-            except Exception:
-                pass
-        else:
-            # Only mark ok if bridge can start (or is already started)
-            if not plugin_bridge.get_plugin_bridge().is_started():
-                try:
-                    plugin_bridge.get_plugin_bridge().start()
-                    _PLUGIN_INTEGRITY_OK = plugin_bridge.get_plugin_bridge().is_started()
-                except Exception:
-                    pass
-            else:
-                _PLUGIN_INTEGRITY_OK = True
-    except Exception:
-        pass
-    try:
-        eff_pr = _compute_local_project_hash()
-        ind_pr = _get_local_project_hash()
-        if eff_pr and ind_pr and eff_pr.strip().lower() != ind_pr.strip().lower():
-            _PROJECT_INTEGRITY_OK = False
-            if not DEVELOPMENT:
-                log_error("Project integrity check failed before rendering settings and development is false", {"effective": eff_pr, "indicated": ind_pr})
-                try:
-                    audio.get_audio_orchestrator().start()
-                except Exception:
-                    pass
-                try:
-                    audio.play_sound("error")
-                except Exception:
-                    pass
-            else:
-                log_warn("Project integrity check failed before rendering settings but development is true — continuing", {"effective": eff_pr, "indicated": ind_pr})
-        else:
-            _PROJECT_INTEGRITY_OK = True
-    except Exception:
-        pass
+    # Integrity / update checks run only at startup; the settings page renders
+    # the flags computed there (no re-verification on every load).
     pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
     template = (pages_dir / "settings.html").read_text(encoding="utf-8")
     session = _active_session()
@@ -1701,37 +1598,9 @@ def ui_settings_page():
 @admin_session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_plugins_page():
-    global _PLUGIN_INTEGRITY_OK
-    try:
-        eff_pl = plugin_bridge._compute_plugins_lib_hash()
-        ind_pl = plugin_bridge._read_stored_hash()
-        if eff_pl and ind_pl and eff_pl.strip().lower() != ind_pl.strip().lower():
-            _PLUGIN_INTEGRITY_OK = False
-            log_error("Plugin library integrity check failed before rendering plugins page", {"effective": eff_pl, "indicated": ind_pl})
-            try:
-                audio.get_audio_orchestrator().start()
-            except Exception:
-                pass
-            try:
-                audio.play_sound("error")
-            except Exception:
-                pass
-            try:
-                plugin_bridge.get_plugin_bridge().stop()
-            except Exception:
-                pass
-        else:
-            if not plugin_bridge.get_plugin_bridge().is_started():
-                try:
-                    plugin_bridge.get_plugin_bridge().start()
-                    _PLUGIN_INTEGRITY_OK = plugin_bridge.get_plugin_bridge().is_started()
-                except Exception:
-                    pass
-            else:
-                _PLUGIN_INTEGRITY_OK = True
-    except Exception:
-        pass
-    if not _PLUGIN_INTEGRITY_OK:
+    # Integrity is verified only at startup (PluginBridge.start); the plugins
+    # page just honours the flag computed there.
+    if not state._PLUGIN_INTEGRITY_OK:
         log_warn("Plugins page disabled due to integrity failure")
         return render_template_string("<section class=\"page-content\" style=\"opacity:0.6\"><h2 class=\"page-title\">Plugins</h2><div class=\"page-card\" style=\"opacity:0.6; border-color:#dc2626; pointer-events:none;\"><p style=\"color:#b91c1c;\">Plugin library integrity check failed — plugins disabled.</p></div></section>"), 200
     pages_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
@@ -1746,7 +1615,7 @@ def login_page():
         return redirect("/")
     web_dir = Path(__file__).resolve().parent.parent / "ui" / "pages"
     template = (web_dir / "login.html").read_text(encoding="utf-8")
-    return render_template_string(template, development=DEVELOPMENT)
+    return render_template_string(template, development=state.DEVELOPMENT)
 
 
 @network.external_interactions_worker_callable
@@ -1803,15 +1672,15 @@ def login() -> tuple:
 @session_authenticated
 @standard_endpoint("POST", "OPTIONS")
 def logout() -> tuple:
-    token = request.cookies.get(SESSION_COOKIE_NAME)
+    token = request.cookies.get(state.SESSION_COOKIE_NAME)
     session = _active_session()
     username = session["username"] if session else "unknown"
     if token:
-        with _SESSION_LOCK:
-            _SESSION_STORE.pop(token, None)
+        with state._SESSION_LOCK:
+            state._SESSION_STORE.pop(token, None)
         log_info("Logout", {"username": username, "client": request.remote_addr})
     response = jsonify({"status": "ok"})
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(state.SESSION_COOKIE_NAME, path="/")
     return response, 200
 
 
@@ -1836,7 +1705,7 @@ def change_password() -> tuple:
     session = _active_session()
     if session is None:
         return _unauthorized_response()
-    keep_token = request.cookies.get(SESSION_COOKIE_NAME)
+    keep_token = request.cookies.get(state.SESSION_COOKIE_NAME)
     try:
         _change_password(session["username"], current_password_hash, new_password_hash, keep_token)
     except AccountNotFoundError as exc:
@@ -1978,19 +1847,19 @@ if __name__ == "__main__":
     # Plugin loader starts immediately — verifies plugins-lib integrity (effective vs indicated)
     try:
         plugin_bridge.get_plugin_bridge().start()
-        _PLUGIN_INTEGRITY_OK = plugin_bridge.get_plugin_bridge().is_started()
-        if not _PLUGIN_INTEGRITY_OK:
+        state._PLUGIN_INTEGRITY_OK = plugin_bridge.get_plugin_bridge().is_started()
+        if not state._PLUGIN_INTEGRITY_OK:
             log_error("Plugin loader failed to start — check previous errors (illicit plugins-lib interaction?)")
     except Exception as exc:
-        _PLUGIN_INTEGRITY_OK = False
+        state._PLUGIN_INTEGRITY_OK = False
         log_error("Plugin loader start failed", {"error": str(exc), "traceback": _format_exc()})
 
     # Local project integrity check — before any update check
     try:
-        _PROJECT_INTEGRITY_OK = _verify_local_project_integrity()
-        if not _PROJECT_INTEGRITY_OK:
-            if not DEVELOPMENT:
-                log_error("Project integrity check failed and development is false — not starting", {"development": DEVELOPMENT})
+        state._PROJECT_INTEGRITY_OK = _verify_local_project_integrity()
+        if not state._PROJECT_INTEGRITY_OK:
+            if not state.DEVELOPMENT:
+                log_error("Project integrity check failed and development is false — not starting", {"development": state.DEVELOPMENT})
                 try:
                     audio.get_audio_orchestrator().start()
                 except Exception:
@@ -2001,71 +1870,57 @@ if __name__ == "__main__":
                     pass
                 exit(1)
             else:
-                log_warn("Project integrity check failed but development is true — continuing without project update checks", {"development": DEVELOPMENT})
-                _UPDATE_AVAILABLE = False
-                _UPDATE_AVAILABLE_AT_STARTUP = False
+                log_warn("Project integrity check failed but development is true — continuing without project update checks", {"development": state.DEVELOPMENT})
+                state._UPDATE_AVAILABLE = False
+                state._UPDATE_AVAILABLE_AT_STARTUP = False
     except Exception as exc:
-        _PROJECT_INTEGRITY_OK = False
+        state._PROJECT_INTEGRITY_OK = False
         log_warn("Project integrity check failed", {"error": str(exc), "traceback": _format_exc()})
-        if not DEVELOPMENT:
+        if not state.DEVELOPMENT:
             exit(1)
         else:
-            _UPDATE_AVAILABLE = False
-            _UPDATE_AVAILABLE_AT_STARTUP = False
+            state._UPDATE_AVAILABLE = False
+            state._UPDATE_AVAILABLE_AT_STARTUP = False
 
     # Startup check for updates — skipped in development mode (and when integrity failed)
-    if _PROJECT_INTEGRITY_OK and not DEVELOPMENT:
+    if state._PROJECT_INTEGRITY_OK and not state.DEVELOPMENT:
         try:
-            _UPDATE_AVAILABLE = _is_update_available()
-            _UPDATE_AVAILABLE_AT_STARTUP = _UPDATE_AVAILABLE
+            state._UPDATE_AVAILABLE = _is_update_available()
+            state._UPDATE_AVAILABLE_AT_STARTUP = state._UPDATE_AVAILABLE
             current = _get_current_project_version()
-            if _UPDATE_AVAILABLE:
-                log_info("Update available at startup", {"current": current, "automaticUpdate": AUTOMATIC_UPDATE, "development": DEVELOPMENT})
-                if AUTOMATIC_UPDATE and not DEVELOPMENT:
+            if state._UPDATE_AVAILABLE:
+                log_info("Update available at startup", {"current": current, "automaticUpdate": state.AUTOMATIC_UPDATE, "development": state.DEVELOPMENT})
+                if state.AUTOMATIC_UPDATE and not state.DEVELOPMENT:
                     log_info("Automatic update enabled — updating now and restarting", {"current": current})
                     if _perform_project_update():
                         _restart()
                     # Update failed but the process continues — fall through to the known-release check
-                elif AUTOMATIC_UPDATE and DEVELOPMENT:
+                elif state.AUTOMATIC_UPDATE and state.DEVELOPMENT:
                     log_info("Automatic update skipped in development mode", {"current": current})
-                # Still not on the latest release (auto-update off or failed): the local
-                # hash must belong to a known release (latest or previous); otherwise crash.
-                local_hash = _get_local_project_hash() or _compute_local_project_hash()
-                if not _is_known_release_hash(local_hash):
-                    log_error("Project version unknown: local hash matches no Akupara release (illicit interaction?)", {"local": local_hash})
-                    try:
-                        audio.get_audio_orchestrator().start()
-                    except Exception:
-                        pass
-                    try:
-                        audio.play_sound("error")
-                    except Exception:
-                        pass
-                    exit(1)
             else:
                 log_info("No update available at startup", {"current": current})
         except Exception as exc:
             log_warn("Startup update check failed", {"error": str(exc)})
     else:
-        if _PROJECT_INTEGRITY_OK:
+        if state._PROJECT_INTEGRITY_OK:
             log_info("Skipping project update check in development mode")
-        elif DEVELOPMENT:
+        elif state.DEVELOPMENT:
             log_info("Skipping project update check due to integrity failure in development mode")
 
     # Startup check for plugin library updates — always (even if integrity failed, to allow recovery update)
     try:
-        _PLUGIN_UPDATE_AVAILABLE = _is_plugin_update_available()
-        _PLUGIN_UPDATE_AVAILABLE_AT_STARTUP = _PLUGIN_UPDATE_AVAILABLE
+        state._PLUGIN_UPDATE_AVAILABLE = _is_plugin_update_available()
+        state._PLUGIN_UPDATE_AVAILABLE_AT_STARTUP = state._PLUGIN_UPDATE_AVAILABLE
         current_pl = _get_current_plugins_lib_version()
-        if _PLUGIN_UPDATE_AVAILABLE:
-            log_info("Plugin library update available at startup", {"current": current_pl, "automaticPluginLibraryUpdate": AUTOMATIC_PLUGIN_LIBRARY_UPDATE})
-            if AUTOMATIC_PLUGIN_LIBRARY_UPDATE:
+        if state._PLUGIN_UPDATE_AVAILABLE:
+            log_info("Plugin library update available at startup", {"current": current_pl, "automaticPluginLibraryUpdate": state.AUTOMATIC_PLUGIN_LIBRARY_UPDATE})
+            if state.AUTOMATIC_PLUGIN_LIBRARY_UPDATE:
                 log_info("Automatic plugin library update enabled — updating now and restarting", {"current": current_pl})
                 if _perform_plugins_lib_update():
                     _restart()
         else:
             # No update needed; if integrity failed, bridge remains stopped until manual update
-            if not _PLUGIN_INTEGRITY_OK:
+            if not state._PLUGIN_INTEGRITY_OK:
                 log_warn("Plugin library integrity failed — bridge remains stopped, update may be required")
             else:
                 log_info("No plugin library update available at startup", {"current": current_pl})
@@ -2076,15 +1931,15 @@ if __name__ == "__main__":
     # when AUTOMATIC_PLUGIN_UPGRADE is on; otherwise pending upgrades are cached
     # so the settings page can offer them via Update All.
     try:
-        _, _INSTALLED_PLUGINS_PENDING_UPGRADES = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=DEVELOPMENT)
-        if _INSTALLED_PLUGINS_PENDING_UPGRADES:
-            log_info("Installed plugins have available upgrades", {"count": len(_INSTALLED_PLUGINS_PENDING_UPGRADES)})
+        _, state._INSTALLED_PLUGINS_PENDING_UPGRADES = plugin_bridge.get_plugin_bridge().discover_installed_plugins(development=state.DEVELOPMENT)
+        if state._INSTALLED_PLUGINS_PENDING_UPGRADES:
+            log_info("Installed plugins have available upgrades", {"count": len(state._INSTALLED_PLUGINS_PENDING_UPGRADES)})
         else:
             log_info("No installed plugin upgrades available at startup")
     except Exception as exc:
         log_warn("Startup installed plugins discovery failed", {"error": str(exc)})
 
-    if EXTERNAL_INTERACTIONS:
+    if state.EXTERNAL_INTERACTIONS:
         _start_external_interactions_worker()
 
     # Every loading operation is done — play the startup sound when enabled
@@ -2095,15 +1950,15 @@ if __name__ == "__main__":
         pass
 
     try:
-        log_info("Akupara starting", {"bind": f"http://{SERVICE_HOST}:{SERVICE_PORT}", "gui": GUI_ENABLED, "port": SERVICE_PORT, "guiEnabled": GUI_ENABLED, "internalInteractions": INTERNAL_INTERACTIONS, "apiKeysEnabled": API_KEYS_ENABLED, "externalInteractions": EXTERNAL_INTERACTIONS})
+        log_info("Akupara starting", {"bind": f"http://{state.SERVICE_HOST}:{state.SERVICE_PORT}", "gui": state.GUI_ENABLED, "port": state.SERVICE_PORT, "guiEnabled": state.GUI_ENABLED, "internalInteractions": state.INTERNAL_INTERACTIONS, "apiKeysEnabled": state.API_KEYS_ENABLED, "externalInteractions": state.EXTERNAL_INTERACTIONS})
 
-        app.run(host=SERVICE_HOST, port=SERVICE_PORT, debug=False, threaded=True)
+        app.run(host=state.SERVICE_HOST, port=state.SERVICE_PORT, debug=False, threaded=True)
 
     except OSError as exc:
         if "Address already in use" in str(exc):
-            log_error("Port already in use", {"port": SERVICE_PORT, "hint": "Change the port in resources/configuration.json"})
+            log_error("Port already in use", {"port": state.SERVICE_PORT, "hint": "Change the port in resources/configuration.json"})
         elif "Permission denied" in str(exc):
-            log_error("Permission denied to bind to port", {"port": SERVICE_PORT, "hint": "Use a port >= 1024 or run with elevated privileges."})
+            log_error("Permission denied to bind to port", {"port": state.SERVICE_PORT, "hint": "Use a port >= 1024 or run with elevated privileges."})
         else:
             log_error("Network binding failed", {"error": str(exc)})
 

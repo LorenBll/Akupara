@@ -607,4 +607,9 @@ def _rename_api_key(key: str, name: str) -> dict | None:
         raise DuplicateNameError("An API key with this name already exists.")
     target["name"] = name
     _save_api_keys(state._api_key_store)
+    try:
+        import audio
+        audio.play_audio("acknowledge")()
+    except Exception:
+        pass
     return {"name": target["name"], "key": target["key"]}

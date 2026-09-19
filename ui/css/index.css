@@ -102,7 +102,8 @@ body {
     flex-direction: column;
     align-items: center;
     gap: 20px;
-    padding: 28px 20px;
+    padding: 20px 20px 0;
+    margin-bottom: 16px;
 }
 
 .view {
@@ -732,7 +733,7 @@ body {
 }
 
 .api-key-name-input:disabled,
-.api-key-name-input-edit:disabled,
+.table-edit-input:disabled,
 .shared-variable-name-input:disabled,
 .external-interactions-note-input:disabled,
 .external-interactions-ip-input:disabled,
@@ -1028,13 +1029,13 @@ body {
 }
 
 #externalInteractionsOutgoingTable td {
-    height: 42px;
+    height: 46px;
     padding-top: 0;
     padding-bottom: 0;
 }
 
 #externalInteractionsTable td {
-    height: 42px;
+    height: 46px;
     padding-top: 0;
     padding-bottom: 0;
 }
@@ -1338,7 +1339,7 @@ body {
     gap: 4px;
 }
 
-.api-key-name-input-edit {
+.table-edit-input {
     width: 100%;
     height: 29px;
     background: var(--panel);
@@ -1351,12 +1352,12 @@ body {
     outline: none;
 }
 
-.api-key-name-input-edit:focus {
+.table-edit-input:focus {
     border-color: var(--accent);
 }
 
-.api-key-name-input-edit.api-key-input-invalid,
-.api-key-name-input-edit.api-key-input-invalid:focus {
+.table-edit-input.api-key-input-invalid,
+.table-edit-input.api-key-input-invalid:focus {
     border-color: #dc2626;
     background: #fee2e2;
 }
@@ -2110,8 +2111,8 @@ body {
 :root[data-theme="dark"] .account-password-input.account-password-input-invalid:focus,
 :root[data-theme="dark"] .api-key-input-invalid,
 :root[data-theme="dark"] .api-key-input-invalid:focus,
-:root[data-theme="dark"] .api-key-name-input-edit.api-key-input-invalid,
-:root[data-theme="dark"] .api-key-name-input-edit.api-key-input-invalid:focus,
+:root[data-theme="dark"] .table-edit-input.api-key-input-invalid,
+:root[data-theme="dark"] .table-edit-input.api-key-input-invalid:focus,
 :root[data-theme="dark"] .sound-select.api-key-input-invalid,
 :root[data-theme="dark"] .sound-select.api-key-input-invalid:focus,
 :root[data-theme="dark"] .floating-tooltip.error-tooltip {
@@ -2135,15 +2136,33 @@ body {
 
 .data-table tbody tr,
 .data-table tbody td {
-    height: 45px;
+    height: 46px;
     box-sizing: border-box;
 }
 
-.data-table tbody td > input,
+.data-table tbody td input,
 .data-table tbody td .sound-select,
 .data-table tbody td .external-interactions-note-input {
-    height: 29px;
+    height: 29px !important;
+    max-height: 29px !important;
     box-sizing: border-box;
+    vertical-align: middle;
+    margin: 0;
+}
+
+.data-table tbody td input {
+    display: block;
+    width: 100%;
+}
+
+.data-table tbody td .sound-dropdown {
+    height: 29px !important;
+    box-sizing: border-box;
+}
+
+.table-empty-row td {
+    text-align: center;
+    color: var(--muted);
 }
 
 .plugin-search-card {
@@ -2271,4 +2290,33 @@ body {
 .page-footer {
     position: relative;
     z-index: 1;
+}
+
+/* Dark theme: disabled elements must be clearly dimmer than enabled ones.
+   The base opacity alone reads weakly on dark backgrounds, so dark mode dims
+   them further and mutes the accent-based disabled colors. */
+:root[data-theme="dark"] .generate-api-key-btn:disabled,
+:root[data-theme="dark"] .random-name-btn:disabled,
+:root[data-theme="dark"] .icon-btn:disabled,
+:root[data-theme="dark"] .toggle:disabled,
+:root[data-theme="dark"] .sound-select:disabled,
+:root[data-theme="dark"] .external-interactions-segment:disabled,
+:root[data-theme="dark"] .api-key-name-input:disabled,
+:root[data-theme="dark"] .table-edit-input:disabled,
+:root[data-theme="dark"] .shared-variable-name-input:disabled,
+:root[data-theme="dark"] .shared-variable-value-input:disabled,
+:root[data-theme="dark"] .external-interactions-note-input:disabled,
+:root[data-theme="dark"] .external-interactions-ip-input:disabled,
+:root[data-theme="dark"] .account-password-input:disabled,
+:root[data-theme="dark"] .page-action-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+:root[data-theme="dark"] .pill-action-btn:disabled {
+    color: #7d7d98;
+    background: #26263a;
+    box-shadow: 0 0 0 5px #26263a;
+    opacity: 0.55;
+    cursor: not-allowed;
 }
