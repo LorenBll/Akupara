@@ -964,6 +964,16 @@
             }, 400);
         }
 
+        function renderTableEmptyRow(tbody, colspan, message) {
+            var tr = document.createElement('tr');
+            tr.className = 'table-empty-row';
+            var td = document.createElement('td');
+            td.colSpan = colspan;
+            td.textContent = message;
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+        }
+
         function renderSharedMemoryTable(variables) {
             var table = document.getElementById('sharedMemoryTable');
             var tbody = document.getElementById('sharedMemoryTableBody');
@@ -973,19 +983,10 @@
             hideTableTooltip();
             tbody.innerHTML = '';
             var has = Array.isArray(variables) && variables.length > 0;
-            var prevTableVisible = !table.hidden;
-            table.hidden = !has;
-            if (empty) empty.hidden = has;
+            table.hidden = false;
+            if (empty) empty.hidden = true;
             if (!has) {
-                if (empty) {
-                    if (prevTableVisible) {
-                        empty.classList.remove('table-empty-fade-in');
-                        void empty.offsetWidth;
-                        empty.classList.add('table-empty-fade-in');
-                    } else {
-                        empty.classList.remove('table-empty-fade-in');
-                    }
-                }
+                renderTableEmptyRow(tbody, 4, 'No shared variables');
                 return;
             }
             variables.slice().sort(function (a, b) {
@@ -1112,10 +1113,12 @@
                     row.dataset.value = val;
                 });
                 valueTd.appendChild(dropdown);
+                var dropdownBtn = dropdown.querySelector('.sound-select');
+                if (dropdownBtn) dropdownBtn.focus();
             } else {
                 var input = document.createElement('input');
                 input.type = 'text';
-                input.className = 'api-key-name-input-edit';
+                input.className = 'table-edit-input';
                 input.value = current;
                 input.addEventListener('input', function () {
                     var t = row.dataset.type;
@@ -1128,6 +1131,8 @@
                     hideErrorTooltip();
                 });
                 valueTd.appendChild(input);
+                input.focus();
+                input.select();
             }
             wireSoundDropdowns();
         }
@@ -1153,6 +1158,8 @@
                 renderSharedTypeLabel(row);
             });
             typeTd.appendChild(dropdown);
+            var typeDropdownBtn = dropdown.querySelector('.sound-select');
+            if (typeDropdownBtn) typeDropdownBtn.focus();
             wireSoundDropdowns();
         }
 
@@ -1717,9 +1724,10 @@
             tbody.innerHTML = '';
             var keys = Object.keys(events);
             var has = keys.length > 0;
-            table.hidden = !has;
-            if (empty) empty.hidden = has;
+            table.hidden = false;
+            if (empty) empty.hidden = true;
             if (!has) {
+                renderTableEmptyRow(tbody, 3, 'No events');
                 return;
             }
             keys.sort(function (a,b){ return a.toLowerCase().localeCompare(b.toLowerCase()); }).forEach(function (ev) {
@@ -1881,19 +1889,10 @@
             hideTableTooltip();
             tbody.innerHTML = '';
             var hasKeys = Array.isArray(keys) && keys.length > 0;
-            var prevTableVisible = !table.hidden;
-            table.hidden = !hasKeys;
-            if (empty) empty.hidden = hasKeys;
+            table.hidden = false;
+            if (empty) empty.hidden = true;
             if (!hasKeys) {
-                if (empty) {
-                    if (prevTableVisible) {
-                        empty.classList.remove('table-empty-fade-in');
-                        void empty.offsetWidth;
-                        empty.classList.add('table-empty-fade-in');
-                    } else {
-                        empty.classList.remove('table-empty-fade-in');
-                    }
-                }
+                renderTableEmptyRow(tbody, 4, 'No API keys saved');
                 return;
             }
             keys.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
@@ -2074,7 +2073,7 @@
             nameTd.innerHTML = '';
             var input = document.createElement('input');
             input.type = 'text';
-            input.className = 'api-key-name-input-edit';
+            input.className = 'table-edit-input';
             input.value = current;
             input.maxLength = 64;
             input.dataset.excludeKey = row.dataset.key;
@@ -2328,19 +2327,10 @@
             hideTableTooltip();
             tbody.innerHTML = '';
             var has = Array.isArray(entries) && entries.length > 0;
-            var prevTableVisible = !table.hidden;
-            table.hidden = !has;
-            if (empty) empty.hidden = has;
+            table.hidden = false;
+            if (empty) empty.hidden = true;
             if (!has) {
-                if (empty) {
-                    if (prevTableVisible) {
-                        empty.classList.remove('table-empty-fade-in');
-                        void empty.offsetWidth;
-                        empty.classList.add('table-empty-fade-in');
-                    } else {
-                        empty.classList.remove('table-empty-fade-in');
-                    }
-                }
+                renderTableEmptyRow(tbody, 5, 'No IPs recorded');
                 return;
             }
             entries.slice().sort(function (a, b) {
@@ -2532,7 +2522,7 @@
             ipTd.innerHTML = '';
             var input = document.createElement('input');
             input.type = 'text';
-            input.className = 'external-interactions-note-input';
+            input.className = 'table-edit-input';
             input.value = current;
             input.maxLength = 45;
             input.autocomplete = 'off';
@@ -2657,7 +2647,7 @@
             noteTd.innerHTML = '';
             var input = document.createElement('input');
             input.type = 'text';
-            input.className = 'external-interactions-note-input';
+            input.className = 'table-edit-input';
             input.value = current;
             input.maxLength = 256;
             input.autocomplete = 'off';
@@ -3314,19 +3304,10 @@
             hideTableTooltip();
             tbody.innerHTML = '';
             var has = Array.isArray(users) && users.length > 0;
-            var prevTableVisible = !table.hidden;
-            table.hidden = !has;
-            if (empty) empty.hidden = has;
+            table.hidden = false;
+            if (empty) empty.hidden = true;
             if (!has) {
-                if (empty) {
-                    if (prevTableVisible) {
-                        empty.classList.remove('table-empty-fade-in');
-                        void empty.offsetWidth;
-                        empty.classList.add('table-empty-fade-in');
-                    } else {
-                        empty.classList.remove('table-empty-fade-in');
-                    }
-                }
+                renderTableEmptyRow(tbody, 3, 'No users registered');
                 return;
             }
             users.slice().sort(function (a, b) {
@@ -3548,7 +3529,7 @@
             nameTd.innerHTML = '';
             var input = document.createElement('input');
             input.type = 'text';
-            input.className = 'api-key-name-input-edit';
+            input.className = 'table-edit-input';
             input.value = current;
             input.maxLength = 64;
             input.dataset.excludeUsername = current;
@@ -3689,19 +3670,10 @@
             hideTableTooltip();
             tbody.innerHTML = '';
             var has = Array.isArray(plugins) && plugins.length > 0;
-            var prevTableVisible = !table.hidden;
-            table.hidden = !has;
-            if (empty) empty.hidden = has;
+            table.hidden = false;
+            if (empty) empty.hidden = true;
             if (!has) {
-                if (empty) {
-                    if (prevTableVisible) {
-                        empty.classList.remove('table-empty-fade-in');
-                        void empty.offsetWidth;
-                        empty.classList.add('table-empty-fade-in');
-                    } else {
-                        empty.classList.remove('table-empty-fade-in');
-                    }
-                }
+                renderTableEmptyRow(tbody, 4, 'No plugins installed');
                 return;
             }
             plugins.forEach(function (entry) {
@@ -5054,6 +5026,7 @@
 
         function hideCard(card) {
             if (!card || card.hidden) return;
+            if (cardHideTimers[card.id]) return;
             cardIndicatorVanish(card);
             var id = card.id;
             card.classList.remove('api-keys-reveal', 'api-keys-vanish');
@@ -5141,7 +5114,7 @@
             label.className = 'card-indicator-title';
             label.textContent = titleEl ? titleEl.textContent.replace(/\s+/g, ' ').trim() : (card.id || 'Card');
             el.appendChild(label);
-            el.addEventListener('click', function () { scrollToCard(el._card); });
+            el.addEventListener('click', function () { gotoCard(el._card); });
             card._indicator = el;
             el._card = card;
             return el;
@@ -5155,6 +5128,11 @@
             if (!cardId) return;
             var el = getCardIndicatorList().querySelector('.card-indicator[data-card-id="' + cardId + '"]');
             if (!el) return;
+            if (!el.hidden && !el._hidingTimer) return;
+            if (el._hidingTimer) {
+                clearTimeout(el._hidingTimer);
+                el._hidingTimer = null;
+            }
             el.hidden = false;
             el.style.opacity = '';
             el.animate([
@@ -5167,15 +5145,15 @@
             if (!cardId) return;
             var el = getCardIndicatorList().querySelector('.card-indicator[data-card-id="' + cardId + '"]');
             if (!el) return;
+            if (el.hidden || el._hidingTimer) return;
+            el._hidingTimer = setTimeout(function () {
+                el._hidingTimer = null;
+                el.hidden = true;
+            }, 200);
             el.animate([
                 { opacity: '1', transform: 'translateX(0px)' },
                 { opacity: '0', transform: 'translateX(24px)' }
             ], { duration: 200, easing: 'ease', fill: 'forwards' });
-            var id = cardId;
-            setTimeout(function () {
-                var target = getCardIndicatorList().querySelector('.card-indicator[data-card-id="' + id + '"]');
-                if (target) target.hidden = true;
-            }, 200);
         }
 
         function buildCardIndicators() {
@@ -5185,7 +5163,7 @@
                 Array.prototype.forEach.call(staticIndicators, function (el) {
                     if (!el._card) {
                         el._card = document.getElementById('card-slot-' + el.getAttribute('data-card-id'));
-                        el.addEventListener('click', function () { scrollToCard(el._card); });
+                        el.addEventListener('click', function () { gotoCard(el._card); });
                     }
                     var role = el.getAttribute('data-card-role') || 'all';
                     var slot = document.getElementById('card-slot-' + el.getAttribute('data-card-id'));
@@ -5261,10 +5239,68 @@
         }
 
         function scrollToCard(card) {
-            if (!card || !viewEl) return;
-            var target = card.getBoundingClientRect().top - viewEl.getBoundingClientRect().top + viewEl.scrollTop - 1;
+            if (!card || !viewEl) return 0;
+            var target = card.getBoundingClientRect().top - viewEl.getBoundingClientRect().top + viewEl.scrollTop;
             if (target < 0) target = 0;
             viewEl.scrollTo({ top: target, behavior: 'smooth' });
+            return target;
+        }
+
+        var scrollPendingTarget = null;
+
+        function gotoCard(card) {
+            if (!card) return;
+            scrollPendingTarget = card;
+            var targetId = card.getAttribute && card.getAttribute('data-card-id');
+            buildCardLoadOrder();
+            if (targetId) {
+                var idx = -1;
+                for (var i = 0; i < cardLoadOrder.length; i++) {
+                    if (cardLoadOrder[i] === targetId) { idx = i; break; }
+                }
+                if (idx >= 0) {
+                    for (var j = 0; j <= idx; j++) {
+                        ensureCardLoaded(cardLoadOrder[j]);
+                    }
+                }
+            }
+            // Scroll as soon as the requested card itself is rendered; the cards
+            // above it finish loading in the background and settleScrollToTarget
+            // keeps the card at the top of the view while their heights settle.
+            ensureCardLoaded(targetId).then(function () {
+                scrollToCard(card);
+                if (scrollPendingTarget === card) {
+                    settleScrollToTarget(card);
+                }
+            });
+        }
+
+        function settleScrollToTarget(card) {
+            var elapsed = 0;
+            var lastTop = -1;
+            var stable = 0;
+            var check = setInterval(function () {
+                elapsed += 150;
+                if (scrollPendingTarget !== card) {
+                    clearInterval(check);
+                    return;
+                }
+                // Re-pin the card at the top while the cards above settle. Card
+                // dimensions are content- and role-dependent, so their real
+                // heights only become known as they render; the target position
+                // converges by re-scrolling until it stops changing.
+                var top = scrollToCard(card);
+                if (top === lastTop) {
+                    stable++;
+                } else {
+                    stable = 0;
+                    lastTop = top;
+                }
+                if (stable >= 3 || elapsed > 5000) {
+                    clearInterval(check);
+                    scrollPendingTarget = null;
+                }
+            }, 150);
         }
 
         function initializeSettingsShell() {
@@ -5274,6 +5310,8 @@
             var rootVal = section ? section.getAttribute('data-root') : 'false';
             currentSessionRoot = rootVal === 'true';
             loadedCards = {};
+            cardLoadPromises = {};
+            scrollPendingTarget = null;
             if (cardScrollHandler) {
                 viewEl.removeEventListener('scroll', cardScrollHandler);
                 cardScrollHandler = null;
@@ -5281,13 +5319,17 @@
             cardLoadOrder = [];
         }
 
+        var cardLoadPromises = {};
+
         function ensureCardLoaded(cardId) {
             var slot = document.getElementById('card-slot-' + cardId);
-            if (!slot || loadedCards[cardId]) return;
+            if (!slot) return Promise.resolve();
+            if (cardLoadPromises[cardId]) return cardLoadPromises[cardId];
+            if (loadedCards[cardId]) return Promise.resolve();
             loadedCards[cardId] = true;
             var loadingEl = slot.querySelector('.card-slot-loading');
             if (loadingEl) loadingEl.hidden = false;
-            fetchWithHandshake('/ui/cards/settings/' + cardId)
+            var p = fetchWithHandshake('/ui/cards/settings/' + cardId)
                 .then(function (r) {
                     if (r.status === 401) {
                         window.location.href = '/login';
@@ -5339,7 +5381,12 @@
                         slotEl.classList.add('card-slot-error');
                         slotEl.textContent = 'Failed to load card.';
                     }
+                })
+                .then(function () {
+                    if (cardLoadPromises[cardId] === p) cardLoadPromises[cardId] = null;
                 });
+            cardLoadPromises[cardId] = p;
+            return p;
         }
 
         var cardLoadOrder = [];
@@ -5418,6 +5465,7 @@
             'internal-interactions': function () {
                 wireSharedVariableGenerator();
                 wireSharedMemoryTable();
+                wireSoundDropdowns();
                 var tbody = document.getElementById('sharedMemoryTableBody');
                 if (tbody && tbody.dataset.variables) {
                     try {

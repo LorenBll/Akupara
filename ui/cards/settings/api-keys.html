@@ -11,7 +11,7 @@
             <button type="button" class="generate-api-key-btn" id="generateApiKeyBtn" style="width:168px; min-width:168px; max-width:168px;">Generate API Key</button>
         </div>
         <div class="table-wrap">
-            <table class="data-table" id="apiKeysTable"{{ '' if has_api_keys else ' hidden' }}>
+            <table class="data-table" id="apiKeysTable">
                 <thead>
                     <tr>
                         <th>Key</th>
@@ -22,6 +22,6 @@
                 </thead>
                 <tbody id="apiKeysTableBody" data-keys="{{ api_keys_json|e }}"></tbody>
             </table>
-            <p class="table-empty" id="apiKeysEmpty"{{ '' if not has_api_keys else ' hidden' }}>No API keys saved</p>
+            <p class="table-empty" id="apiKeysEmpty" hidden>No API keys saved</p>
         </div>
     </div>

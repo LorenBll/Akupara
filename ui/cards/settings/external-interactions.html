@@ -33,7 +33,7 @@
                 </button>
             </div>
             <div class="table-wrap">
-                <table class="data-table" id="externalInteractionsTable"{{ '' if has_external_interactions_ips else ' hidden' }}>
+                <table class="data-table" id="externalInteractionsTable">
                     <thead>
                         <tr>
                             <th>IP</th>
@@ -45,7 +45,7 @@
                     </thead>
                     <tbody id="externalInteractionsTableBody" data-external-interactions-ips="{{ external_interactions_ips_json|e }}"></tbody>
                 </table>
-                <p class="table-empty" id="externalInteractionsEmpty"{{ '' if not has_external_interactions_ips else ' hidden' }}>No IPs recorded</p>
+                <p class="table-empty" id="externalInteractionsEmpty" hidden>No IPs recorded</p>
             </div>
         <hr class="card-section-separator">
         <h4 class="card-section-title">Outgoing Interactions</h4>
@@ -62,7 +62,7 @@
                 </button>
             </div>
             <div class="table-wrap">
-                <table class="data-table" id="externalInteractionsOutgoingTable"{{ '' if has_external_interactions_outgoing_ips else ' hidden' }}>
+                <table class="data-table" id="externalInteractionsOutgoingTable">
                     <thead>
                         <tr>
                             <th>Plugins</th>
@@ -74,6 +74,6 @@
                     </thead>
                     <tbody id="externalInteractionsOutgoingTableBody" data-external-interactions-outgoing-ips="{{ external_interactions_outgoing_ips_json|e }}"></tbody>
                 </table>
-                <p class="table-empty" id="externalInteractionsOutgoingEmpty"{{ '' if not has_external_interactions_outgoing_ips else ' hidden' }}>No IPs recorded</p>
+                <p class="table-empty" id="externalInteractionsOutgoingEmpty" hidden>No IPs recorded</p>
             </div>
     </div>

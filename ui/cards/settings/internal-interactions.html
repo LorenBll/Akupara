@@ -51,7 +51,7 @@
             </button>
         </div>
         <div class="table-wrap" id="sharedMemoryTableWrap">
-            <table class="data-table" id="sharedMemoryTable"{{ '' if has_shared_memory else ' hidden' }}>
+            <table class="data-table" id="sharedMemoryTable">
                 <thead>
                     <tr>
                         <th>Name</th>
@@ -62,7 +62,7 @@
                 </thead>
                 <tbody id="sharedMemoryTableBody" data-variables="{{ shared_memory_json|e }}"></tbody>
             </table>
-            <p class="table-empty" id="sharedMemoryEmpty"{{ '' if not has_shared_memory else ' hidden' }}>No shared variables</p>
+            <p class="table-empty" id="sharedMemoryEmpty" hidden>No shared variables</p>
         </div>
         </div>
         <hr class="card-section-separator">
@@ -78,7 +78,7 @@
             </button>
         </div>
         <div class="table-wrap">
-            <table class="data-table" id="eventStreamingTable" hidden>
+            <table class="data-table" id="eventStreamingTable">
                 <thead>
                     <tr>
                         <th>Event</th>
@@ -88,6 +88,6 @@
                 </thead>
                 <tbody id="eventStreamingTableBody"></tbody>
             </table>
-            <p class="table-empty" id="eventStreamingEmpty">No events</p>
+            <p class="table-empty" id="eventStreamingEmpty" hidden>No events</p>
         </div>
     </div>

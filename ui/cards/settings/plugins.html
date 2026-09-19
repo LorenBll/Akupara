@@ -47,7 +47,7 @@
             </button>
         </div>
         <div class="table-wrap">
-            <table class="data-table" id="installedPluginsTable"{{ '' if has_installed_plugins else ' hidden' }}>
+            <table class="data-table" id="installedPluginsTable">
                 <thead>
                     <tr>
                         <th>Name</th>
@@ -58,7 +58,7 @@
                 </thead>
                 <tbody id="installedPluginsTableBody" data-installed-plugins="{{ installed_plugins_json|e }}"></tbody>
             </table>
-            <p class="table-empty" id="installedPluginsEmpty"{{ '' if not has_installed_plugins else ' hidden' }}>No plugins installed</p>
+            <p class="table-empty" id="installedPluginsEmpty" hidden>No plugins installed</p>
         </div>
         {% endif %}
     </div>
