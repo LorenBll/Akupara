@@ -42,10 +42,10 @@ nohup.out
 .coverage
 htmlcov/
 
-# Developer-only plugin library manager (must not be committed)
-scripts/manage_plugin_library.py
-scripts/manage_plugin_library.bat
-scripts/manage_plugin_library.sh
+# Developer-only administration helper (must not be committed)
+scripts/administration.py
+scripts/administration.bat
+scripts/administration.sh
 
 # Configuration (uncomment if you want to ignore config with API keys)
 # resources/configuration.json
