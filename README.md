@@ -38,6 +38,7 @@ Akupara binds to `127.0.0.1` on port `49150` and rejects non-local requests. It 
 - **Browser UI** — serves `ui/pages/index.html` and static assets. Exists as a placeholder for service-specific UI. Open `/` in a browser on the local device.
 - **Access control** — all `/api/*`, `/` and `/ui/*` routes reject non-local requests (`403`). Exists to keep the service local-only. No API key is required; local requests are accepted.
 - **Plugin system** — hash-range catalog in `resources/plugins-lib/` with `reverse-index.json` search, GPG trust marks and install/upgrade flow. Exists to discover and manage plugins. Use `POST /api/plugins/search` and the settings UI.
+- **Internal interactions** — shared variables (`SHARED_MEMORY`) with `editor` and `reader` plugin role lists, managed from the Internal Interactions card. Registering a variable requires at least one plugin; updates are partial (empty fields are left untouched); a plugin is kept in a single role (editor wins). Exists to let plugins share memory. Use the Internal Interactions card in the settings UI.
 - **Update checks** — compares the local project hash and plugin library hash against the latest GitHub release/commit. Exists to keep the deployment up to date. Triggered at startup and via `/api/check-for-updates` / `/api/check-for-plugin-updates`; respects `AUTOMATIC_UPDATE` flags. When `GITHUB_TOKEN` is set, GitHub API requests are authenticated to raise the rate limit (see [Configuration](#configuration)).
 - **GitHub rate-limit handling** — optional `GITHUB_TOKEN` (`.env`). Exists to increase the GitHub API limit from ~60 to ~5000 req/hour for frequent checks. Generate a token with no scopes and no expiration, add `GITHUB_TOKEN=<token>` to `.env`; the server uses it first and falls back to unauthenticated on rate limit; double rate limit on version checks is treated as "no update" so the process keeps running.
 
@@ -71,7 +72,7 @@ Configuration is stored in `resources/configuration.json` and in the `.env` file
 | `DISPLAY_PROMOTION` | `true` | Show the "report issues" promotion line. |
 | `API_KEYS` | `[]` | Stored API keys (Fernet-encrypted). |
 | `API_KEY_ENCRYPTION_KEY` | _(generated)_ | Fernet key for `API_KEYS`. Generated on first run if not set. |
-| `SHARED_MEMORY` / `SHARED_MEMORY_ENABLED` | `[]` / `false` | Internal interactions shared memory. Each entry is `{"name","type","value","editor","reader"}` where `editor`/`reader` are plugin name lists (a plugin cannot be in both). |
+| `SHARED_MEMORY` / `SHARED_MEMORY_ENABLED` | `[]` / `false` | Internal interactions shared memory. Each entry is `{"name","type","value","editor","reader"}`; `editor`/`reader` are plugin name lists, a plugin cannot be in both (editor wins). Registration requires at least one plugin; updates are partial (empty fields are left untouched). |
 | `PLAY_AUDIOS` | `true` | Enable audio playback. |
 | `PLAY_LOG_SOUNDS` / `PLAY_STARTUP_SOUND` | `false` / `true` | Log and startup sounds (require `PLAY_AUDIOS`). |
 | `STARTUP_SOUND` | `logo-reveal.wav` | Audio file for the startup sound: one of the files in `resources/audios/` or empty for no sound. |
