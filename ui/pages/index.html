@@ -197,6 +197,7 @@
                     }
                     buildCardIndicators();
                         animateCardIndicatorsIn(loadInDelay);
+                        wireColumnResizing();
                     }, 200);
                 })
                 .catch(function () {
@@ -648,7 +649,8 @@
                 return;
             }
             if (addBtn) {
-                addBtn.textContent = 'Add Variable';
+                var nameTaken = isSharedVariableNameTaken(nameInput.value.trim());
+                addBtn.textContent = nameTaken ? 'Update Variable' : 'Add Variable';
                 addBtn.style.width = '168px';
                 addBtn.style.minWidth = '168px';
                 addBtn.style.maxWidth = '168px';
@@ -662,15 +664,21 @@
             if (generator) generator.style.gridTemplateColumns = '1fr auto 1fr auto auto';
 
             var nameValid = isSharedVariableNameValid(nameInput.value);
+            var nameTaken = isSharedVariableNameTaken(nameInput.value.trim());
             var typeBtn = getSoundDropdownButton(typeDropdown);
             if (typeBtn) typeBtn.disabled = !nameValid;
             var typeSelected = getSoundDropdownValue(typeDropdown) !== '';
-            valueInput.disabled = !nameValid || !typeSelected;
+            var updating = nameTaken;
+            valueInput.disabled = !nameValid || (!updating && !typeSelected);
             var booleanBtn = getSoundDropdownButton(booleanDropdown);
-            if (booleanBtn) booleanBtn.disabled = !nameValid || !typeSelected;
+            if (booleanBtn) booleanBtn.disabled = !nameValid || (!updating && !typeSelected);
             var boolean = getSoundDropdownValue(typeDropdown) === 'boolean';
             valueInput.hidden = boolean;
             booleanDropdown.hidden = !boolean;
+            var editorInput = document.getElementById('sharedVariableEditorInput');
+            var readerInput = document.getElementById('sharedVariableReaderInput');
+            if (editorInput) editorInput.disabled = !nameValid;
+            if (readerInput) readerInput.disabled = !nameValid;
         }
 
         function isSharedValueCharAllowed(ch, type) {
@@ -678,6 +686,63 @@
             if (type === 'float') return /[0-9.-]/.test(ch);
             if (type === 'string') return !PLAINTEXT_PROHIBITED_TEST_RE.test(ch);
             return true;
+        }
+
+        function exitSharedVariableJsonMode() {
+            var nameInput = document.getElementById('sharedVariableNameInput');
+            var typeDropdown = document.getElementById('sharedVariableTypeDropdown');
+            var valueInput = document.getElementById('sharedVariableValueInput');
+            var booleanDropdown = document.getElementById('sharedVariableBooleanDropdown');
+            var pluginRow = document.getElementById('sharedVariablePluginRow');
+            var jsonInput = document.getElementById('sharedVariableJsonInput');
+            var importBtn = document.getElementById('sharedVariableImportBtn');
+            if (!jsonInput || jsonInput.style.display === 'none' || jsonInput.style.display === '') return;
+            if (nameInput) nameInput.style.display = '';
+            if (typeDropdown) typeDropdown.style.display = '';
+            if (valueInput) valueInput.style.display = '';
+            if (booleanDropdown) booleanDropdown.style.display = '';
+            if (pluginRow) {
+                pluginRow._animToken = (pluginRow._animToken || 0) + 1;
+                var exitToken = pluginRow._animToken;
+                pluginRow.style.height = (pluginRow._naturalHeight || 29) + 'px';
+                setTimeout(function () {
+                    if (pluginRow._animToken !== exitToken) return;
+                    pluginRow.classList.remove('shared-plugin-fading');
+                }, 320);
+            }
+            jsonInput.style.display = 'none';
+            jsonInput.value = '';
+            jsonInput.classList.remove('api-key-input-invalid');
+            hideErrorTooltip();
+            if (importBtn) {
+                importBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>';
+                importBtn.setAttribute('data-tooltip', 'Import/Export Shared Variables');
+                importBtn.setAttribute('aria-label', 'Import/Export Shared Variables');
+                refreshImportButtonTooltip(importBtn);
+            }
+            updateSharedVariableInputs();
+        }
+
+        function exitEventStreamingJsonMode() {
+            var eventInput = document.getElementById('eventStreamingEventInput');
+            var pluginInput = document.getElementById('eventStreamingPluginInput');
+            var jsonInput = document.getElementById('eventStreamingJsonInput');
+            var importBtn = document.getElementById('eventStreamingImportBtn');
+            if (!jsonInput || jsonInput.style.display === 'none' || jsonInput.style.display === '') return;
+            if (eventInput) eventInput.style.display = 'block';
+            if (pluginInput) pluginInput.style.display = 'block';
+            jsonInput.style.display = 'none';
+            jsonInput.value = '';
+            jsonInput.classList.remove('api-key-input-invalid');
+            hideErrorTooltip();
+            if (importBtn) {
+                importBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>';
+                importBtn.setAttribute('data-tooltip', 'Import/Export Events and Subscriptions');
+                importBtn.setAttribute('aria-label', 'Import/Export Events and Subscriptions');
+                importBtn.classList.remove('x-active');
+                refreshImportButtonTooltip(importBtn);
+            }
+            updateEventStreamingInputs();
         }
 
         function wireSharedVariableGenerator() {
@@ -689,6 +754,9 @@
             var jsonInput = document.getElementById('sharedVariableJsonInput');
             var importBtn = document.getElementById('sharedVariableImportBtn');
             var exportBtn = document.getElementById('exportSharedVariableBtn');
+            var pluginRow = document.getElementById('sharedVariablePluginRow');
+            var editorInput = document.getElementById('sharedVariableEditorInput');
+            var readerInput = document.getElementById('sharedVariableReaderInput');
             if (!nameInput || !typeDropdown || !valueInput || !booleanDropdown || !addBtn) return;
 
             var importIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>';
@@ -702,6 +770,16 @@
                         typeDropdown.style.display = 'none';
                         valueInput.style.display = 'none';
                         booleanDropdown.style.display = 'none';
+                        if (pluginRow) {
+                            if (!pluginRow._naturalHeight) pluginRow._naturalHeight = pluginRow.offsetHeight || 29;
+                            pluginRow._animToken = (pluginRow._animToken || 0) + 1;
+                            var enterToken = pluginRow._animToken;
+                            pluginRow.classList.add('shared-plugin-fading');
+                            setTimeout(function () {
+                                if (pluginRow._animToken !== enterToken) return;
+                                pluginRow.style.height = '0px';
+                            }, 160);
+                        }
                         jsonInput.style.display = 'block';
                         jsonInput.value = '';
                         jsonInput.classList.remove('api-key-input-invalid');
@@ -711,17 +789,7 @@
                         importBtn.setAttribute('aria-label', 'Go Back');
                         jsonInput.focus();
                     } else {
-                        nameInput.style.display = '';
-                        typeDropdown.style.display = '';
-                        valueInput.style.display = '';
-                        booleanDropdown.style.display = '';
-                        jsonInput.style.display = 'none';
-                        jsonInput.value = '';
-                        jsonInput.classList.remove('api-key-input-invalid');
-                        hideErrorTooltip();
-                        importBtn.innerHTML = importIconSvg;
-                        importBtn.setAttribute('data-tooltip', 'Import/Export Shared Variables');
-                        importBtn.setAttribute('aria-label', 'Import/Export Shared Variables');
+                        exitSharedVariableJsonMode();
                     }
                     refreshImportButtonTooltip(importBtn);
                     updateSharedVariableInputs();
@@ -740,15 +808,45 @@
                 if (this.value !== before) {
                     flashSharedVariableInvalid(this);
                 }
-                var taken = isSharedVariableNameTaken(this.value);
-                this.classList.toggle('api-key-input-invalid', taken);
-                if (taken) {
-                    showErrorTooltip(this, 'That name is already taken.');
-                } else {
-                    hideErrorTooltip();
-                }
+                this.classList.remove('api-key-input-invalid');
+                hideErrorTooltip();
                 updateSharedVariableInputs();
             });
+
+            if (editorInput) {
+                editorInput.addEventListener('keydown', function (event) {
+                    if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
+                        event.preventDefault();
+                        flashSharedVariableInvalid(this);
+                    }
+                });
+                editorInput.addEventListener('input', function () {
+                    var before = this.value;
+                    this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
+                    if (this.value !== before) {
+                        flashSharedVariableInvalid(this);
+                    }
+                    this.classList.remove('api-key-input-invalid');
+                    hideErrorTooltip();
+                });
+            }
+            if (readerInput) {
+                readerInput.addEventListener('keydown', function (event) {
+                    if (event.key.length === 1 && PLAINTEXT_PROHIBITED_TEST_RE.test(event.key)) {
+                        event.preventDefault();
+                        flashSharedVariableInvalid(this);
+                    }
+                });
+                readerInput.addEventListener('input', function () {
+                    var before = this.value;
+                    this.value = this.value.replace(PLAINTEXT_PROHIBITED_RE, '');
+                    if (this.value !== before) {
+                        flashSharedVariableInvalid(this);
+                    }
+                    this.classList.remove('api-key-input-invalid');
+                    hideErrorTooltip();
+                });
+            }
 
             typeDropdown._onSelect = function () {
                 var typeBtn = getSoundDropdownButton(typeDropdown);
@@ -798,6 +896,8 @@
             var typeDropdown = document.getElementById('sharedVariableTypeDropdown');
             var valueInput = document.getElementById('sharedVariableValueInput');
             var booleanDropdown = document.getElementById('sharedVariableBooleanDropdown');
+            var editorInput = document.getElementById('sharedVariableEditorInput');
+            var readerInput = document.getElementById('sharedVariableReaderInput');
             if (!nameInput || !typeDropdown || !valueInput || !booleanDropdown) return;
 
             var name = nameInput.value.trim();
@@ -812,68 +912,107 @@
                 showErrorTooltip(nameInput, 'Enter a valid name.');
                 return;
             }
-            if (isSharedVariableNameTaken(name)) {
-                flashSharedVariableInvalid(nameInput);
-                showErrorTooltip(nameInput, 'That name is already taken.');
+
+            var editorVal = editorInput ? editorInput.value.trim() : '';
+            var readerVal = readerInput ? readerInput.value.trim() : '';
+            if (editorVal && !isSharedVariableNameValid(editorVal)) {
+                flashSharedVariableInvalid(editorInput);
+                showErrorTooltip(editorInput, 'Enter a valid plugin name.');
                 return;
             }
-            if (!type) {
+            if (readerVal && !isSharedVariableNameValid(readerVal)) {
+                flashSharedVariableInvalid(readerInput);
+                showErrorTooltip(readerInput, 'Enter a valid plugin name.');
+                return;
+            }
+
+            var isUpdate = isSharedVariableNameTaken(name);
+            var targetName = name;
+            var existingEntry = null;
+            if (isUpdate) {
+                for (var k = 0; k < sharedVariablesList.length; k++) {
+                    if (String(sharedVariablesList[k].name).toLowerCase() === name.toLowerCase()) {
+                        existingEntry = sharedVariablesList[k];
+                        targetName = sharedVariablesList[k].name;
+                        break;
+                    }
+                }
+            }
+
+            if (!isUpdate && !type) {
                 showTransientError(getSoundDropdownButton(typeDropdown), 'api-key-input-invalid', 'Type is required.');
                 return;
             }
 
+            var parseType = type || (existingEntry && existingEntry.type ? existingEntry.type : '');
             var value;
+            var valueProvided = false;
             if (type === 'boolean') {
                 var booleanValue = getSoundDropdownValue(booleanDropdown);
-                if (booleanValue === '') {
-                    showTransientError(getSoundDropdownButton(booleanDropdown), 'api-key-input-invalid', 'Value is required.');
-                    return;
+                if (booleanValue !== '') {
+                    value = booleanValue === 'true';
+                    valueProvided = true;
                 }
-                value = booleanValue === 'true';
             } else {
                 var rawValue = valueInput.value;
-                if (rawValue === '') {
-                    if (type === 'string') value = '';
-                    else if (type === 'list') value = [];
-                    else if (type === 'dictionary') value = {};
-                    else {
-                        showTransientError(valueInput, 'api-key-input-invalid', 'Value is required.');
-                        return;
-                    }
-                } else {
+                if (rawValue !== '') {
                     try {
-                        if (type === 'string') {
-                            value = rawValue;
-                        } else if (type === 'integer') {
-                            if (!/^-?\d+$/.test(rawValue)) throw new Error('invalid integer');
-                            value = parseInt(rawValue, 10);
-                        } else if (type === 'float') {
-                            if (!/^-?\d+(\.\d+)?$/.test(rawValue)) throw new Error('invalid float');
-                            value = parseFloat(rawValue);
-                        } else if (type === 'list' || type === 'dictionary') {
-                            value = JSON.parse(rawValue);
-                        } else {
-                            value = rawValue;
-                        }
+                        value = parseSharedValueInput(rawValue, parseType);
+                        validatePlaintextSharedValue(value);
+                        valueProvided = true;
                     } catch (e) {
                         flashSharedVariableInvalid(valueInput);
                         showErrorTooltip(valueInput, 'Invalid value for this type.');
                         return;
                     }
                 }
-                try {
-                    validatePlaintextSharedValue(value);
-                } catch (e) {
-                    flashSharedVariableInvalid(valueInput);
-                    showErrorTooltip(valueInput, 'Invalid character in value.');
+            }
+
+            if (!isUpdate) {
+                if (type === 'boolean') {
+                    if (!valueProvided) {
+                        showTransientError(getSoundDropdownButton(booleanDropdown), 'api-key-input-invalid', 'Value is required.');
+                        return;
+                    }
+                } else if (!valueProvided) {
+                    if (type === 'string') { value = ''; valueProvided = true; }
+                    else if (type === 'list') { value = []; valueProvided = true; }
+                    else if (type === 'dictionary') { value = {}; valueProvided = true; }
+                    else {
+                        showTransientError(valueInput, 'api-key-input-invalid', 'Value is required.');
+                        return;
+                    }
+                }
+                if (!editorVal && !readerVal) {
+                    showTransientError(editorInput || readerInput, 'api-key-input-invalid', 'A plugin is required.');
                     return;
                 }
             }
 
-            fetchWithHandshake('/api/shared-memory', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name, type: type, value: value })
+            var editorList = existingEntry && Array.isArray(existingEntry.editor) ? existingEntry.editor.slice() : [];
+            var readerList = existingEntry && Array.isArray(existingEntry.reader) ? existingEntry.reader.slice() : [];
+            if (editorVal) {
+                editorList = pluginListAdd(editorList, editorVal);
+                readerList = pluginListRemove(readerList, editorVal);
+            }
+            if (readerVal && !(editorVal && String(readerVal).toLowerCase() === String(editorVal).toLowerCase())) {
+                readerList = pluginListAdd(readerList, readerVal);
+                editorList = pluginListRemove(editorList, readerVal);
+            }
+
+            var body;
+            if (isUpdate) {
+                body = { editor: editorList, reader: readerList };
+                if (type) body.type = type;
+                if (valueProvided) body.value = value;
+            } else {
+                body = { name: name, type: type, value: value, editor: editorList, reader: readerList };
+            }
+
+            fetchWithHandshake(isUpdate ? '/api/shared-memory/' + encodeURIComponent(targetName) : '/api/shared-memory', {
+                method: isUpdate ? 'PATCH' : 'POST',
+                headers: isUpdate ? sharedMemoryPatchHeaders() : { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
             })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
@@ -882,6 +1021,8 @@
                         resetSoundDropdown(typeDropdown);
                         valueInput.value = '';
                         resetSoundDropdown(booleanDropdown);
+                        if (editorInput) editorInput.value = '';
+                        if (readerInput) readerInput.value = '';
                         updateSharedVariableInputs();
                         hideErrorTooltip();
                         loadSharedMemory();
@@ -974,6 +1115,92 @@
             tbody.appendChild(tr);
         }
 
+        function refreshScrollableCells(table) {
+            if (!table) return;
+            Array.prototype.forEach.call(table.querySelectorAll('.cell-scroll'), function (el) {
+                var scrollX = el.scrollWidth > el.clientWidth;
+                var scrollY = el.scrollHeight > el.clientHeight;
+                el.classList.toggle('scroll-active', scrollX || scrollY);
+            });
+        }
+
+        function makeColumnsResizable(table) {
+            if (!table || table.dataset.resizable === '1') return;
+            table.dataset.resizable = '1';
+            var headers = Array.prototype.slice.call(table.querySelectorAll('thead th'));
+            headers.forEach(function (th, i) {
+                if (i >= headers.length - 2) return;
+                th.classList.add('resizable');
+                var resizer = document.createElement('div');
+                resizer.className = 'th-resizer';
+                th.appendChild(resizer);
+                resizer.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var nextTh = headers[i + 1];
+                    if (!nextTh) return;
+                    var startX = e.clientX;
+                    var startWidth = th.getBoundingClientRect().width;
+                    var nextStartWidth = nextTh.getBoundingClientRect().width;
+                    var minW = parseFloat(getComputedStyle(th).minWidth) || 44;
+                    var minNext = parseFloat(getComputedStyle(nextTh).minWidth) || 44;
+                    var totalW = startWidth + nextStartWidth;
+                    var active = true;
+                    resizer.classList.add('active');
+                    document.body.classList.add('col-resizing');
+                    function onMove(ev) {
+                        if (!active) return;
+                        var w = startWidth + (ev.clientX - startX);
+                        if (w < minW) w = minW;
+                        if (w > totalW - minNext) w = totalW - minNext;
+                        th.style.width = w + 'px';
+                        nextTh.style.width = (totalW - w) + 'px';
+                        refreshScrollableCells(table);
+                    }
+                    function onUp() {
+                        if (!active) return;
+                        active = false;
+                        resizer.classList.remove('active');
+                        document.body.classList.remove('col-resizing');
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                        window.removeEventListener('blur', onUp);
+                        refreshScrollableCells(table);
+                    }
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                    window.addEventListener('blur', onUp);
+                });
+            });
+        }
+
+        function wireColumnResizing() {
+            if (!viewEl) return;
+            Array.prototype.forEach.call(viewEl.querySelectorAll('.data-table'), function (table) {
+                makeColumnsResizable(table);
+            });
+        }
+
+        function alignUserRoleColumn() {
+            var reg = document.getElementById('registerAdminSegmented');
+            var table = document.getElementById('usersTable');
+            if (!reg || !table) return;
+            var head = table.tHead;
+            if (!head || !head.rows.length) return;
+            var ths = head.rows[0].cells;
+            if (ths.length < 3) return;
+            var tableLeft = table.getBoundingClientRect().left;
+            var regLeft = reg.getBoundingClientRect().left;
+            var roleW = ths[1].getBoundingClientRect().width;
+            var total = table.getBoundingClientRect().width;
+            var target = regLeft - tableLeft - 10;
+            if (target < 60) target = 60;
+            var actionsTarget = total - target - roleW;
+            if (actionsTarget < 80) actionsTarget = 80;
+            ths[0].style.width = target + 'px';
+            ths[2].style.width = actionsTarget + 'px';
+        }
+
         function renderSharedMemoryTable(variables) {
             var table = document.getElementById('sharedMemoryTable');
             var tbody = document.getElementById('sharedMemoryTableBody');
@@ -986,7 +1213,7 @@
             table.hidden = false;
             if (empty) empty.hidden = true;
             if (!has) {
-                renderTableEmptyRow(tbody, 4, 'No shared variables');
+                renderTableEmptyRow(tbody, 5, 'No shared variables');
                 return;
             }
             variables.slice().sort(function (a, b) {
@@ -998,6 +1225,7 @@
             }).forEach(function (entry) {
                 tbody.appendChild(buildSharedMemoryRow(entry));
             });
+            refreshScrollableCells(table);
         }
 
         function buildSharedMemoryRow(entry) {
@@ -1008,7 +1236,10 @@
 
             var nameTd = document.createElement('td');
             nameTd.className = 'shared-var-name-cell';
-            nameTd.textContent = entry.name;
+            var nameScroll = document.createElement('div');
+            nameScroll.className = 'cell-scroll';
+            nameScroll.textContent = entry.name;
+            nameTd.appendChild(nameScroll);
             tr.appendChild(nameTd);
 
             var typeTd = document.createElement('td');
@@ -1018,22 +1249,39 @@
 
             var valueTd = document.createElement('td');
             valueTd.className = 'shared-var-value-cell';
-            valueTd.textContent = tr.dataset.value;
+            var valueScroll = document.createElement('div');
+            valueScroll.className = 'cell-scroll';
+            valueScroll.textContent = tr.dataset.value;
+            valueTd.appendChild(valueScroll);
             tr.appendChild(valueTd);
+
+            var pluginsTd = document.createElement('td');
+            pluginsTd.className = 'shared-var-plugins-cell';
+            var tags = document.createElement('div');
+            tags.className = 'event-plugin-tags';
+            var editorList = Array.isArray(entry.editor) ? entry.editor.slice() : [];
+            var readerList = Array.isArray(entry.reader) ? entry.reader.slice() : [];
+            editorList.sort(function (a, b) { return String(a).toLowerCase().localeCompare(String(b).toLowerCase()); });
+            readerList.sort(function (a, b) { return String(a).toLowerCase().localeCompare(String(b).toLowerCase()); });
+            if (!editorList.length && !readerList.length) {
+                var emptyLabel = document.createElement('span');
+                emptyLabel.className = 'event-plugin-empty';
+                emptyLabel.textContent = '(No Plugins Defined)';
+                tags.appendChild(emptyLabel);
+            }
+            editorList.forEach(function (pl) {
+                tags.appendChild(buildSharedVariablePluginTag(entry.name, 'editor', pl));
+            });
+            readerList.forEach(function (pl) {
+                tags.appendChild(buildSharedVariablePluginTag(entry.name, 'reader', pl));
+            });
+            pluginsTd.appendChild(tags);
+            tr.appendChild(pluginsTd);
 
             var actionsTd = document.createElement('td');
             actionsTd.className = 'table-actions-cell';
             var actionsDiv = document.createElement('div');
             actionsDiv.className = 'actions-cell';
-
-            var editBtn = document.createElement('button');
-            editBtn.type = 'button';
-            editBtn.className = 'icon-btn';
-            editBtn.dataset.action = 'edit';
-            editBtn.dataset.name = entry.name;
-            editBtn.dataset.tableTooltip = 'Edit Variable';
-            editBtn.innerHTML = ICONS.pen;
-            actionsDiv.appendChild(editBtn);
 
             var deleteBtn = document.createElement('button');
             deleteBtn.type = 'button';
@@ -1048,6 +1296,74 @@
             tr.appendChild(actionsTd);
 
             return tr;
+        }
+
+        function buildSharedVariablePluginTag(name, kind, pl) {
+            var tag = document.createElement('span');
+            tag.className = 'event-plugin-tag' + (kind === 'editor' ? ' shared-plugin-tag-editor' : '');
+            var label = document.createElement('span');
+            label.className = 'event-plugin-tag-label';
+            label.textContent = pl;
+            var removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'event-plugin-tag-remove';
+            removeBtn.dataset.action = 'delete-plugin-from-variable';
+            removeBtn.dataset.name = name;
+            removeBtn.dataset.kind = kind;
+            removeBtn.dataset.plugin = pl;
+            removeBtn.dataset.tableTooltip = 'Remove Plugin';
+            removeBtn.setAttribute('aria-label', 'Remove ' + pl);
+            removeBtn.textContent = 'x';
+            tag.appendChild(label);
+            tag.appendChild(removeBtn);
+            return tag;
+        }
+
+        function pluginListAdd(list, name) {
+            var out = (list || []).slice();
+            var lower = String(name).toLowerCase();
+            if (!out.some(function (p) { return String(p).toLowerCase() === lower; })) {
+                out.push(name);
+            }
+            return out;
+        }
+
+        function pluginListRemove(list, name) {
+            var lower = String(name).toLowerCase();
+            return (list || []).filter(function (p) { return String(p).toLowerCase() !== lower; });
+        }
+
+        function removeSharedVariablePlugin(name, kind, plugin, btn) {
+            var entry = null;
+            for (var k = 0; k < sharedVariablesList.length; k++) {
+                if (String(sharedVariablesList[k].name).toLowerCase() === String(name).toLowerCase()) {
+                    entry = sharedVariablesList[k];
+                    break;
+                }
+            }
+            if (!entry) return;
+            var body = {};
+            if (kind === 'editor') {
+                body.editor = pluginListRemove(entry.editor, plugin);
+            } else {
+                body.reader = pluginListRemove(entry.reader, plugin);
+            }
+            fetchWithHandshake('/api/shared-memory/' + encodeURIComponent(entry.name), {
+                method: 'PATCH',
+                headers: sharedMemoryPatchHeaders(),
+                body: JSON.stringify(body)
+            })
+                .then(function (r) { return r.json().catch(function () { return {}; }).then(function (data) { return { ok: r.ok, data: data }; }); })
+                .then(function (res) {
+                    if (!res.ok) return;
+                    if (res.data && typeof res.data.name === 'string') {
+                        sharedVariablesList = sharedVariablesList.map(function (v) {
+                            return String(v.name).toLowerCase() === String(res.data.name).toLowerCase() ? res.data : v;
+                        });
+                        loadSharedMemory();
+                    }
+                })
+                .catch(function () {});
         }
 
         function buildInlineDropdown(options, selectedValue, onChange) {
@@ -1102,9 +1418,12 @@
         function renderSharedValueEditor(row) {
             var valueTd = row.querySelector('.shared-var-value-cell');
             if (!valueTd) return;
+            var wrapper = valueTd.querySelector('.cell-scroll');
+            var container = wrapper || valueTd;
+            if (wrapper) wrapper.classList.add('editing');
             var type = row.dataset.type;
             var current = row.dataset.value || '';
-            valueTd.innerHTML = '';
+            container.innerHTML = '';
             if (type === 'boolean') {
                 var dropdown = buildInlineDropdown([
                     { value: 'true', label: 'true' },
@@ -1112,7 +1431,7 @@
                 ], current === 'true' || current === 'false' ? current : 'true', function (val) {
                     row.dataset.value = val;
                 });
-                valueTd.appendChild(dropdown);
+                container.appendChild(dropdown);
                 var dropdownBtn = dropdown.querySelector('.sound-select');
                 if (dropdownBtn) dropdownBtn.focus();
             } else {
@@ -1130,7 +1449,7 @@
                     }
                     hideErrorTooltip();
                 });
-                valueTd.appendChild(input);
+                container.appendChild(input);
                 input.focus();
                 input.select();
             }
@@ -1184,8 +1503,17 @@
             var typeTd = row.querySelector('.shared-var-type-cell');
             var valueTd = row.querySelector('.shared-var-value-cell');
             if (typeTd) typeTd.textContent = updated.type;
-            if (valueTd) valueTd.textContent = row.dataset.value;
+            if (valueTd) {
+                var vc = valueTd.querySelector('.cell-scroll');
+                if (vc) {
+                    vc.classList.remove('editing');
+                    vc.textContent = row.dataset.value;
+                } else {
+                    valueTd.textContent = row.dataset.value;
+                }
+            }
             hideTableTooltip();
+            refreshScrollableCells(valueTd ? valueTd.closest('table') : null);
         }
 
         function saveSharedEdit(row, btn) {
@@ -1244,7 +1572,15 @@
                         var typeTd = row.querySelector('.shared-var-type-cell');
                         var valueTd = row.querySelector('.shared-var-value-cell');
                         if (typeTd) typeTd.textContent = row.dataset.type;
-                        if (valueTd) valueTd.textContent = row.dataset.value;
+                        if (valueTd) {
+                            var vc2 = valueTd.querySelector('.cell-scroll');
+                            if (vc2) {
+                                vc2.classList.remove('editing');
+                                vc2.textContent = row.dataset.value;
+                            } else {
+                                valueTd.textContent = row.dataset.value;
+                            }
+                        }
                         hideTableTooltip();
                         hideErrorTooltip();
                     }
@@ -1315,6 +1651,12 @@
                     }
                 } else if (action === 'delete') {
                     deleteSharedVariable(name, btn);
+                } else if (action === 'delete-plugin-from-variable') {
+                    var pName = btn.dataset.name;
+                    var pKind = btn.dataset.kind;
+                    var pPlugin = btn.dataset.plugin;
+                    if (!pName || !pKind || !pPlugin) return;
+                    removeSharedVariablePlugin(pName, pKind, pPlugin, btn);
                 }
             });
 
@@ -1325,6 +1667,23 @@
                 if (!row || row.dataset.editing !== '1') return;
                 if (typeCell.querySelector('.sound-dropdown')) return;
                 renderSharedTypeEditor(row);
+            });
+
+            table.addEventListener('click', function (event) {
+                var nameCell = event.target.closest('.shared-var-name-cell');
+                if (!nameCell) return;
+                var row = nameCell.closest('tr');
+                if (!row) return;
+                var name = row.dataset.name;
+                if (!name) return;
+                exitSharedVariableJsonMode();
+                var nameInput = document.getElementById('sharedVariableNameInput');
+                if (nameInput) {
+                    nameInput.value = name;
+                    hideErrorTooltip();
+                    updateSharedVariableInputs();
+                    nameInput.focus();
+                }
             });
 
             table.addEventListener('mouseover', function (event) {
@@ -1542,18 +1901,7 @@
                     importBtn.classList.add('x-active');
                     jsonInput.focus();
                 } else {
-                    eventInput.style.display = 'block';
-                    pluginInput.style.display = 'block';
-                    jsonInput.style.display = 'none';
-                    jsonInput.value = '';
-                    jsonInput.classList.remove('api-key-input-invalid');
-                    hideErrorTooltip();
-                    // Restore button text based on current event
-                    updateEventStreamingInputs();
-                    importBtn.innerHTML = importIconSvg;
-                    importBtn.setAttribute('data-tooltip', 'Import/Export Events and Subscriptions');
-                    importBtn.setAttribute('aria-label', 'Import/Export Events and Subscriptions');
-                    importBtn.classList.remove('x-active');
+                    exitEventStreamingJsonMode();
                 }
                 refreshImportButtonTooltip(importBtn);
                 updateEventStreamingInputs();
@@ -1733,8 +2081,13 @@
             keys.sort(function (a,b){ return a.toLowerCase().localeCompare(b.toLowerCase()); }).forEach(function (ev) {
                 var plugins = events[ev] || [];
                 var tr = document.createElement('tr');
+                tr.dataset.event = ev;
                 var evTd = document.createElement('td');
-                evTd.textContent = ev;
+                evTd.className = 'event-cell';
+                var evScroll = document.createElement('div');
+                evScroll.className = 'cell-scroll';
+                evScroll.textContent = ev;
+                evTd.appendChild(evScroll);
                 tr.appendChild(evTd);
                 var pluginsTd = document.createElement('td');
                 var tags = document.createElement('div');
@@ -1782,6 +2135,7 @@
                 tr.appendChild(actionsTd);
                 tbody.appendChild(tr);
             });
+            refreshScrollableCells(table);
             table.style.height = '';
         }
 
@@ -1837,6 +2191,22 @@
         function wireEventStreamingTable() {
             var table = document.getElementById('eventStreamingTable');
             if (!table) return;
+            table.addEventListener('click', function (event) {
+                var cell = event.target.closest('.event-cell');
+                if (!cell) return;
+                var row = cell.closest('tr');
+                if (!row) return;
+                var ev = row.dataset.event;
+                if (!ev) return;
+                exitEventStreamingJsonMode();
+                var eventInput = document.getElementById('eventStreamingEventInput');
+                if (eventInput) {
+                    eventInput.value = ev;
+                    hideErrorTooltip();
+                    updateEventStreamingInputs();
+                    eventInput.focus();
+                }
+            });
             table.addEventListener('click', function (event) {
                 var btn = event.target.closest('[data-action]');
                 if (!btn) return;
@@ -2330,7 +2700,7 @@
             table.hidden = false;
             if (empty) empty.hidden = true;
             if (!has) {
-                renderTableEmptyRow(tbody, 5, 'No IPs recorded');
+                renderTableEmptyRow(tbody, 5, 'No IPs Recorded');
                 return;
             }
             entries.slice().sort(function (a, b) {
@@ -5044,31 +5414,48 @@
         }
 
         var cardIndicatorList = null;
+        var cardIndicatorResizeWired = false;
 
         function getCardIndicatorList() {
-            var inView = document.getElementById('cardIndicatorList');
+            var inView = viewEl.querySelector('#cardIndicatorList');
             if (inView && inView.isConnected) {
                 if (cardIndicatorList && cardIndicatorList !== inView && cardIndicatorList.parentNode === document.body) {
                     cardIndicatorList.parentNode.removeChild(cardIndicatorList);
                 }
                 cardIndicatorList = inView;
+                cardIndicatorList._static = true;
+                var owner = inView;
+                while (owner.parentElement && owner.parentElement !== viewEl) owner = owner.parentElement;
+                cardIndicatorList._owner = owner;
                 // Keep the list outside the animated page content so the
                 // indicators do not inherit the content's fade opacity.
                 if (cardIndicatorList.parentNode !== document.body) {
                     document.body.appendChild(cardIndicatorList);
                 }
-                if (!cardIndicatorList._resizeWired) {
-                    cardIndicatorList._resizeWired = true;
+                if (!cardIndicatorResizeWired) {
+                    cardIndicatorResizeWired = true;
                     window.addEventListener('resize', positionCardIndicators);
                 }
                 return cardIndicatorList;
+            }
+            if (cardIndicatorList && cardIndicatorList.isConnected && cardIndicatorList._static) {
+                // The cached list is a static list whose owning page content
+                // is no longer rendered; discard it so a fresh list is built.
+                var owner = cardIndicatorList._owner;
+                if (!owner || !owner.isConnected || !viewEl.contains(owner)) {
+                    cardIndicatorList.parentNode.removeChild(cardIndicatorList);
+                    cardIndicatorList = null;
+                }
             }
             if (!cardIndicatorList || !cardIndicatorList.isConnected) {
                 cardIndicatorList = document.createElement('div');
                 cardIndicatorList.className = 'card-indicator-list';
                 cardIndicatorList.setAttribute('aria-label', 'Cards');
                 document.body.appendChild(cardIndicatorList);
-                window.addEventListener('resize', positionCardIndicators);
+                if (!cardIndicatorResizeWired) {
+                    cardIndicatorResizeWired = true;
+                    window.addEventListener('resize', positionCardIndicators);
+                }
             }
             return cardIndicatorList;
         }
@@ -5370,6 +5757,7 @@
                     }
                     try { wireSettingsCard(cardId); } catch (e) {}
                     try { wireToggleTooltips(); } catch (e) {}
+                    wireColumnResizing();
                     buildCardIndicators();
                     onCardScroll();
                 })
@@ -5512,6 +5900,7 @@
                 renderUsersTable(usersList);
                 wireUsersTable();
                 loadUsers();
+                alignUserRoleColumn();
             },
             'account': function () {
                 var roleEl = document.getElementById('accountRoleValue');
@@ -5850,6 +6239,10 @@
         }
 
         document.addEventListener('click', closeAllSoundDropdowns);
+
+        window.addEventListener('resize', function () {
+            if (document.getElementById('usersTable')) alignUserRoleColumn();
+        });
 
         document.addEventListener('keydown', function (event) {
             if (event.key === 'Escape' && document.activeElement) {

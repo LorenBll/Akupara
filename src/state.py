@@ -102,8 +102,6 @@ _FORBIDDEN_KEY_NAME_CHARS: set[str] = set(" ,;:\\/%\"'")
 _PROJECT_HASH_EXCLUDE_DIRS = {".git", ".venv", "venv", "ENV", "env", ".vscode", ".idea", "logs", "__pycache__", ".pytest_cache", "htmlcov", "dist", "build", ".github/__pycache__"}
 _PROJECT_HASH_EXCLUDE_SUFFIXES = (".pyc", ".pyo")
 
-STARTUP_SOUND_FILE: str = "logo-reveal.wav"
-
 # ---------------------------------------------------------------------------
 # Settings cards (used for on-demand loading)
 # ---------------------------------------------------------------------------

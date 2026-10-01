@@ -11,6 +11,38 @@ from validation import _is_valid_key_name, _validate_plaintext_value
 
 _SHARED_VALUE_TYPES = ("string", "list", "dictionary", "integer", "float", "boolean")
 
+_MISSING = object()
+
+
+def _normalize_plugins_list(plugins) -> list[str]:
+    if plugins is None:
+        return []
+    if not isinstance(plugins, list):
+        raise ValueError("Invalid plugins list.")
+    result: list[str] = []
+    seen: set[str] = set()
+    for p in plugins:
+        if not isinstance(p, str):
+            raise ValueError("Invalid plugin name.")
+        p = p.strip()
+        if not p:
+            continue
+        if not _is_valid_key_name(p):
+            raise ValueError("Invalid plugin name.")
+        key = p.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(p)
+    return sorted(result, key=lambda x: x.casefold())
+
+
+def _resolve_plugin_exclusivity(editor: list[str], reader: list[str]) -> tuple[list[str], list[str]]:
+    """Keep a plugin present in both lists only in the editor list."""
+    editor_keys = {p.casefold() for p in editor}
+    reader = [p for p in reader if p.casefold() not in editor_keys]
+    return editor, reader
+
 
 def _normalize_shared_value(value, value_type: str):
     if value_type == "string":
@@ -58,7 +90,21 @@ def _load_shared_memory() -> list[dict]:
             continue
         if entry["type"] not in _SHARED_VALUE_TYPES:
             continue
-        variables.append({"name": entry["name"], "type": entry["type"], "value": entry["value"]})
+        try:
+            editor = _normalize_plugins_list(entry.get("editor"))
+        except ValueError:
+            editor = []
+        try:
+            reader = _normalize_plugins_list(entry.get("reader"))
+        except ValueError:
+            reader = []
+        variables.append({
+            "name": entry["name"],
+            "type": entry["type"],
+            "value": entry["value"],
+            "editor": editor,
+            "reader": reader,
+        })
     return variables
 
 
@@ -78,7 +124,7 @@ def _list_shared_memory() -> list[dict]:
     return _load_shared_memory()
 
 
-def _create_shared_variable(name: str, value, value_type: str) -> dict:
+def _create_shared_variable(name: str, value, value_type: str, editor=None, reader=None) -> dict:
     if not (state.INTERNAL_INTERACTIONS and state.SHARED_MEMORY_ENABLED):
         try:
             from auth import FeatureDisabledError
@@ -90,6 +136,11 @@ def _create_shared_variable(name: str, value, value_type: str) -> dict:
         raise ValueError("Invalid shared variable name.")
     value = _normalize_shared_value(value, value_type)
     value = _validate_plaintext_value(value, "shared variable value")
+    editor = _normalize_plugins_list(editor)
+    reader = _normalize_plugins_list(reader)
+    editor, reader = _resolve_plugin_exclusivity(editor, reader)
+    if not editor and not reader:
+        raise ValueError("At least one plugin is required.")
     variables = _load_shared_memory()
     if any(entry["name"].lower() == name.lower() for entry in variables):
         try:
@@ -98,7 +149,7 @@ def _create_shared_variable(name: str, value, value_type: str) -> dict:
             class DuplicateNameError(RuntimeError):
                 pass
         raise DuplicateNameError("A shared variable with this name already exists.")
-    entry = {"name": name, "type": value_type, "value": value}
+    entry = {"name": name, "type": value_type, "value": value, "editor": editor, "reader": reader}
     variables.append(entry)
     _save_shared_memory(variables)
     try:
@@ -109,7 +160,7 @@ def _create_shared_variable(name: str, value, value_type: str) -> dict:
     return entry
 
 
-def _update_shared_variable(name: str, value, value_type=None) -> dict | None:
+def _update_shared_variable(name: str, value=_MISSING, value_type=_MISSING, editor=_MISSING, reader=_MISSING) -> dict | None:
     if not (state.INTERNAL_INTERACTIONS and state.SHARED_MEMORY_ENABLED):
         try:
             from auth import FeatureDisabledError
@@ -121,10 +172,17 @@ def _update_shared_variable(name: str, value, value_type=None) -> dict | None:
     target = next((entry for entry in variables if entry["name"] == name), None)
     if not target:
         return None
-    new_type = value_type if value_type is not None else target["type"]
-    target["value"] = _normalize_shared_value(value, new_type)
-    target["value"] = _validate_plaintext_value(target["value"], "shared variable value")
-    target["type"] = new_type
+    if value is not _MISSING or value_type is not _MISSING:
+        new_type = value_type if value_type is not _MISSING else target["type"]
+        new_value = value if value is not _MISSING else target["value"]
+        target["value"] = _normalize_shared_value(new_value, new_type)
+        target["value"] = _validate_plaintext_value(target["value"], "shared variable value")
+        target["type"] = new_type
+    if editor is not _MISSING:
+        target["editor"] = _normalize_plugins_list(editor)
+    if reader is not _MISSING:
+        target["reader"] = _normalize_plugins_list(reader)
+    target["editor"], target["reader"] = _resolve_plugin_exclusivity(target["editor"], target["reader"])
     _save_shared_memory(variables)
     try:
         import audio

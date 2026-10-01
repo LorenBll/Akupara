@@ -71,9 +71,10 @@ Configuration is stored in `resources/configuration.json` and in the `.env` file
 | `DISPLAY_PROMOTION` | `true` | Show the "report issues" promotion line. |
 | `API_KEYS` | `[]` | Stored API keys (Fernet-encrypted). |
 | `API_KEY_ENCRYPTION_KEY` | _(generated)_ | Fernet key for `API_KEYS`. Generated on first run if not set. |
-| `SHARED_MEMORY` / `SHARED_MEMORY_ENABLED` | `[]` / `false` | Internal interactions shared memory. |
+| `SHARED_MEMORY` / `SHARED_MEMORY_ENABLED` | `[]` / `false` | Internal interactions shared memory. Each entry is `{"name","type","value","editor","reader"}` where `editor`/`reader` are plugin name lists (a plugin cannot be in both). |
 | `PLAY_AUDIOS` | `true` | Enable audio playback. |
 | `PLAY_LOG_SOUNDS` / `PLAY_STARTUP_SOUND` | `false` / `true` | Log and startup sounds (require `PLAY_AUDIOS`). |
+| `STARTUP_SOUND` | `logo-reveal.wav` | Audio file for the startup sound: one of the files in `resources/audios/` or empty for no sound. |
 | `EXTERNAL_INTERACTIONS` | `false` | Enable the external interactions worker (network listener). |
 | `EXTERNAL_INTERACTIONS_INCOMING_IPS` / `EXTERNAL_INTERACTIONS_OUTGOING_IPS` | `[]` | Firewall entries (`{"ip","plugins","action","Note"}`). |
 | `EXTERNAL_INTERACTIONS_ALLOW_NEW` / `EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING` | `false` | Default policy for unknown IPs. |
