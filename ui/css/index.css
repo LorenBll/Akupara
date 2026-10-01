@@ -110,7 +110,7 @@ body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    overflow-x: visible;
+    overflow-x: hidden;
     scrollbar-width: none;
     width: 50vw;
     margin: 0 auto;
@@ -850,15 +850,52 @@ body {
     padding: 6px 14px;
 }
 
+.shared-variable-sub-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    overflow: hidden;
+    transition: height 0.3s ease;
+}
+
+.shared-variable-sub-row .shared-variable-name-input {
+    transition: opacity 0.15s ease;
+}
+
+.shared-variable-sub-row.shared-plugin-fading .shared-variable-name-input {
+    opacity: 0;
+}
+
 .sound-dropdown.inline-dropdown .sound-select {
     min-width: 0;
     width: 100%;
 }
 
-.shared-var-value-cell {
-    white-space: nowrap;
+.cell-scroll {
+    height: 100%;
+    display: flex;
+    align-items: safe center;
     overflow: hidden;
-    text-overflow: ellipsis;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.cell-scroll.scroll-active {
+    overflow: auto;
+}
+
+.cell-scroll.editing {
+    overflow: visible;
+}
+
+.cell-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.cell-scroll::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
 }
 
 .random-name-btn {
@@ -965,7 +1002,7 @@ body {
 }
 
 #sharedMemoryTable th:nth-child(1) {
-    width: auto;
+    width: calc(100% / 6);
 }
 
 #sharedMemoryTable th:nth-child(2) {
@@ -973,11 +1010,97 @@ body {
 }
 
 #sharedMemoryTable th:nth-child(3) {
-    width: auto;
+    width: calc(100% / 6);
 }
 
 #sharedMemoryTable th:nth-child(4) {
-    width: 64px;
+    width: auto;
+}
+
+#sharedMemoryTable th:nth-child(5) {
+    width: 44px;
+}
+
+.data-table th {
+    position: relative;
+}
+
+.data-table th.resizable {
+    user-select: none;
+}
+
+.th-resizer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 2;
+}
+
+.th-resizer:hover,
+.th-resizer.active {
+    background: var(--accent);
+    opacity: 0.35;
+}
+
+body.col-resizing {
+    cursor: col-resize !important;
+    user-select: none;
+}
+
+#sharedMemoryTable th,
+#sharedMemoryTable td,
+#eventStreamingTable th,
+#eventStreamingTable td,
+#apiKeysTable th,
+#apiKeysTable td,
+#externalInteractionsTable th,
+#externalInteractionsTable td,
+#externalInteractionsOutgoingTable th,
+#externalInteractionsOutgoingTable td,
+#usersTable th,
+#usersTable td,
+#installedPluginsTable th,
+#installedPluginsTable td {
+    min-width: 44px;
+}
+
+#apiKeysTable {
+    table-layout: fixed;
+}
+
+#apiKeysTable th:nth-child(1) {
+    width: 390px;
+}
+
+#apiKeysTable th:nth-child(2) {
+    width: 44px;
+}
+
+#apiKeysTable th:nth-child(4) {
+    width: 104px;
+}
+
+#usersTable {
+    table-layout: fixed;
+}
+
+#usersTable th:nth-child(2) {
+    width: 168px;
+}
+
+#usersTable th:nth-child(3) {
+    width: 104px;
+}
+
+#installedPluginsTable {
+    table-layout: fixed;
+}
+
+#installedPluginsTable th:nth-child(4) {
+    width: 120px;
 }
 
 #externalInteractionsTable {
@@ -1148,7 +1271,7 @@ body {
 }
 
 #eventStreamingTable th:nth-child(1) {
-    width: 25%;
+    width: calc(100% / 6);
 }
 
 #eventStreamingTable th:nth-child(2) {
@@ -1305,6 +1428,19 @@ body {
 .event-plugin-tag-dev {
     background: #dbeafe;
     color: #1e3a8a;
+}
+
+.shared-plugin-tag-editor {
+    background: var(--accent);
+    color: #ffffff;
+}
+
+.shared-plugin-tag-editor > .event-plugin-tag-remove {
+    color: #f3f4f6;
+}
+
+.shared-plugin-tag-editor > .event-plugin-tag-remove:hover {
+    color: #ffffff;
 }
 
 .icon-btn {
@@ -1670,6 +1806,11 @@ body {
 
 :root[data-theme="dark"] .sound-select-menu {
     background: var(--panel);
+}
+
+:root[data-theme="dark"] .sound-select-option:hover {
+    background: var(--border);
+    color: var(--ink);
 }
 
 :root[data-theme="dark"] .external-interactions-segment.selected,

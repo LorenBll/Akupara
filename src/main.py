@@ -128,10 +128,13 @@ from firewall import (  # noqa: E402
     _update_external_interactions_entry,
 )
 from shared_memory import (  # noqa: E402
+    _MISSING,
     _create_shared_variable,
     _delete_shared_variable,
     _list_shared_memory,
     _load_shared_memory,
+    _normalize_plugins_list,
+    _resolve_plugin_exclusivity,
     _update_shared_variable,
 )
 from plugin_events import (  # noqa: E402
@@ -307,9 +310,6 @@ def _set_play_log_sounds(value: bool) -> None:
             pass
 
 
-STARTUP_SOUND_FILE = "logo-reveal.wav"
-
-
 @audio.play_audio("acknowledge")
 def _set_play_startup_sound(value: bool) -> None:
     _require_play_audios_enabled()
@@ -318,20 +318,18 @@ def _set_play_startup_sound(value: bool) -> None:
 
 
 def _play_startup_sound() -> None:
-    """Play the fixed startup sound after all loading operations, when enabled.
+    """Play the startup sound after all loading operations, when enabled.
 
-    The sound is not customisable (always ``logo-reveal.wav``) and plays only
-    when both ``PLAY_AUDIOS`` and ``PLAY_STARTUP_SOUND`` are on.
+    The file is customisable via the ``STARTUP_SOUND`` .env variable (default
+    ``logo-reveal.wav``) and plays only when both ``PLAY_AUDIOS`` and
+    ``PLAY_STARTUP_SOUND`` are on.
     """
     if not state.PLAY_AUDIOS:
         return
     if not state.PLAY_STARTUP_SOUND:
         return
     try:
-        path = audio.AUDIOS_DIR / STARTUP_SOUND_FILE
-        if not path.is_file():
-            return
-        audio.get_audio_orchestrator().play(path)
+        audio.play_sound("startup")
     except Exception:
         pass
 
@@ -1014,10 +1012,20 @@ def shared_memory() -> tuple:
     name = data.get("name")
     value = data.get("value")
     value_type = data.get("type")
+    editor = data.get("editor")
+    reader = data.get("reader")
+    try:
+        editor = _normalize_plugins_list(editor)
+        reader = _normalize_plugins_list(reader)
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    editor, reader = _resolve_plugin_exclusivity(editor, reader)
+    if not editor and not reader:
+        return jsonify({"error": "At least one plugin is required."}), 400
     if not _effective_shared_memory_enabled():
         return jsonify({"error": "Functionality disabled."}), 403
     try:
-        entry = _create_shared_variable(name, value, value_type)
+        entry = _create_shared_variable(name, value, value_type, editor, reader)
     except FeatureDisabledError:
         return jsonify({"error": "The internal interactions functionality is disabled."}), 403
     except DuplicateNameError:
@@ -1051,10 +1059,14 @@ def shared_memory_delete(name: str) -> tuple:
 @standard_endpoint("PATCH", "OPTIONS")
 def shared_memory_edit(name: str) -> tuple:
     data = request.get_json(silent=True) or {}
-    value = data.get("value")
-    value_type = data.get("type")
     try:
-        target = _update_shared_variable(name, value, value_type)
+        target = _update_shared_variable(
+            name,
+            value=data["value"] if "value" in data else _MISSING,
+            value_type=data["type"] if "type" in data else _MISSING,
+            editor=data["editor"] if "editor" in data else _MISSING,
+            reader=data["reader"] if "reader" in data else _MISSING,
+        )
     except FeatureDisabledError:
         return jsonify({"error": "Functionality disabled."}), 403
     except ValueError:

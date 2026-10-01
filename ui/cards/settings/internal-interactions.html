@@ -49,6 +49,10 @@
             <button type="button" class="generate-api-key-btn" id="sharedVariableImportBtn" data-tooltip="Import/Export Shared Variables" aria-label="Import/Export Shared Variables" style="width:36px; height:29px; padding:0; display:inline-flex; align-items:center; justify-content:center;">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 13 17 9"/><line x1="12" y1="12" x2="12" y2="3"/></svg>
             </button>
+            <div class="shared-variable-sub-row" id="sharedVariablePluginRow" style="grid-column: 1 / span 3;">
+                <input type="text" id="sharedVariableEditorInput" class="shared-variable-name-input" placeholder="Editor Plugin Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Editor plugin name">
+                <input type="text" id="sharedVariableReaderInput" class="shared-variable-name-input" placeholder="Reader Plugin Name" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Reader plugin name">
+            </div>
         </div>
         <div class="table-wrap" id="sharedMemoryTableWrap">
             <table class="data-table" id="sharedMemoryTable">
@@ -57,6 +61,7 @@
                         <th>Name</th>
                         <th>Type</th>
                         <th>Value</th>
+                        <th>Plugins</th>
                         <th></th>
                     </tr>
                 </thead>

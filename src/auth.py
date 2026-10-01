@@ -229,7 +229,7 @@ def log_change(func):
             actor = _resolve_actor()
             if actor and actor[1]:
                 kind, actor_id = actor
-                log_info("Change recorded", {"kind": kind, "id": actor_id, "method": req.method, "path": req.path, "status": status})
+                log_info("Change recorded", {"kind": kind, "id": actor_id, "method": req.method, "path": req.path, "status": status, "client": req.remote_addr})
         return result
     return wrapper
 

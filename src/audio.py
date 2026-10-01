@@ -14,10 +14,11 @@ from logginglib import log_debug, log_warn
 
 AUDIOS_DIR = Path(__file__).resolve().parent.parent / "resources" / "audios"
 
-SOUND_EVENTS: tuple[str, ...] = ("acknowledge", "warn", "process", "success", "error")
+SOUND_EVENTS: tuple[str, ...] = ("startup", "acknowledge", "warn", "process", "success", "error")
 
 # The .env variable that holds the audio file to play for each event.
 SOUND_ENV_VARS: dict[str, str] = {
+    "startup": "STARTUP_SOUND",
     "acknowledge": "ACKNOWLEDGE_SOUND",
     "warn": "WARN_SOUND",
     "process": "PROCESS_SOUND",
@@ -27,6 +28,7 @@ SOUND_ENV_VARS: dict[str, str] = {
 
 # Default audio file names, applied when the corresponding .env variable is absent.
 DEFAULT_SOUND_FILES: dict[str, str] = {
+    "startup": "logo-reveal.wav",
     "acknowledge": "acknowledge.wav",
     "success": "success.wav",
     "error": "error.wav",
@@ -286,7 +288,7 @@ def set_play_log_sounds_enabled(enabled: bool) -> None:
 
 def play_sound(event: str, via_log: bool = False) -> None:
     """Trigger playback of the audio configured for ``event`` (fire-and-forget)."""
-    if _play_log_sounds_enabled and not via_log and event not in ("success", "process"):
+    if _play_log_sounds_enabled and not via_log and event not in ("success", "process", "startup"):
         return
     file_name = _read_sound_file(event)
     if not file_name:
