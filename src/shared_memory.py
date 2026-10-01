@@ -44,6 +44,38 @@ def _resolve_plugin_exclusivity(editor: list[str], reader: list[str]) -> tuple[l
     return editor, reader
 
 
+class SharedVariableAccessError(PermissionError):
+    """Raised when a plugin is not allowed to read or edit a shared variable."""
+
+
+def _shared_variable_role_for_plugin(plugin_name: str, variable: dict) -> str | None:
+    """Return ``'editor'``, ``'reader'`` or ``None`` for *plugin_name* on *variable*."""
+    p = str(plugin_name).casefold()
+    for e in variable.get("editor", []):
+        if str(e).casefold() == p:
+            return "editor"
+    for r in variable.get("reader", []):
+        if str(r).casefold() == p:
+            return "reader"
+    return None
+
+
+def _require_shared_variable_read(plugin_name: str, variable: dict, privileged: bool = False) -> None:
+    """Raise unless *plugin_name* may read *variable* (editor, reader or privileged)."""
+    if privileged:
+        return
+    if _shared_variable_role_for_plugin(plugin_name, variable) is None:
+        raise SharedVariableAccessError("The plugin has no access to this shared variable.")
+
+
+def _require_shared_variable_edit(plugin_name: str, variable: dict, privileged: bool = False) -> None:
+    """Raise unless *plugin_name* may edit *variable* (editor or privileged)."""
+    if privileged:
+        return
+    if _shared_variable_role_for_plugin(plugin_name, variable) != "editor":
+        raise SharedVariableAccessError("The plugin is not an editor of this shared variable.")
+
+
 def _normalize_shared_value(value, value_type: str):
     if value_type == "string":
         if not isinstance(value, str):
@@ -112,7 +144,7 @@ def _save_shared_memory(variables: list[dict]) -> None:
     _env_store.write_env_var("SHARED_MEMORY", json.dumps(variables))
 
 
-def _list_shared_memory() -> list[dict]:
+def _list_shared_memory(plugin_name: str | None = None, privileged: bool = False) -> list[dict]:
     # Check enabled via state
     if not (state.INTERNAL_INTERACTIONS and state.SHARED_MEMORY_ENABLED):
         try:
@@ -121,10 +153,30 @@ def _list_shared_memory() -> list[dict]:
             class FeatureDisabledError(RuntimeError):
                 pass
         raise FeatureDisabledError("The internal interactions functionality is disabled.")
-    return _load_shared_memory()
+    variables = _load_shared_memory()
+    if privileged:
+        return variables
+    return [v for v in variables if _shared_variable_role_for_plugin(plugin_name, v) is not None]
 
 
-def _create_shared_variable(name: str, value, value_type: str, editor=None, reader=None) -> dict:
+def _get_shared_variable(name: str, plugin_name: str | None = None, privileged: bool = False) -> dict | None:
+    if not (state.INTERNAL_INTERACTIONS and state.SHARED_MEMORY_ENABLED):
+        try:
+            from auth import FeatureDisabledError
+        except ImportError:
+            class FeatureDisabledError(RuntimeError):
+                pass
+        raise FeatureDisabledError("The internal interactions functionality is disabled.")
+    target = next((v for v in _load_shared_memory() if v["name"] == name), None)
+    if target is None:
+        return None
+    _require_shared_variable_read(plugin_name, target, privileged)
+    return target
+
+
+def _create_shared_variable(name: str, value, value_type: str, editor=None, reader=None, plugin_name: str | None = None, privileged: bool = False) -> dict:
+    if not privileged:
+        raise SharedVariableAccessError("Creating a shared variable requires an API key or admin authorisation.")
     if not (state.INTERNAL_INTERACTIONS and state.SHARED_MEMORY_ENABLED):
         try:
             from auth import FeatureDisabledError
@@ -160,7 +212,7 @@ def _create_shared_variable(name: str, value, value_type: str, editor=None, read
     return entry
 
 
-def _update_shared_variable(name: str, value=_MISSING, value_type=_MISSING, editor=_MISSING, reader=_MISSING) -> dict | None:
+def _update_shared_variable(name: str, value=_MISSING, value_type=_MISSING, editor=_MISSING, reader=_MISSING, plugin_name: str | None = None, privileged: bool = False) -> dict | None:
     if not (state.INTERNAL_INTERACTIONS and state.SHARED_MEMORY_ENABLED):
         try:
             from auth import FeatureDisabledError
@@ -172,6 +224,7 @@ def _update_shared_variable(name: str, value=_MISSING, value_type=_MISSING, edit
     target = next((entry for entry in variables if entry["name"] == name), None)
     if not target:
         return None
+    _require_shared_variable_edit(plugin_name, target, privileged)
     if value is not _MISSING or value_type is not _MISSING:
         new_type = value_type if value_type is not _MISSING else target["type"]
         new_value = value if value is not _MISSING else target["value"]
@@ -192,7 +245,9 @@ def _update_shared_variable(name: str, value=_MISSING, value_type=_MISSING, edit
     return target
 
 
-def _delete_shared_variable(name: str) -> bool:
+def _delete_shared_variable(name: str, plugin_name: str | None = None, privileged: bool = False) -> bool:
+    if not privileged:
+        raise SharedVariableAccessError("Deleting a shared variable requires an API key or admin authorisation.")
     if not (state.INTERNAL_INTERACTIONS and state.SHARED_MEMORY_ENABLED):
         try:
             from auth import FeatureDisabledError

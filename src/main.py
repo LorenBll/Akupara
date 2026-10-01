@@ -129,8 +129,10 @@ from firewall import (  # noqa: E402
 )
 from shared_memory import (  # noqa: E402
     _MISSING,
+    SharedVariableAccessError,
     _create_shared_variable,
     _delete_shared_variable,
+    _get_shared_variable,
     _list_shared_memory,
     _load_shared_memory,
     _normalize_plugins_list,
@@ -1002,7 +1004,7 @@ def api_key_item(key: str) -> tuple:
 def shared_memory() -> tuple:
     if request.method == "GET":
         try:
-            variables = _list_shared_memory()
+            variables = _list_shared_memory(privileged=True)
         except FeatureDisabledError:
             return jsonify({"error": "Functionality disabled."}), 403
         log_info("Shared memory read", {"client": request.remote_addr})
@@ -1025,9 +1027,11 @@ def shared_memory() -> tuple:
     if not _effective_shared_memory_enabled():
         return jsonify({"error": "Functionality disabled."}), 403
     try:
-        entry = _create_shared_variable(name, value, value_type, editor, reader)
+        entry = _create_shared_variable(name, value, value_type, editor, reader, privileged=True)
     except FeatureDisabledError:
         return jsonify({"error": "The internal interactions functionality is disabled."}), 403
+    except SharedVariableAccessError:
+        return jsonify({"error": "Access denied."}), 403
     except DuplicateNameError:
         return jsonify({"error": "A shared variable with this name already exists."}), 409
     except ValueError:
@@ -1043,9 +1047,11 @@ def shared_memory() -> tuple:
 @standard_endpoint("DELETE", "OPTIONS")
 def shared_memory_delete(name: str) -> tuple:
     try:
-        deleted = _delete_shared_variable(name)
+        deleted = _delete_shared_variable(name, privileged=True)
     except FeatureDisabledError:
         return jsonify({"error": "Functionality disabled."}), 403
+    except SharedVariableAccessError:
+        return jsonify({"error": "Access denied."}), 403
     if not deleted:
         return jsonify({"error": "Not found."}), 404
     log_info("Shared variable deleted", {"client": request.remote_addr, "name": name})
@@ -1066,9 +1072,12 @@ def shared_memory_edit(name: str) -> tuple:
             value_type=data["type"] if "type" in data else _MISSING,
             editor=data["editor"] if "editor" in data else _MISSING,
             reader=data["reader"] if "reader" in data else _MISSING,
+            privileged=True,
         )
     except FeatureDisabledError:
         return jsonify({"error": "Functionality disabled."}), 403
+    except SharedVariableAccessError:
+        return jsonify({"error": "Access denied."}), 403
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
     if target is None:
