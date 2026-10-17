@@ -1,7 +1,5 @@
 """Endpoint tests for settings and feature toggles."""
 
-import state
-
 
 def test_settings_get(client, login_admin):
     login_admin(client)
@@ -58,9 +56,8 @@ def test_external_interactions_enabled_get(client, login_admin):
     assert client.get("/api/external-interactions-enabled").get_json()["externalInteractions"] is False
 
 
-def test_automatic_update_enabled_dev(client, login_admin):
+def test_automatic_update_enabled_get(client, login_admin):
     login_admin(client)
-    state._PROJECT_INTEGRITY_OK = True
     response = client.get("/api/automatic-update-enabled")
     assert response.status_code == 200
     assert response.get_json()["automaticUpdate"] is False

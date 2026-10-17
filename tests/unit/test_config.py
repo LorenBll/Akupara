@@ -1,18 +1,21 @@
 """Unit tests for service configuration."""
 
+import pytest
+
 import config
 import state
 
 
-def test_initialize_service_config_sets_port_and_flags(monkeypatch):
+@pytest.mark.parametrize("development", [True, False])
+def test_initialize_service_config_sets_port_and_flags(monkeypatch, development):
     monkeypatch.setattr(
         config,
         "_load_configuration",
-        lambda: {"port": 49155, "guiEnabled": True, "development": True},
+        lambda: {"port": 49155, "guiEnabled": True, "development": development},
     )
     config._initialize_service_config()
     assert state.SERVICE_PORT == 49155
-    assert state.DEVELOPMENT is True
+    assert state.DEVELOPMENT is development
     assert state.GUI_ENABLED is True
 
 

@@ -27,11 +27,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _GPG_AVAILABLE = shutil.which("gpg") is not None
 _GIT_AVAILABLE = shutil.which("git") is not None
 
-# ``hash`` (the signed project hash) is required by the project-integrity check
-# at startup; ``.gitignore`` keeps ``git add -A`` from committing runtime
-# artefacts such as ``.venv``, ``logs`` and ``.env``.
-_COPY_NAMES = ("src", "ui", "resources", "scripts", "requirements.txt", "hash", ".gitignore")
-
 
 def _free_port() -> int:
     with socket.socket() as sock:
@@ -40,12 +35,19 @@ def _free_port() -> int:
 
 
 def _copy_project(dst: Path) -> None:
-    for name in _COPY_NAMES:
-        src = PROJECT_ROOT / name
-        if src.is_dir():
-            shutil.copytree(src, dst / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        else:
-            shutil.copy2(src, dst / name)
+    # Copy every tracked file so the sandbox's project hash matches the signed
+    # ``hash`` file, which lets the integrity check pass outside development mode.
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=PROJECT_ROOT, capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    for rel in tracked:
+        rel = rel.strip()
+        if not rel:
+            continue
+        src = PROJECT_ROOT / rel
+        target = dst / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
 
 
 def _make_sandbox(tmp_path: Path, port: int) -> Path:
@@ -59,9 +61,9 @@ def _make_sandbox(tmp_path: Path, port: int) -> Path:
     subprocess.run(["git", "add", "-A"], cwd=sandbox, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=sandbox, check=True)
 
-    # Development mode (lenient integrity) and a free port.
+    # Non-development mode (strict integrity) and a free port.
     (sandbox / "resources" / "configuration.json").write_text(
-        json.dumps({"port": port, "guiEnabled": True, "development": True}),
+        json.dumps({"port": port, "guiEnabled": True, "development": False}),
         encoding="utf-8",
     )
     (sandbox / ".env").write_text("", encoding="utf-8")

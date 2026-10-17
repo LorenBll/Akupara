@@ -55,7 +55,7 @@ _ENV_KEYS = [
     "PLUGIN_EVENT_SUBSCRIPTIONS", "GITHUB_TOKEN",
 ]
 
-TEST_CONFIG = {"port": 49155, "guiEnabled": True, "development": True}
+TEST_CONFIG = {"port": 49155, "guiEnabled": True, "development": False}
 
 _STATE_DEFAULTS = {
     "SERVICE_HOST": "127.0.0.1",
