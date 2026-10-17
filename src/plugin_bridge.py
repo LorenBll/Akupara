@@ -1,6 +1,6 @@
 """Plugin bridge — mediates between Akupara and plugins.
 
-The ``resources/plugins-lib`` JSON catalog (hash-range files, full-space
+The ``resources/plugins-lib`` JSON catalogue (hash-range files, full-space
 ``<lowest>-<highest>.json`` while small) is the authoritative library of
 *all* plugins that *can* be installed. An adjacent ``reverse-index.json``
 optimises research: a mapping ``word -> [plugin hash, …]`` that associates
@@ -16,7 +16,7 @@ Naming: this unit is called **plugin bridge**, not plugin loader / handler.
 It follows the worker naming standard (``start``/``stop`` idempotent).
 
 NOTE — hash-identified plugin loading order (trust before hash comparison):
-When a plugin is loaded by its ``hash`` (catalog ID), the bridge MUST first
+When a plugin is loaded by its ``hash`` (catalogue ID), the bridge MUST first
 check that the plugin entry with that ``hash`` in ``resources/plugins-lib``
 has a valid trust mark (``verify_plugin_signature(entry) is True``) BEFORE
 comparing the local hash (``get_local_plugin_hash(hash)``) against the
@@ -294,7 +294,7 @@ class PluginBridge:
                     continue
             if only_hash is not None and hash_value.lower() != only_hash.strip().lower():
                 continue
-            # Find catalog entry for this hash to verify trust and get version/repo
+            # Find catalogue entry for this hash to verify trust and get version/repo
             catalog_entry = None
             for e in _load_plugins():
                 if str(e.get("hash", "")).strip().lower() == hash_value.lower():
@@ -415,7 +415,7 @@ class PluginBridge:
                 log_info("Automatic plugin upgrade enabled — upgrading", {"folder": folder_name, "old_hash": hash_value, "new_hash": latest_hash, "latest_tag": latest_tag})
                 # Automatic upgrade: delete old folder and create new one named as new hash with new version's files
                 try:
-                    # Find the new catalog entry for the latest version to get its hash (should be latest_hash)
+                    # Find the new catalogue entry for the latest version to get its hash (should be latest_hash)
                     # The latest_hash is the hash of the new version's files (as per release)
                     # Download all non-hash, non-manifest assets from latest release
                     new_folder = _plugins_dir() / latest_hash
@@ -440,7 +440,7 @@ class PluginBridge:
                         new_folder.mkdir(parents=True, exist_ok=True)
                         # Download each asset
                         for fname, url in assets_to_download:
-                            # Sanitize filename — block traversal, Windows drive/UNC, and shell metachars
+                            # Sanitise filename — block traversal, Windows drive/UNC, and shell metachars
                             if "/" in fname or "\\" in fname or fname in (".", "..") or ":" in fname or "\x00" in fname or fname.startswith("."):
                                 log_warn("Invalid asset filename, skipping", {"fname": fname})
                                 continue
@@ -551,7 +551,7 @@ def _reverse_index_path() -> Path:
 def _load_reverse_index() -> dict[str, list[str]]:
     """Load ``reverse-index.json`` as ``{word: [plugin hash, ...]}``.
 
-    The file is intentionally separate from the hash-range catalog. Each key
+    The file is intentionally separate from the hash-range catalogue. Each key
     is a lower-cased query token; each value is the list of plugin ``hash``
     values that should be surfaced for that token. Invalid entries are
     ignored. Returns ``{}`` when the file is missing or malformed. No handling
@@ -601,7 +601,7 @@ def _save_reverse_index(index: dict[str, list[str]]) -> None:
 
 
 def _load_plugins() -> list[dict]:
-    """Load the plugins catalog from hash-range JSON files (library layer).
+    """Load the plugins catalogue from hash-range JSON files (library layer).
 
     The ``resources/plugins-lib`` directory stores one JSON file per hash
     interval, named ``<low>-<high>.json``. Each file contains a list of
@@ -617,7 +617,7 @@ def _load_plugins() -> list[dict]:
     only in ``reverse-index.json`` (word -> [hash]) and is calculated via
     ``_load_reverse_index``/``keys_for_hash``. While small a single
     full-space file is used.
-    No plugin handling (download/start) is performed here — this is catalog research.
+    No plugin handling (download/start) is performed here — this is catalogue research.
 
     ``reverse-index.json`` and ``lorenbll-akupara-pub`` are explicitly excluded
     from this scan.
@@ -642,7 +642,7 @@ def _load_plugins() -> list[dict]:
                     log_warn("Plugins file has unexpected format", {"path": str(json_path)})
             return plugins
         # No hash-range files; the directory uses the new layout (contains
-        # reverse-index.json or other json) — treat as an empty catalog.
+        # reverse-index.json or other json) — treat as an empty catalogue.
         if any(base_dir.glob("*.json")):
             return plugins
     return plugins
@@ -654,7 +654,7 @@ _REGEX_SEARCH_TIMEOUT = 1.0
 
 
 def _search_plugins(pattern: str) -> list[dict]:
-    """Return plugins matching the regex ``pattern`` (logic layer, catalog research).
+    """Return plugins matching the regex ``pattern`` (logic layer, catalogue research).
 
     Research is driven by ``reverse-index.json`` when possible: the pattern
     is tokenised into ``\\w+`` words (lower-cased) and each token is looked
@@ -663,7 +663,7 @@ def _search_plugins(pattern: str) -> list[dict]:
     regex (applied to each plugin's field values and its JSON dump,
     case-insensitive). When the reverse index yields no candidates (empty
     index, no token hit, or pattern with no word tokens) the search falls
-    back to a full catalog regex scan, so arbitrary regexes (``.*``, ``foo|bar``,
+    back to a full catalogue regex scan, so arbitrary regexes (``.*``, ``foo|bar``,
     etc.) remain supported. Raises ValueError for a too-long or invalid regex;
     the raised message is generic and never embeds the regex engine's error.
     No handling of installed plugins is performed.
@@ -706,7 +706,7 @@ def _search_plugins(pattern: str) -> list[dict]:
             # Still apply regex so research supports both index + regex
             return [p for p in narrowed if _regex_match(p)]
 
-    # Fallback: full catalog regex scan (index miss / empty index / no word tokens)
+    # Fallback: full catalogue regex scan (index miss / empty index / no word tokens)
     return [p for p in plugins if _regex_match(p)]
 
 
@@ -1105,7 +1105,7 @@ def get_plugin_data(identifier: str, version: str | None = None) -> dict | None:
 
 
 # NOTE: When loading a plugin by name (ID, hash per-version), the caller MUST
-# verify the catalog entry's trust mark (verify_plugin_signature) BEFORE
+# verify the catalogue entry's trust mark (verify_plugin_signature) BEFORE
 # comparing get_local_plugin_hash() vs get_remote_plugin_hash(). See module docstring.
 def get_remote_plugin_hash(identifier: str, version: str | None = None, timeout: int = 15) -> str | None:
     """Retrieve the hash of the plugin from its latest GitHub release (remote).
@@ -1160,7 +1160,7 @@ def get_remote_plugin_hash(identifier: str, version: str | None = None, timeout:
 
 
 # NOTE: When loading a plugin by name (ID, hash per-version), the caller MUST
-# verify the catalog entry's trust mark (verify_plugin_signature) BEFORE
+# verify the catalogue entry's trust mark (verify_plugin_signature) BEFORE
 # comparing get_local_plugin_hash() vs get_remote_plugin_hash(). See module docstring.
 def get_local_plugin_hash(identifier: str, version: str | None = None, timeout: int = 10) -> str | None:
     """Retrieve the hash of the plugin from the local ``plugins/`` folder.
@@ -1264,7 +1264,7 @@ def _resolve_installed_plugin_for_notify(plugin_name: str) -> tuple[Path, bool, 
     ``manifest.json`` (first match in sorted order).
 
     Returns ``(folder_path, is_dev, catalog_entry_or_None)`` or ``None`` when no
-    installed plugin matches. The catalog entry (looked up by folder hash) is
+    installed plugin matches. The catalogue entry (looked up by folder hash) is
     returned only so trust can still be verified for non-dev plugins.
     """
     name = plugin_name.strip()
@@ -1319,7 +1319,7 @@ def notify_plugin(plugin_name: str, event: str) -> bool:
     Checks ``PLUGIN_EVENT_SUBSCRIPTIONS`` (event -> [plugins]) and whether
     ``plugin_name`` is in that list (case-insensitive). The plugin to notify is
     then individuated through the installed plugins list (dev ones included),
-    not the catalog: a ``dev-*`` name matches the installed dev folder
+    not the catalogue: a ``dev-*`` name matches the installed dev folder
     directly, any other name matches an installed folder's ``manifest.json``
     ``name``. If subscribed, logs the notification and returns ``True``
     (actual plugin execution still to be defined, so this is a placeholder).
@@ -1364,7 +1364,7 @@ def notify_plugin(plugin_name: str, event: str) -> bool:
     if not any(p.casefold() == plugin_name.casefold() for p in plugins):
         log_info("Plugin not subscribed to event, not notifying", {"plugin": plugin_name, "event": event})
         return False
-    # Individuate through the installed plugins list (dev ones included), not the catalog
+    # Individuate through the installed plugins list (dev ones included), not the catalogue
     resolved = _resolve_installed_plugin_for_notify(plugin_name)
     if resolved is None:
         log_warn("notify_plugin: no installed plugin with that name", {"plugin": plugin_name})

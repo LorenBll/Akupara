@@ -8,13 +8,14 @@ Akupara is a scaffold for building local web services. It provides a consistent 
 - [Features](#features)
 - [Setup](#setup)
 - [Run](#run)
+- [Testing](#testing)
 - [Configuration](#configuration)
 - [Logging](#logging)
 - [Access Control](#access-control)
 - [API Endpoints](#api-endpoints)
 - [Notes](#notes)
 - [Support](#support)
-- [License](#license)
+- [Licence](#licence)
 - [Author](#author)
 
 ## About
@@ -37,7 +38,7 @@ Akupara binds to `127.0.0.1` on port `49150` and rejects non-local requests. It 
 - **Health endpoint** (`GET /api/health`) — returns `bind_address`, `port`, `hostname` and `PID`. Exists for liveness checks. Call `GET /api/health` from the local device.
 - **Browser UI** — serves `ui/pages/index.html` and static assets. Exists as a placeholder for service-specific UI. Open `/` in a browser on the local device.
 - **Access control** — all `/api/*`, `/` and `/ui/*` routes reject non-local requests (`403`). Exists to keep the service local-only. No API key is required; local requests are accepted.
-- **Plugin system** — hash-range catalog in `resources/plugins-lib/` with `reverse-index.json` search, GPG trust marks and install/upgrade flow. Exists to discover and manage plugins. Use `POST /api/plugins/search` and the settings UI.
+- **Plugin system** — hash-range catalogue in `resources/plugins-lib/` with `reverse-index.json` search, GPG trust marks and install/upgrade flow. Exists to discover and manage plugins. Use `POST /api/plugins/search` and the settings UI.
 - **Internal interactions** — shared variables (`SHARED_MEMORY`) with `editor` and `reader` plugin role lists, managed from the Internal Interactions card. Registering a variable requires at least one plugin; updates are partial (empty fields are left untouched); a plugin is kept in a single role (editor wins). Access is role-enforced per variable: readers can only read, editors can read and change the value, unregistered plugins have no access; an API key grants editor-level access. Exists to let plugins share memory. Use the Internal Interactions card in the settings UI.
 - **Update checks** — compares the local project hash and plugin library hash against the latest GitHub release/commit. Exists to keep the deployment up to date. Triggered at startup and via `/api/check-for-updates` / `/api/check-for-plugin-updates`; respects `AUTOMATIC_UPDATE` flags. When `GITHUB_TOKEN` is set, GitHub API requests are authenticated to raise the rate limit (see [Configuration](#configuration)).
 - **GitHub rate-limit handling** — optional `GITHUB_TOKEN` (`.env`). Exists to increase the GitHub API limit from ~60 to ~5000 req/hour for frequent checks. Generate a token with no scopes and no expiration, add `GITHUB_TOKEN=<token>` to `.env`; the server uses it first and falls back to unauthenticated on rate limit; double rate limit on version checks is treated as "no update" so the process keeps running.
@@ -59,6 +60,24 @@ Akupara binds to `127.0.0.1` on port `49150` and rejects non-local requests. It 
 3. Manual: run `python src/main.py` from the project root (add `--debug` for debug output).
 
 The `run` scripts support `--debug`. When run with `--debug`, `DEBUG` log events are written; otherwise they are suppressed.
+
+## Testing
+
+The project ships an automated test suite (pytest) covering the logic layer, every HTTP endpoint and the setup/run scripts. It runs locally and on GitHub Actions (`.github/workflows/tests.yml`) and never reads or replaces the developer's real `.env`, `logs/`, `.venv`, `resources/configuration.json` or installed plugins.
+
+Install the development dependencies once:
+
+```sh
+pip install -r requirements-dev.txt
+```
+
+Run the suite:
+
+```sh
+python -m pytest
+```
+
+The setup/run script smoke tests operate on a disposable copy of the project. The run test additionally requires `gpg` (the shipped `hash` files are PGP-signed) and a git checkout; it is skipped automatically where those are unavailable.
 
 ## Configuration
 
@@ -151,7 +170,7 @@ Serves static CSS files from the `ui/css/` directory.
 
 - Open an issue on [GitHub](https://github.com/LorenBll/Akupara/issues) for bug reports, feature requests, or help.
 
-## License
+## Licence
 
 - [LICENSE](LICENSE)
 

@@ -115,7 +115,7 @@ def _initialize_service_config() -> None:
         log_warn("Login credentials not configured", {"hint": "set USERS in .env"})
 
     log_debug("Resolved config values", {"port": state.SERVICE_PORT, "guiEnabled": state.GUI_ENABLED, "internalInteractions": state.INTERNAL_INTERACTIONS, "apiKeysEnabled": state.API_KEYS_ENABLED, "externalInteractions": state.EXTERNAL_INTERACTIONS, "automaticUpdate": state.AUTOMATIC_UPDATE, "automaticPluginLibraryUpdate": state.AUTOMATIC_PLUGIN_LIBRARY_UPDATE, "automaticPluginUpgrade": state.AUTOMATIC_PLUGIN_UPGRADE})
-    log_info("Service configuration initialized")
+    log_info("Service configuration initialised")
 
 
 def _get_local_device_addresses() -> set[str]:

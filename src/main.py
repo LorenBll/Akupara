@@ -1390,7 +1390,7 @@ def ui_page(filename: str):
 # of a card and are never subject to on-demand loading). Each card lives in its
 # own fragment under ``ui/cards/settings/`` and is loaded by the client only
 # when it is relevant to the viewport (see ``ui/pages/index.html``). The
-# fragment endpoint enforces the same authorization as the old single page, so
+# fragment endpoint enforces the same authorisation as the old single page, so
 # card *contents* are still sent only to users allowed to see them.
 
 _SETTINGS_CARDS = [
@@ -1579,11 +1579,11 @@ def _settings_cards_dir() -> Path:
 @session_authenticated
 @standard_endpoint("GET", "HEAD", "OPTIONS")
 def ui_settings_card(card_id: str) -> tuple:
-    """Serve a single settings card fragment, authorized for the session.
+    """Serve a single settings card fragment, authorised for the session.
 
     Card contents are sent only when the user is allowed to see them (the
-    same authorization the monolithic settings page used to apply). Unknown
-    card ids and unauthorized cards return a small JSON error that the client
+    same authorisation the monolithic settings page used to apply). Unknown
+    card ids and unauthorised cards return a small JSON error that the client
     turns into an unobtrusive placeholder.
     """
     session = _active_session()

@@ -1217,8 +1217,6 @@ body.col-resizing {
 .api-key-cell {
     cursor: pointer;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .api-key-eye-cell {
@@ -2435,7 +2433,7 @@ body.col-resizing {
 
 /* Dark theme: disabled elements must be clearly dimmer than enabled ones.
    The base opacity alone reads weakly on dark backgrounds, so dark mode dims
-   them further and mutes the accent-based disabled colors. */
+   them further and mutes the accent-based disabled colours. */
 :root[data-theme="dark"] .generate-api-key-btn:disabled,
 :root[data-theme="dark"] .random-name-btn:disabled,
 :root[data-theme="dark"] .icon-btn:disabled,
