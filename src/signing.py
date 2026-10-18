@@ -16,6 +16,7 @@ File format::
 
 from __future__ import annotations
 
+import codecs
 import subprocess
 import tempfile
 from pathlib import Path
@@ -42,6 +43,73 @@ def _find_gpg() -> str | None:
     return None
 
 
+def _public_key_bytes(path: Path) -> bytes:
+    """Return the shipped armored public key with any UTF-8 BOM stripped.
+
+    gpg rejects an ASCII-armored block whose first line starts with a BOM
+    (``no valid OpenPGP data found``), which silently turns the import into a
+    no-op and later makes every signature check fail with a misleading
+    "invalid signature". The key itself is unaffected by the BOM.
+    """
+    data = path.read_bytes()
+    if data.startswith(codecs.BOM_UTF8):
+        data = data[len(codecs.BOM_UTF8):]
+    return data.lstrip(b"\r\n \t")
+
+
+def import_public_key(pub_path: Path, gpg: str) -> bool:
+    """Import *pub_path* with *gpg* into the keyring; ``True`` when accepted.
+
+    The key is imported from a sanitised temporary copy so that a BOM cannot
+    make gpg reject the whole file.
+    """
+    try:
+        data = _public_key_bytes(pub_path)
+    except OSError:
+        return False
+    if not data:
+        return False
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "pub.asc"
+            tmp.write_bytes(data)
+            proc = subprocess.run([gpg, "--import", str(tmp)], capture_output=True, timeout=10)
+            return proc.returncode == 0
+    except Exception:
+        return False
+
+
+def public_key_status() -> str:
+    """Return ``""`` when the shipped public key is usable, else the reason.
+
+    A failed hash signature is otherwise indistinguishable from a tampered hash
+    file, which makes a broken public key very hard to diagnose.
+    """
+    pub = _gpg_pubkey_path()
+    if not pub.is_file():
+        return f"public key missing: {pub}"
+    gpg = _find_gpg()
+    if gpg is None:
+        return "gpg not found"
+    try:
+        data = _public_key_bytes(pub)
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "pub.asc"
+            tmp.write_bytes(data)
+            proc = subprocess.run(
+                [gpg, "--show-keys", "--with-colons", str(tmp)],
+                capture_output=True,
+                timeout=10,
+            )
+        if proc.returncode != 0 or b"pub:" not in proc.stdout:
+            reason = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
+            detail = f": {reason[0]}" if reason else ""
+            return f"shipped public key is not a valid OpenPGP key{detail}"
+        return ""
+    except Exception as exc:  # noqa: BLE001 - returned as a diagnostic string
+        return f"public key check failed: {exc}"
+
+
 def _ensure_pubkey_imported() -> None:
     pub = _gpg_pubkey_path()
     if not pub.is_file():
@@ -49,10 +117,7 @@ def _ensure_pubkey_imported() -> None:
     gpg = _find_gpg()
     if gpg is None:
         return
-    try:
-        subprocess.run([gpg, "--import", str(pub)], capture_output=True, timeout=10)
-    except Exception:
-        pass
+    import_public_key(pub, gpg)
 
 
 def sign_hash(hex_value: str) -> str:

@@ -224,7 +224,13 @@ class PluginBridge:
         stored_path = _hash_file_path()
         stored, signed = signing.read_signed_hash_file(stored_path)
         if not signed:
-            _crash("Plugin loader failed: plugins-lib hash has an invalid or missing signature", {"path": str(stored_path)})
+            data = {"path": str(stored_path)}
+            # Name the real cause when the shipped public key is unusable,
+            # instead of blaming the hash file.
+            issue = signing.public_key_status()
+            if issue:
+                data["publicKeyIssue"] = issue
+            _crash("Plugin loader failed: plugins-lib hash has an invalid or missing signature", data)
         if not stored:
             _crash("Plugin loader failed: local hash file missing", {"path": str(stored_path)})
 
@@ -773,13 +779,11 @@ def _ensure_pubkey_imported() -> None:
     pub = _gpg_pubkey_path()
     if not pub.is_file():
         return
-    # Try to import; ignore errors (already imported)
+    # A BOM would make gpg reject the armor, so the import goes through the
+    # sanitising helper in ``signing`` rather than a raw ``gpg --import``.
     for gpg in ["gpg", r"C:\Program Files\GnuPG\bin\gpg.exe", r"C:\Program Files (x86)\GnuPG\bin\gpg.exe"]:
-        try:
-            subprocess.run([gpg, "--import", str(pub)], capture_output=True, timeout=5)
+        if signing.import_public_key(pub, gpg):
             return
-        except Exception:
-            continue
 
 
 def verify_plugin_signature(plugin: dict) -> bool:

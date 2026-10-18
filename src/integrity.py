@@ -176,7 +176,13 @@ def _verify_local_project_integrity() -> bool:
     stored_path = Path(__file__).resolve().parent.parent / "hash"
     stored_hex, signed = signing.read_signed_hash_file(stored_path)
     if not signed:
-        _crash("Project integrity check failed: stored hash has an invalid or missing signature", {"path": str(stored_path)})
+        data = {"path": str(stored_path)}
+        # Name the real cause when the shipped public key is unusable, instead
+        # of blaming the hash file.
+        issue = signing.public_key_status()
+        if issue:
+            data["publicKeyIssue"] = issue
+        _crash("Project integrity check failed: stored hash has an invalid or missing signature", data)
     if not stored_hex:
         _crash("Project integrity check failed: local hash file missing", {"path": str(stored_path)})
     computed = _compute_local_project_hash()
