@@ -2,7 +2,7 @@
 
 Guidelines for working on this codebase.
 
-Developer documentation: [README-DEV.md](README-DEV.md). User documentation: [README.md](README.md).
+Further documentation about the project can be found in [README-DEV.md](README-DEV.md). User documentation is in [README.md](README.md).
 
 ## Architecture: logic layer vs endpoints
 
@@ -164,10 +164,3 @@ The plugin library uses the **latest commit** (`src/plugin_bridge.py:_fetch_late
 - **Hashes are generated manually and signed:** the project hash (repo-root `hash`) and the plugin-library hash (`resources/plugins-lib/hash`) are computed and GPG-signed by the developer via `scripts/administration.py` (menu: Project → Compute project hash; plugin-library actions sign `resources/plugins-lib/hash`). There is no CI that computes the hash on push.
 - **Signed hash files:** both `hash` files carry the hash hex followed by an armored PGP signature (same key as plugin trust marks). At startup the runtime verifies the signature before comparing hashes — invalid signature → crash; plugin-library effective≠indicated → crash; project effective≠indicated → crash unless development mode.
 - **Version is hash-based:** `Effective Version` / `Indicated Version` are `12-char` hashes (`_get_effective_*` / `_get_indicated_*`); no manual `v3.0.0` string is maintained in `ui/pages/settings.html`.
-
-## Akupara API Key
-
-- Akupara exposes authenticated endpoints that accept an API key via the `X-Api-Key` header.
-- The API key to use when making requests to Akupara is `H97r5JVqieajQ6uL_92vnJnTqo8FkTEYkgAk2Eihz3c` (name: `opencode-ai`).
-- Akupara stores this key as an Argon2id hash in its `.env`; the plaintext value is recorded here so agents can authenticate.
-- Send it as `X-Api-Key: H97r5JVqieajQ6uL_92vnJnTqo8FkTEYkgAk2Eihz3c` on any endpoint gated by `api_key_or_admin_authenticated` (and reachable over the network worker when external access is enabled).
