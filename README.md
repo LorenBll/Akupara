@@ -1,174 +1,117 @@
 # Akupara
 
-Akupara is a scaffold for building local web services. It provides a consistent project structure, setup and deployment scripts, a local-first API pattern with health endpoint, and a browser UI — ready to be adapted to any new service.
+Akupara is a local-first web service with a browser UI, user, session and API-key authentication, a signed and hash-verified plugin library, internal and external plugin interactions, audio feedback, and update and integrity checks.
+
+Developer documentation: [README-DEV.md](README-DEV.md).
 
 ## Table of Contents
 
-- [About](#about)
 - [Features](#features)
 - [Setup](#setup)
 - [Run](#run)
-- [Testing](#testing)
 - [Configuration](#configuration)
-- [Logging](#logging)
-- [Access Control](#access-control)
-- [API Endpoints](#api-endpoints)
-- [Notes](#notes)
 - [Support](#support)
 - [Licence](#licence)
 - [Author](#author)
 
-## About
-
-Akupara binds to `127.0.0.1` on port `49150` and rejects non-local requests. It serves as a starting point: rename, repurpose, and fill in the business logic.
-
-**What's included:**
-
-- **Project structure** — scripts, deployment, resources, src/models, and ui folders following the same conventions as Cipher, DiskIdentifier, YoutubeDownloader, and LibraccioAPI.
-- **Health endpoint** — `GET /api/health` returns service status, bind address, port, hostname, and PID.
-- **Browser UI** — a landing page with project title, description, and an empty card ready to hold service-specific content. Styling and page-entry animations match LibraccioAPI.
-- **Local-only access control** — all `/api/*` endpoints are restricted to the local device.
-- **Headless mode** — set `"guiEnabled": false` in configuration to disable UI routes.
-
-> **Safety notice**: Akupara is intended only for environments where safety is not a major risk — the chances of malevolent actors are low, and the consequences of an eventual mishap are low.
-
 ## Features
 
-- **Local-first service scaffold** — provides the consistent project structure, configuration and deployment scripts used across Akupara-family projects. Exists so new services can be bootstrapped without boilerplate. Use the scaffold as-is and fill in business logic in `src/main.py` and `src/models/`.
-- **Health endpoint** (`GET /api/health`) — returns `bind_address`, `port`, `hostname` and `PID`. Exists for liveness checks. Call `GET /api/health` from the local device.
-- **Browser UI** — serves `ui/pages/index.html` and static assets. Exists as a placeholder for service-specific UI. Open `/` in a browser on the local device.
-- **Access control** — all `/api/*`, `/` and `/ui/*` routes reject non-local requests (`403`). Exists to keep the service local-only. No API key is required; local requests are accepted.
-- **Plugin system** — hash-range catalogue in `resources/plugins-lib/` with `reverse-index.json` search, GPG trust marks and install/upgrade flow. Exists to discover and manage plugins. Use `POST /api/plugins/search` and the settings UI.
-- **Internal interactions** — shared variables (`SHARED_MEMORY`) with `editor` and `reader` plugin role lists, managed from the Internal Interactions card. Registering a variable requires at least one plugin; updates are partial (empty fields are left untouched); a plugin is kept in a single role (editor wins). Access is role-enforced per variable: readers can only read, editors can read and change the value, unregistered plugins have no access; an API key grants editor-level access. Exists to let plugins share memory. Use the Internal Interactions card in the settings UI.
-- **Update checks** — compares the local project hash and plugin library hash against the latest GitHub release/commit. Exists to keep the deployment up to date. Triggered at startup and via `/api/check-for-updates` / `/api/check-for-plugin-updates`; respects `AUTOMATIC_UPDATE` flags. When `GITHUB_TOKEN` is set, GitHub API requests are authenticated to raise the rate limit (see [Configuration](#configuration)).
-- **GitHub rate-limit handling** — optional `GITHUB_TOKEN` (`.env`). Exists to increase the GitHub API limit from ~60 to ~5000 req/hour for frequent checks. Generate a token with no scopes and no expiration, add `GITHUB_TOKEN=<token>` to `.env`; the server uses it first and falls back to unauthenticated on rate limit; double rate limit on version checks is treated as "no update" so the process keeps running.
+- **Local-first service with a browser UI** — the service binds to `127.0.0.1` on the port in `resources/configuration.json` and serves a single-page UI whose navigation switches between the home, settings and plugins pages. It exists so the service is reachable only from the device that runs it. Start it (see [Run](#run)) and open `http://127.0.0.1:<port>/` in a browser; every page except the login page and the static assets requires a session, and a protected `/api/*` endpoint without a session returns `401` so the frontend redirects to `/login`.
+
+- **Accounts, sessions and roles** — login credentials live in the `USERS` `.env` variable as Argon2id hashes (fixed salt `akupara-salt`, `m=65536, t=2, p=1`); a successful login issues a sliding `akupara-refresh` cookie (renewed on every authenticated response; 15 minutes of validity) whose session is held server-side per user, so several users can be logged in at the same time. It exists to keep the service restricted to known users. Log in at `/login`, and manage the accounts from the Users card: register a user, rename it, switch it between Standard and Admin, or delete it; a user marked `"root": true` in `.env` cannot lose admin status or be deleted, and only the root account may rename itself. A standard user may view the settings page but not administer it.
+
+- **API keys** — with `API_KEYS_ENABLED` on, the API Keys card generates keys and the service accepts them in the `X-Api-Key` header on the management and external-interaction endpoints (`api_key_or_admin_authenticated`). Keys exist so plugins and scripts can act without a browser session. The `.env` stores each key Fernet-encrypted under `API_KEYS`, with `API_KEY_ENCRYPTION_KEY` generated on first run; the plaintext key is shown once in the card so it can be copied.
+
+- **Signed, hash-verified plugin library** — `resources/plugins-lib/` holds the catalogue of installable plugins as hash-range JSON files (`<low>-<high>.json`) plus a `reverse-index.json` word index, and `hash` is the library's signed content hash. It exists to certify which plugin versions Akupara may run. A plugin is `{"hash","name","description","repo","version","akupara_version","trust_mark"}`, and at startup the service verifies the stored hash's PGP signature and recomputes the folder hash, so a modified or uncertified library stops the service; search it with `POST /api/plugins/search` or the Plugins page.
+
+- **Plugin discovery and upgrades** — installed plugins live in `plugins/<hash>` folders; the service verifies each folder's trust mark and content hash, compares the installed version with the plugin's GitHub releases, and offers or applies upgrades. It exists to keep installed plugins valid and current. Use the Plugins page (`Check for Updates`, `Update All`, per-row `Update` and `Delete`) or the `/api/installed-plugins*` endpoints; `dev-*` folders skip every check and load only in development mode.
+
+- **Internal interactions (shared variables)** — a `SHARED_MEMORY` entry is `{"name","type","value","editor","reader"}`, where `editor` and `reader` are plugin-name lists; a plugin present in both is kept in `editor`. It exists so plugins can share values without a direct link. Register and edit variables from the Internal Interactions card (at least one plugin is required; updates are partial, so omitted fields are left untouched); each plugin's access is enforced per variable, and only an API key or an admin session may create or delete a variable.
+
+- **Plugin event subscriptions** — `PLUGIN_EVENT_SUBSCRIPTIONS` maps an event name (`[A-Za-z0-9_.-]+`) to the sorted list of subscribed plugin names. It exists so plugins can address one another by event. Manage the subscriptions from the Internal Interactions card or through the `/api/plugin-events*` endpoints while internal interactions are enabled.
+
+- **External interactions (IP firewall and network worker)** — with external interactions enabled, `ExternalInteractionsWorker` serves the marked endpoints on the device's first non-loopback IPv4 address on the same port, in parallel with the loopback server; the incoming IP list (`allow`, `unknown`, `block`) and `EXTERNAL_INTERACTIONS_ALLOW_NEW` decide which remote clients pass, and a parallel outgoing list and `EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING` exist for outgoing requests. It exists to expose the service to selected devices without opening it to everyone. Manage both lists from the External Interactions card; new incoming IPs are recorded automatically as `unknown` scoped to `akupara`.
+
+- **Audio feedback** — the service plays a configurable sound for six events (`startup`, `acknowledge`, `warn`, `process`, `success`, `error`); each event's file is set by its `.env` variable or from the Customisation card, and playback requires `PLAY_AUDIOS`. It exists to confirm actions audibly. Toggle playback, the startup sound and the log sounds from the Customisation card.
+
+- **Update checks** — the service compares the signed project hash with the hash asset of the latest GitHub release, and the plugin-library hash with the hash at the latest commit, at startup and on demand. It exists to keep the deployment at a certified version. Check manually from the General and Plugins cards (`Check for Updates`) or through `/api/check-for-updates` and `/api/check-for-plugin-updates`; `AUTOMATIC_UPDATE`, `AUTOMATIC_PLUGIN_LIBRARY_UPDATE` and `AUTOMATIC_PLUGIN_UPGRADE` apply the result automatically. Set `GITHUB_TOKEN` to raise the GitHub API rate limit.
+
+- **Integrity verification** — the repo-root `hash` and `resources/plugins-lib/hash` files each carry a hash plus an armoured PGP signature, and the service verifies the signature and recomputes the hash from the tracked files at every start. It exists to detect an illicit modification or a partial installation. The plugin library must always match its hash; the project may differ from its hash in development mode only, where it logs a warning instead of stopping. The General and Plugins cards show the effective and indicated version hashes side by side.
+
+- **Server-rendered settings by role** — the settings page is rendered from card fragments under `ui/cards/settings/` and sent with the session's role, so standard users see the General, Account and Customisation cards while admin-only cards are loaded only for administrators. It exists to avoid exposing administrative content to standard users. Open `/ui/pages/settings.html` from the UI.
 
 ## Setup
 
-1. Install Python dependencies: `pip install -r requirements.txt`.
-2. Install GnuPG (`gpg`) and ensure it is on `PATH` (`C:\Program Files\GnuPG\bin` on Windows) — **required for plugins**: trust marks in `resources/plugins-lib/` are verified against `resources/plugins-lib/lorenbll-akupara-pub` via `gpg --verify` (the plugin loader checks the recomputed folder hash against the hash in the latest commit on the Akupara repository, and `verify_plugin_signature` in `src/plugin_bridge.py`).
-3. Review `resources/configuration.json` to configure port and UI visibility.
-4. Optionally set `GITHUB_TOKEN` in `.env` to raise the GitHub API rate limit. Generate a token with no scopes/permissions and no expiration (see [Configuration](#configuration) / `GITHUB_TOKEN`). Without a token frequent update checks may hit the unauthenticated rate limit (60 req/hour).
-5. Leave the project structure intact so the service can find `resources/` and `src/`.
-
-> **TODO for future README update (future self):** When this README is next updated, keep/expand the GPG prerequisite above — state explicitly that **GPG must be installed for plugins to work** (`gpg --armor --detach-sign` / `--verify`, public key `lorenbll-akupara-pub`). Do not remove this notice.
+1. Install Python 3.10 or newer and make it available on `PATH`.
+2. Run `scripts\setup.bat` on Windows, or `bash scripts/setup.sh` on Unix-like systems. The script creates a `.venv` virtual environment and installs `requirements.txt` into it. To do it manually, create a virtual environment and run `pip install -r requirements.txt`.
+3. Install GnuPG (`gpg`) and make it available on `PATH` (`C:\Program Files\GnuPG\bin` on Windows). It is required: the shipped `hash` files and plugin trust marks are verified with `gpg --verify` against `resources/plugins-lib/lorenbll-akupara-pub`, and the service refuses to start when the signature cannot be verified.
+4. Copy `.env.example` to `.env` and set `USERS` to a JSON list of `{"username","password","admin","root"}`, where each `password` is the Argon2id hash of the real password (`scripts/generate-password-hash.js` prints a hash for a chosen password; the salt and parameters are fixed).
+5. Review `resources/configuration.json` to set the port, whether the UI routes are enabled (`guiEnabled`) and whether the service runs in development mode (`development`).
+6. Keep the project structure intact so the service can find `resources/`, `src/` and `ui/`, and leave the signed `hash` files unmodified.
 
 ## Run
 
-1. Windows: run `scripts\run.bat` (add `--debug` for debug output).
-2. Unix-like: run `bash scripts/run.sh` (add `--debug` for debug output).
-3. Manual: run `python src/main.py` from the project root (add `--debug` for debug output).
+Start the service:
 
-The `run` scripts support `--debug`. When run with `--debug`, `DEBUG` log events are written; otherwise they are suppressed.
+- Windows: `scripts\run.bat`.
+- Unix-like: `bash scripts/run.sh`.
 
-## Testing
+Both scripts check for Python 3.10+, create or reuse `.venv`, install `requirements.txt`, and start `src/main.py`. Without `--debug` the service starts in the background with no console output; with `--debug` it runs in the foreground and writes a short trace of its progress.
 
-The project ships an automated test suite (pytest) covering the logic layer, every HTTP endpoint and the setup/run scripts. It runs locally and on GitHub Actions (`.github/workflows/tests.yml`) and never reads or replaces the developer's real `.env`, `logs/`, `.venv`, `resources/configuration.json` or installed plugins.
+To start it directly, run `python src/main.py` from the project root.
 
-Install the development dependencies once:
-
-```sh
-pip install -r requirements-dev.txt
-```
-
-Run the suite:
-
-```sh
-python -m pytest
-```
-
-The setup/run script smoke tests operate on a disposable copy of the project. The run test additionally requires `gpg` (the shipped `hash` files are PGP-signed) and a git checkout; it is skipped automatically where those are unavailable.
+Add `--debug` to write `DEBUG` events to the log; without it, `DEBUG` events are not written. The log itself is described in [README-DEV.md](README-DEV.md#logging).
 
 ## Configuration
 
-Configuration is stored in `resources/configuration.json` and in the `.env` file at the project root. `resources/configuration.json` controls port and UI visibility (`port`, `guiEnabled`, `development`). `.env` controls runtime behaviour. Every option has a documented default and can be changed without code changes.
+Configuration is split between two files: `resources/configuration.json` for the service itself and `.env` at the project root for runtime behaviour. Copy `.env.example` to `.env`; the service reads `.env` on every start and mirrors every change made through the UI back into it.
+
+`resources/configuration.json`:
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `USERS` | `[]` | JSON list of `{"username","password","admin","root","id"}` — login credentials. Each `password` is an Argon2id hash (salt `akupara-salt`, `m=65536,t=2,p=1`). |
-| `INTERNAL_INTERACTIONS` | `false` | Enable internal plugin interactions. |
-| `API_KEYS_ENABLED` | `false` | Enable API key authentication (`X-Api-Key`). |
-| `DISPLAY_PROMOTION` | `true` | Show the "report issues" promotion line. |
-| `API_KEYS` | `[]` | Stored API keys (Fernet-encrypted). |
-| `API_KEY_ENCRYPTION_KEY` | _(generated)_ | Fernet key for `API_KEYS`. Generated on first run if not set. |
-| `SHARED_MEMORY` / `SHARED_MEMORY_ENABLED` | `[]` / `false` | Internal interactions shared memory. Each entry is `{"name","type","value","editor","reader"}`; `editor`/`reader` are plugin name lists, a plugin cannot be in both (editor wins). Registration requires at least one plugin; updates are partial (empty fields are left untouched). |
-| `PLAY_AUDIOS` | `true` | Enable audio playback. |
-| `PLAY_LOG_SOUNDS` / `PLAY_STARTUP_SOUND` | `false` / `true` | Log and startup sounds (require `PLAY_AUDIOS`). |
-| `STARTUP_SOUND` | `logo-reveal.wav` | Audio file for the startup sound: one of the files in `resources/audios/` or empty for no sound. |
-| `EXTERNAL_INTERACTIONS` | `false` | Enable the external interactions worker (network listener). |
-| `EXTERNAL_INTERACTIONS_INCOMING_IPS` / `EXTERNAL_INTERACTIONS_OUTGOING_IPS` | `[]` | Firewall entries (`{"ip","plugins","action","Note"}`). |
-| `EXTERNAL_INTERACTIONS_ALLOW_NEW` / `EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING` | `false` | Default policy for unknown IPs. |
-| `AUTOMATIC_UPDATE` | `false` | Automatically update the project when an update is available. |
-| `AUTOMATIC_PLUGIN_LIBRARY_UPDATE` | `false` | Automatically update the plugin library. |
-| `AUTOMATIC_PLUGIN_UPGRADE` | `false` | Automatically upgrade installed plugins. |
-| `GITHUB_TOKEN` | _(empty)_ | Optional GitHub personal access token to increase the GitHub API rate limit. When set, every GitHub API request is first sent with `Authorization: token <GITHUB_TOKEN>` without trying unauthenticated first. If the token-authenticated request is rate limited, Akupara retries the same request without the token. If that is also rate limited — and **only** in that double-rate-limited case — version checks are silently skipped so Akupara keeps running as usual; other GitHub-dependent operations log an error but do not crash the process. Generate the token at `https://github.com/settings/tokens` (classic) or `https://github.com/settings/personal-access-tokens/new` (fine-grained). No specific scopes or permissions are required; select none. The token is best created with no expiration date — the absence of an expiration date does not compromise security when the token has no permissions. Add it to `.env` as `GITHUB_TOKEN=<token>` (or set the environment variable). |
+| `port` | `49150` | Port the service binds to on `127.0.0.1`. Must be free and, on Unix-like systems, at least 1024 unless the process has elevated privileges. |
+| `guiEnabled` | `true` | When `true`, the UI routes (`/`, `/login`, `/ui/*`) are registered. Set to `false` for headless operation. |
+| `development` | `false` | When `true`, the project may differ from its recorded hash (a warning is logged and the update checks are skipped) and the manual and automatic project updates are refused. The plugin library is still verified strictly. |
 
-The `GITHUB_TOKEN` behaviour covers frequent update checks (`_fetch_remote_project_hash`, `_fetch_latest_commit_sha`, `_fetch_github_latest_release`, etc.). Without a token the API allows ~60 requests/hour; with a token the limit is ~5000/hour.
+`.env`:
 
-## Logging
+| Key | Default | Effect |
+| --- | --- | --- |
+| `USERS` | `[]` | JSON list of `{"username","password","admin","root","id"}`, where `password` is the Argon2id hash of the real password and `admin` (default `false`) grants the administrator role. The service refuses logins while the list is empty. |
+| `INTERNAL_INTERACTIONS` | `false` | Enables internal interactions: shared variables and plugin event subscriptions, and their cards. |
+| `SHARED_MEMORY_ENABLED` | `false` | Switches shared variables on within internal interactions. Both this and `INTERNAL_INTERACTIONS` must be on for the shared-variable endpoints to work. When the key is absent from `.env`, the reader falls back to `true`. |
+| `SHARED_MEMORY` | `[]` | JSON list of `{"name","type","value","editor","reader"}` shared variables. `type` is one of `string`, `list`, `dictionary`, `integer`, `float`, `boolean`. |
+| `PLUGIN_EVENT_SUBSCRIPTIONS` | `{}` | JSON object mapping an event name to its sorted list of subscribed plugin names. |
+| `API_KEYS_ENABLED` | `false` | Enables API keys: the API Keys card, `/api/api-keys*`, and authentication through the `X-Api-Key` header. |
+| `API_KEYS` | `[]` | JSON list of `{"name","key","id"}`, where `key` is the Fernet-encrypted API key. Written by the service; the plaintext key is never stored, logged or returned after creation. |
+| `API_KEY_ENCRYPTION_KEY` | generated on first run | Fernet key that encrypts and decrypts `API_KEYS`. Losing it makes the stored keys undecryptable. |
+| `DISPLAY_PROMOTION` | `true` | Shows the promotion line at the bottom of the UI. |
+| `PLAY_AUDIOS` | `true` | Enables audio playback for every event. When it is off, setting a sound file, toggling the startup or log sounds, or playing an event returns `403`. |
+| `PLAY_LOG_SOUNDS` | `false` | Plays a sound for each logged event while `PLAY_AUDIOS` is on. |
+| `PLAY_STARTUP_SOUND` | `true` | Plays the startup sound once after the loading operations, while `PLAY_AUDIOS` is on. |
+| `STARTUP_SOUND` | `logo-reveal.wav` | Audio file from `resources/audios/` played for the `startup` event; empty plays nothing. |
+| `ACKNOWLEDGE_SOUND` | `acknowledge.wav` | Audio file played for the `acknowledge` event; empty plays nothing. |
+| `WARN_SOUND` | `warn.wav` | Audio file played for the `warn` event; empty plays nothing. |
+| `PROCESS_SOUND` | `process.wav` | Audio file played for the `process` event; empty plays nothing. |
+| `SUCCESS_SOUND` | `success.wav` | Audio file played for the `success` event; empty plays nothing. |
+| `ERROR_SOUND` | `error.wav` | Audio file played for the `error` event; empty plays nothing. |
+| `FFMPEG_PATH` | empty | Path to an `ffmpeg` binary; its neighbouring `ffplay` is used for playback when present. Without it, playback falls back to PowerShell's `SoundPlayer` on Windows or `aplay` elsewhere. |
+| `EXTERNAL_INTERACTIONS` | `false` | Enables external interactions and starts the network worker. When off, the firewall endpoints return `403`. |
+| `EXTERNAL_INTERACTIONS_INCOMING_IPS` | `[]` | JSON list of `{"ip","plugins","action","Note"}` incoming firewall entries, where `action` is `allow`, `unknown` or `block` and `plugins` is a plugin-name list. |
+| `EXTERNAL_INTERACTIONS_OUTGOING_IPS` | `[]` | Outgoing firewall entries, in the same shape. |
+| `EXTERNAL_INTERACTIONS_ALLOW_NEW` | `false` | Lets through remote clients that are in the incoming list as `unknown` or absent from it. Requests from `allow` clients always pass and from `block` clients are always refused. |
+| `EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING` | `false` | Default policy for outgoing requests with no matching entry. |
+| `AUTOMATIC_UPDATE` | `false` | Applies an available project update (and restart) at startup. Refused in development mode. |
+| `AUTOMATIC_PLUGIN_LIBRARY_UPDATE` | `false` | Applies an available plugin-library update (and restart) at startup. |
+| `AUTOMATIC_PLUGIN_UPGRADE` | `false` | Upgrades installed plugins that have a newer release at startup. |
+| `GITHUB_TOKEN` | empty | Optional token sent to GitHub hosts as `Authorization: token <token>`. It exists to raise the API rate limit (~60 to ~5000 requests per hour). Generate one with no scopes and no expiration, and add it to `.env`; without it, frequent checks may hit the limit, in which case version checks are skipped rather than failing, while operations that need GitHub data log an error and keep running. |
 
-Akupara writes JSON log events to `logs/` (one file per start, e.g. `DD-MM-YYYY_HH.MM.SS.json`). Each event carries `timestamp`, `type` (`ERROR`/`WARN`/`INFO`/`DEBUG`), `title`, `data` and `hash`. `DEBUG` events are only written when the service is started with `--debug`. Log files older than 14 days are pruned automatically at every start.
-
-## Access Control
-
-All `/api/*`, `/`, and `/ui/*` endpoints are local-device only. Non-local requests are rejected with:
-- `403` -> `{ "error": "Local device access only." }`
-- All endpoints also support `HEAD` and `OPTIONS`.
-- HTML page responses use `Connection: keep-alive` (all other responses use `Connection: close`).
-
-No API key is required — all endpoints accept requests from the local device without additional authentication.
-
-## API Endpoints
-
-### `GET /api/health` (also `HEAD`, `OPTIONS`)
-Service health check.
-- Auth: local-device only (no API key required)
-- Body: none
-- Returns:
-	- `200` ->
-		```json
-		{
-			"status": "ok",
-			"service": "Akupara",
-			"bind_address": "127.0.0.1",
-			"port": 49150,
-			"hostname": "workstation-name",
-			"pid": 12345
-		}
-		```
-
-### `GET /` (also `HEAD`, `OPTIONS`)
-Serves the browser UI (`ui/pages/index.html`).
-- Auth: local-device only (no API key required)
-- Body: none
-- Returns:
-	- `200` -> `text/html`
-
-### `GET /ui/css/<path:filename>` (also `HEAD`, `OPTIONS`)
-Serves static CSS files from the `ui/css/` directory.
-- Auth: local-device only (no API key required)
-- Path parameters:
-	- `filename` (string, required): path to a CSS file relative to `ui/css/`.
-- Body: none
-- Returns:
-	- `200` -> `text/css`
-	- `404` -> HTML error page
-
-## Notes
-
-### How to Use
-
-1. Clone or copy the scaffold.
-2. Rename the project (replace "Akupara" with your service name across all files).
-3. Add your API endpoints to `src/main.py`.
-4. Add your request/response models to `src/models/` if needed.
-5. Update `ui/pages/index.html` and `ui/css/index.css` with your UI.
-
----
+The sound-file defaults above are the values shipped in `.env.example`; when a sound key is absent from `.env`, the service falls back to the same file for `STARTUP_SOUND`, `ACKNOWLEDGE_SOUND`, `SUCCESS_SOUND` and `ERROR_SOUND`, and to an empty value for `WARN_SOUND` and `PROCESS_SOUND`.
 
 ## Support
 
-- Open an issue on [GitHub](https://github.com/LorenBll/Akupara/issues) for bug reports, feature requests, or help.
+- Open an issue on [GitHub](https://github.com/LorenBll/Akupara/issues) for bug reports, feature requests or help. Security issues should be reported privately as described in [SECURITY.md](SECURITY.md).
 
 ## Licence
 

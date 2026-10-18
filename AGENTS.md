@@ -2,6 +2,8 @@
 
 Guidelines for working on this codebase.
 
+Developer documentation: [README-DEV.md](README-DEV.md). User documentation: [README.md](README.md).
+
 ## Architecture: logic layer vs endpoints
 
 - All functionality — validation, persistence, business rules and side effects (e.g. audio playback) — must live in the **logic layer**: internal, program-only functions (underscore-prefixed) that raise clear, exhaustive errors.
