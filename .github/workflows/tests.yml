@@ -31,7 +31,7 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests
-        run: python -m pytest tests/unit tests/api
+        run: python -m pytest tests/unit tests/api --tb=short -ra
 
   scripts:
     name: Setup & run scripts (${{ matrix.os }})
@@ -54,8 +54,28 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y gnupg
 
+      - name: Ensure gpg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # GnuPG is normally already on windows-latest, so only install it when
+          # it is genuinely absent: a redundant Chocolatey install wastes time
+          # and shadows the preinstalled gpg on PATH.
+          if (-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
+            choco install gnupg -y --no-progress
+          }
+          $candidates = @(
+            'C:\Program Files\GnuPG\bin\gpg.exe',
+            'C:\Program Files (x86)\GnuPG\bin\gpg.exe'
+          ) + @(Get-ChildItem 'C:\ProgramData\chocolatey' -Filter gpg.exe -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty FullName)
+          $gpg = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $gpg) { throw 'gpg.exe not found after Chocolatey install' }
+          (Split-Path $gpg) | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          & $gpg --version
+
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run script smoke tests
-        run: python -m pytest tests/scripts
+        run: python -m pytest tests/scripts --tb=short -ra

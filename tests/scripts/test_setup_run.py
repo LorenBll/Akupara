@@ -10,6 +10,7 @@ checkout (``git ls-files`` drives the project-integrity check). It is skipped
 automatically where those are unavailable.
 """
 
+import http.client
 import json
 import os
 import shutil
@@ -17,7 +18,6 @@ import signal
 import socket
 import subprocess
 import time
-import urllib.request
 from pathlib import Path
 
 import pytest
@@ -98,25 +98,57 @@ def test_setup_script(tmp_path):
 def test_run_script(tmp_path):
     port = _free_port()
     sandbox = _make_sandbox(tmp_path, port)
-    if os.name == "nt":
-        proc = subprocess.Popen(
-            ["cmd", "/c", "run.bat", "--debug"],
-            cwd=sandbox / "scripts",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-    else:
-        proc = subprocess.Popen(
-            ["bash", "scripts/run.sh", "--debug"],
-            cwd=sandbox,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+    # Stream the server output to a file: piping it without reading would fill
+    # the pipe buffer and stall the server, and the file is what lets a failed
+    # boot be diagnosed (its tail is printed on assertion failure).
+    log_path = sandbox / "run.log"
+    with open(log_path, "wb") as log:
+        if os.name == "nt":
+            proc = subprocess.Popen(
+                ["cmd", "/c", "run.bat", "--debug"],
+                cwd=sandbox / "scripts",
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+        else:
+            proc = subprocess.Popen(
+                ["bash", "scripts/run.sh", "--debug"],
+                cwd=sandbox,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        try:
+            _wait_for_health(port, timeout=180, proc=proc)
+        except AssertionError:
+            log.flush()
+            print("\n----- server stdout (tail) -----")
+            print(_read_log_tail(log_path))
+            print("----- end server stdout -----")
+            print("----- server log (tail) -----")
+            print(_read_latest_log_tail(sandbox / "logs"))
+            print("----- end server log -----")
+            raise
+        finally:
+            _terminate(proc)
+
+
+def _read_log_tail(path: Path, limit: int = 8000) -> str:
     try:
-        _wait_for_health(port, timeout=180)
-    finally:
-        _terminate(proc)
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "(no log captured)"
+    return text[-limit:] if len(text) > limit else text
+
+
+def _read_latest_log_tail(logs_dir: Path, limit: int = 12000) -> str:
+    try:
+        files = sorted(logs_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return "(no server log captured)"
+    if not files:
+        return "(no server log captured)"
+    return _read_log_tail(files[-1], limit)
 
 
 def _terminate(proc: subprocess.Popen) -> None:
@@ -133,15 +165,30 @@ def _terminate(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
-def _wait_for_health(port: int, timeout: int) -> None:
-    url = f"http://127.0.0.1:{port}/api/health"
+def _wait_for_health(port: int, timeout: int, proc: subprocess.Popen | None = None) -> None:
     deadline = time.time() + timeout
     last_error = None
     while time.time() < deadline:
+        if proc is not None and proc.poll() is not None:
+            raise AssertionError(
+                f"Server process exited with code {proc.returncode} "
+                f"before becoming healthy on port {port}"
+            )
         try:
-            with urllib.request.urlopen(url, timeout=2) as response:
+            # Plain http.client, never urllib: urllib routes requests through any
+            # proxy advertised by the environment (on Windows that includes the
+            # WinINET registry settings), so a loopback health check could be
+            # sent to the proxy instead of the sandbox server and time out.
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+            try:
+                conn.request("GET", "/api/health")
+                response = conn.getresponse()
+                response.read()
                 if response.status == 200:
                     return
+                last_error = f"HTTP {response.status}"
+            finally:
+                conn.close()
         except Exception as exc:  # noqa: BLE001 - retry until the server is up
             last_error = exc
         time.sleep(1)

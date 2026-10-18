@@ -59,11 +59,31 @@ def _gpg_pubkey_path() -> Path:
 def _hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
+def _normalise_line_endings(data: bytes) -> bytes:
+    """Normalise CRLF to LF for text-like files; leave binary files untouched.
+
+    Mirrors the project hash (``integrity.py:_compute_local_project_hash``) so a
+    CRLF checkout (Windows with ``core.autocrlf=true``) hashes identically to an
+    LF checkout (Linux, macOS, CI). Files containing a NUL byte are treated as
+    binary and returned unchanged.
+    """
+    if b"\x00" in data:
+        return data
+    return data.replace(b"\r\n", b"\n")
+
 def _hash_file(path: Path) -> str:
     return _hash_bytes(path.read_bytes())
 
+def _hash_text_file(path: Path) -> str:
+    """Hash a text-like file after normalising CRLF to LF (plugin-library files)."""
+    return _hash_bytes(_normalise_line_endings(path.read_bytes()))
+
 def _compute_plugins_lib_hash() -> str:
-    """Hash all files in plugins-lib except the hash file itself (sorted, merged)."""
+    """Hash all files in plugins-lib except the hash file itself (sorted, merged).
+
+    Text files are normalised CRLF to LF, so the folder hash does not depend on
+    the checkout's line endings.
+    """
     base = _plugins_lib_dir()
     hash_path = _hash_file_path()
     if not base.is_dir():
@@ -81,7 +101,7 @@ def _compute_plugins_lib_hash() -> str:
         if p.name == hash_path.name:
             continue
         try:
-            h = _hash_file(p)
+            h = _hash_text_file(p)
         except OSError:
             continue
         entries.append((p.name, h))
