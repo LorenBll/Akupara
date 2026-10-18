@@ -31,7 +31,7 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests
-        run: python -m pytest tests/unit tests/api --tb=short -ra
+        run: python -m pytest tests/unit tests/api --tb=short -ra -v
 
   scripts:
     name: Setup & run scripts (${{ matrix.os }})
@@ -83,4 +83,4 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run script smoke tests
-        run: python -m pytest tests/scripts --tb=short -ra
+        run: python -m pytest tests/scripts --tb=short -ra -v
