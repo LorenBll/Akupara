@@ -82,7 +82,7 @@ function markInstallationStarted() {
 // one generated after it are both valid for the same installation:
 //   * no pepper  + new installation        -> create
 //   * no pepper  + installation has run    -> error
-//   * pepper     + new installation        -> rotate
+//   * pepper     + new installation        -> replace
 //   * pepper     + installation has run    -> keep
 function initializePepper() {
     if (!installationHasRun()) {
@@ -90,7 +90,7 @@ function initializePepper() {
         const secret = crypto.randomBytes(PEPPER_BYTES);
         writePepper(secret);
         // The generator counts as preparing this installation: writing the
-        // marker keeps the first server start from rotating the pepper the new
+        // marker keeps the first server start from replacing the pepper the new
         // USERS entries were computed with.
         markInstallationStarted();
         if (replaced) {

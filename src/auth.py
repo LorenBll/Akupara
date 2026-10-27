@@ -259,7 +259,7 @@ def log_change(func):
 #
 # The pepper is scoped to one installation, and an installation is one setup
 # run: ``resources/installation.json`` marks that it has started and the setup
-# scripts delete it, so the next start counts as a new installation and rotates
+# scripts delete it, so the next start counts as a new installation and replaces
 # the pepper. See :func:`_initialize_password_storage` for the four cases.
 #
 # The peppered format is the only one accepted. A ``USERS`` entry that still
@@ -384,7 +384,7 @@ def _initialize_password_storage() -> str:
     installation that has already run must find its own pepper: without it no
     stored password can be verified, so the caller must not start.
 
-    Returns ``"created"``, ``"rotated"`` or ``"kept"``, and raises
+    Returns ``"created"``, ``"replaced"`` or ``"kept"``, and raises
     ``PasswordStorageError`` when the pepper is missing or unusable on an
     installation that has already run.
     """
@@ -396,7 +396,7 @@ def _initialize_password_storage() -> str:
         _write_password_pepper(secret)
         _PASSWORD_PEPPER_CACHE = secret
         _mark_installation_started()
-        return "rotated" if already_present else "created"
+        return "replaced" if already_present else "created"
     stored = _read_password_pepper()
     if stored is None:
         raise PasswordStorageError(

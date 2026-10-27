@@ -27,7 +27,7 @@ def _entry(username: str) -> dict:
 # setup scripts delete it, so the next start counts as a new installation.
 #   * no pepper  + new installation        -> create
 #   * no pepper  + installation has run    -> error (the process must not start)
-#   * pepper     + new installation        -> rotate
+#   * pepper     + new installation        -> replace
 #   * pepper     + installation has run    -> keep
 
 def _pepper_bytes() -> bytes:
@@ -50,11 +50,11 @@ def test_new_installation_creates_a_pepper():
     assert auth._installation_marker_path().is_file()
 
 
-def test_new_installation_rotates_a_pepper_left_by_a_previous_installation():
+def test_new_installation_replaces_a_pepper_left_by_a_previous_installation():
     _forget_installation()
     previous = base64.b64encode(b"p" * 32).decode("ascii")
     auth._password_pepper_path().write_text(previous + "\n", encoding="utf-8")
-    assert auth._initialize_password_storage() == "rotated"
+    assert auth._initialize_password_storage() == "replaced"
     assert _pepper_bytes() != base64.b64decode(previous)
     assert auth._installation_marker_path().is_file()
 
