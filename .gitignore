@@ -43,9 +43,6 @@ resources/password-pepper
 # Installation marker (written on first start, deleted by the setup scripts)
 resources/installation.json
 
-# Signing trust material (the Ed25519 private key and any key cache; never commit)
-resources/trust/
-
 # Testing
 .pytest_cache/
 .coverage

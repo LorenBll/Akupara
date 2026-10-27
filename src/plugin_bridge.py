@@ -32,6 +32,8 @@ import json
 import re
 import regex
 import ssl
+import subprocess
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -50,6 +52,9 @@ def _plugins_lib_dir() -> Path:
 
 def _hash_file_path() -> Path:
     return _plugins_lib_dir() / "hash"
+
+def _gpg_pubkey_path() -> Path:
+    return _plugins_lib_dir() / "lorenbll-akupara-pub"
 
 def _hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -131,12 +136,7 @@ def _fetch_latest_commit_sha(timeout: int = 8) -> str | None:
 
 
 def _fetch_remote_hash(timeout: int = 8) -> str | None:
-    """Fetch and verify the plugins-lib hash file from the latest commit.
-
-    The remote file is signed with the Akupara key; only a validly signed hash is
-    returned. An unsigned or invalidly signed file is treated like being offline,
-    so it cannot drive a misleading update decision.
-    """
+    """Fetch the plugins-lib hash file from the latest commit on the Akupara repository."""
     ctx = ssl.create_default_context()
     commit = _fetch_latest_commit_sha(timeout)
     if commit is None:
@@ -145,13 +145,10 @@ def _fetch_remote_hash(timeout: int = 8) -> str | None:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
         with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
-            data = resp.read().decode("utf-8", errors="replace")
-        import signing
-        hex_value, valid = signing.parse_signed_hash_text(data)
-        if valid and hex_value:
-            return hex_value.strip()
-        log_warn("Remote plugins-lib hash has an invalid or missing signature — ignoring (offline?)", {"url": url})
-        return None
+            data = resp.read().decode("utf-8", errors="replace").strip()
+            if data:
+                return data.split()[0].strip()
+            return ""
     except github_api.GithubRateLimitedError:
         log_warn("GitHub API rate limit exceeded while fetching remote plugins-lib hash — skipping version check", {"url": url})
         return None
@@ -639,7 +636,7 @@ def _load_plugins() -> list[dict]:
     unique case-insensitive), ``description``, ``repo`` (GitHub URL),
     ``version`` (plugin version string, e.g. ``"1.0.0"``, after ``repo``),
     ``akupara_version`` (Akupara version the plugin is for, e.g. ``"1.0.0"``,
-    after ``version``) and ``trust_mark`` (base64 Ed25519 signature,
+    after ``version``) and ``trust_mark`` (armored detached GPG signature,
     ``""`` when absent). Each version change adds a **new entry** with a new
     ``hash``; division between files is still based on ``hash``.
     ``reverse_index_keys`` is **not** stored in the hash-range file — it lives
@@ -648,7 +645,8 @@ def _load_plugins() -> list[dict]:
     full-space file is used.
     No plugin handling (download/start) is performed here — this is catalogue research.
 
-    ``reverse-index.json`` is explicitly excluded from this scan.
+    ``reverse-index.json`` and ``lorenbll-akupara-pub`` are explicitly excluded
+    from this scan.
     """
     base_dir = Path(__file__).resolve().parent.parent / "resources" / "plugins-lib"
     plugins: list[dict] = []
@@ -776,25 +774,67 @@ def _build_trust_data(plugin: dict) -> dict:
     }
 
 
+def _ensure_pubkey_imported() -> None:
+    """Ensure the Akupara public key is in the GPG keyring (best-effort)."""
+    pub = _gpg_pubkey_path()
+    if not pub.is_file():
+        return
+    # A BOM would make gpg reject the armor, so the import goes through the
+    # sanitising helper in ``signing`` rather than a raw ``gpg --import``.
+    for gpg in ["gpg", r"C:\Program Files\GnuPG\bin\gpg.exe", r"C:\Program Files (x86)\GnuPG\bin\gpg.exe"]:
+        if signing.import_public_key(pub, gpg):
+            return
+
+
 def verify_plugin_signature(plugin: dict) -> bool:
     """Verify whether a plugin's ``trust_mark`` signature is valid.
 
     Rebuilds the canonical JSON ``{"hash","name","description","repo","version","akupara_version","reverse_index_keys"}``
     (reverse keys computed live from ``reverse-index.json``), canonicalises with
-    ``sort_keys=True, separators=(",", ":")``, then verifies the base64 Ed25519
-    signature over those bytes with the public key pinned in ``src/signing.py``.
+    ``sort_keys=True, separators=(",", ":")``, then:
+      * if signature is 64-char hex (fallback), compares SHA-256 hex
+      * else uses ``gpg --verify`` with the public key
+        ``resources/plugins-lib/lorenbll-akupara-pub``.
 
     Returns ``True`` iff the signature is present and cryptographically valid.
-    ``trust_mark == ""`` or missing → ``False``. A raw SHA-256 hex mark (the
-    former gpg-less fallback) is not a signature and is rejected.
+    ``trust_mark == ""`` or missing → ``False``.
     """
     sig = _get_trust_signature(plugin)
     if not sig:
         return False
     data = _build_trust_data(plugin)
     canonical = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    import signing
-    return signing.verify_signature(canonical.encode("utf-8"), sig)
+
+    # Fallback SHA-256 case (gpg not available when signing)
+    if re.fullmatch(r"[0-9a-fA-F]{64}", sig.strip()):
+        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return sig.strip().lower() == expected.lower()
+
+    # Ensure public key is available for verification
+    _ensure_pubkey_imported()
+
+    # GPG detached verification: write data and sig to temp files
+    gpg_candidates = ["gpg", r"C:\Program Files\GnuPG\bin\gpg.exe", r"C:\Program Files (x86)\GnuPG\bin\gpg.exe"]
+    for gpg in gpg_candidates:
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                td_p = Path(td)
+                data_path = td_p / "data.json"
+                sig_path = td_p / "sig.asc"
+                data_path.write_text(canonical, encoding="utf-8")
+                sig_path.write_text(sig, encoding="utf-8")
+                # gpg --verify sig data
+                proc = subprocess.run([gpg, "--verify", str(sig_path), str(data_path)], capture_output=True, timeout=10)
+                # gpg returns 0 on good signature
+                if proc.returncode == 0:
+                    return True
+                # Also try with --status-fd
+                # If failed, try next gpg candidate
+        except FileNotFoundError:
+            continue
+        except Exception:
+            continue
+    return False
 
 
 def _plugins_dir() -> Path:

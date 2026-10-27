@@ -50,6 +50,35 @@ jobs:
           python-version: '3.11'
           cache: pip
 
+      - name: Install gpg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gnupg
+
+      - name: Ensure gpg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # GnuPG may be absent, and when it is present it need not live under a
+          # fixed path (Chocolatey, GnuPG and Git for Windows all differ), so
+          # resolve it through PATH and only fall back to installing it.
+          if (-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
+            choco install gnupg -y --no-progress
+            $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                        [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
+          }
+          if (-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
+            $found = Get-ChildItem 'C:\Program Files\GnuPG', 'C:\Program Files (x86)\GnuPG', 'C:\ProgramData\chocolatey' `
+                       -Filter gpg.exe -Recurse -ErrorAction SilentlyContinue |
+                     Select-Object -First 1 -ExpandProperty FullName
+            if (-not $found) { throw 'gpg is unavailable on this runner' }
+            # -Encoding ascii on purpose: a BOM written here would corrupt the
+            # PATH entry that the test step later reads.
+            (Split-Path $found) | Out-File -Append -Encoding ascii $env:GITHUB_PATH
+            $env:Path = (Split-Path $found) + ';' + $env:Path
+          }
+          Write-Host "gpg resolved to: $((Get-Command gpg).Source)"
+          gpg --version
+
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 

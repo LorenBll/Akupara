@@ -26,7 +26,7 @@ User documentation: [README.md](README.md). Repository rules for contributors an
 
 - **API keys** — with `API_KEYS_ENABLED` on, the API Keys card generates keys and the service accepts them in the `X-Api-Key` header on the management and external-interaction endpoints (`api_key_or_admin_authenticated`). Keys exist so plugins and scripts can act without a browser session. The `.env` stores each key Fernet-encrypted under `API_KEYS`, with `API_KEY_ENCRYPTION_KEY` generated on first run; the plaintext key is shown once in the card so it can be copied.
 
-- **Signed, hash-verified plugin library** — `resources/plugins-lib/` holds the catalogue of installable plugins as hash-range JSON files (`<low>-<high>.json`) plus a `reverse-index.json` word index, and `hash` is the library's signed content hash. It exists to certify which plugin versions Akupara may run. A plugin is `{"hash","name","description","repo","version","akupara_version","trust_mark"}`, and at startup the service verifies the stored hash's Ed25519 signature and recomputes the folder hash, so a modified or uncertified library stops the service; search it with `POST /api/plugins/search` or the Plugins page.
+- **Signed, hash-verified plugin library** — `resources/plugins-lib/` holds the catalogue of installable plugins as hash-range JSON files (`<low>-<high>.json`) plus a `reverse-index.json` word index, and `hash` is the library's signed content hash. It exists to certify which plugin versions Akupara may run. A plugin is `{"hash","name","description","repo","version","akupara_version","trust_mark"}`, and at startup the service verifies the stored hash's PGP signature and recomputes the folder hash, so a modified or uncertified library stops the service; search it with `POST /api/plugins/search` or the Plugins page.
 
 - **Plugin discovery and upgrades** — installed plugins live in `plugins/<hash>` folders; the service verifies each folder's trust mark and content hash, compares the installed version with the plugin's GitHub releases, and offers or applies upgrades. It exists to keep installed plugins valid and current. Use the Plugins page (`Check for Updates`, `Update All`, per-row `Update` and `Delete`) or the `/api/installed-plugins*` endpoints; `dev-*` folders skip every check and load only in development mode.
 
@@ -40,7 +40,7 @@ User documentation: [README.md](README.md). Repository rules for contributors an
 
 - **Update checks** — the service compares the signed project hash with the hash asset of the latest GitHub release, and the plugin-library hash with the hash at the latest commit, at startup and on demand. It exists to keep the deployment at a certified version. Check manually from the General and Plugins cards (`Check for Updates`) or through `/api/check-for-updates` and `/api/check-for-plugin-updates`; `AUTOMATIC_UPDATE`, `AUTOMATIC_PLUGIN_LIBRARY_UPDATE` and `AUTOMATIC_PLUGIN_UPGRADE` apply the result automatically. Set `GITHUB_TOKEN` to raise the GitHub API rate limit.
 
-- **Integrity verification** — the repo-root `hash` and `resources/plugins-lib/hash` files each carry a hash plus a base64 Ed25519 signature, and the service verifies the signature and recomputes the hash from the tracked files at every start. It exists to detect an illicit modification or a partial installation. The plugin library must always match its hash; the project may differ from its hash in development mode only, where it logs a warning instead of stopping. The General and Plugins cards show the effective and indicated version hashes side by side.
+- **Integrity verification** — the repo-root `hash` and `resources/plugins-lib/hash` files each carry a hash plus an armoured PGP signature, and the service verifies the signature and recomputes the hash from the tracked files at every start. It exists to detect an illicit modification or a partial installation. The plugin library must always match its hash; the project may differ from its hash in development mode only, where it logs a warning instead of stopping. The General and Plugins cards show the effective and indicated version hashes side by side.
 
 - **Server-rendered settings by role** — the settings page is rendered from card fragments under `ui/cards/settings/` and sent with the session's role, so standard users see the General, Account and Customisation cards while admin-only cards are loaded only for administrators. It exists to avoid exposing administrative content to standard users. Open `/ui/pages/settings.html` from the UI.
 
@@ -62,11 +62,11 @@ User documentation: [README.md](README.md). Repository rules for contributors an
   - `integrity.py` — project- and plugin-library-hash computation and verification, and the disabled-styles check.
   - `updates.py` — the project and plugin-library update checks and their application.
   - `github_api.py` — GitHub request helpers and response classification.
-  - `signing.py` — Ed25519 signing, verification and reading of the `hash` files.
+  - `signing.py` — GPG signing, verification and reading of the `hash` files.
   - `validation.py` — shared input validation (key names, event names, plaintext values).
   - `logginglib/` — the JSON logging library (`__init__.py`).
 - `ui/` — the browser UI: `pages/` (the HTML pages), `cards/settings/` (one fragment per settings card), `css/`, `js/` (including `js/argon2/`), `fonts/` and `icons/`.
-- `resources/` — `configuration.json` (service configuration), `installation.json` (the marker that scopes the pepper to one installation; written when the installation is first prepared — by its first start or by the generator — and deleted by the setup scripts), `password-pepper` (the installation's pepper, created when the installation is first prepared and replaced when a new installation starts), `plugins-lib/` (the plugin catalogue, its signed `hash` and `reverse-index.json`) and `audios/` (the shipped sound files).
+- `resources/` — `configuration.json` (service configuration), `installation.json` (the marker that scopes the pepper to one installation; written when the installation is first prepared — by its first start or by the generator — and deleted by the setup scripts), `password-pepper` (the installation's pepper, created when the installation is first prepared and replaced when a new installation starts), `plugins-lib/` (the plugin catalogue, its signed `hash`, `reverse-index.json` and the public GPG key `lorenbll-akupara-pub`) and `audios/` (the shipped sound files).
 - `scripts/` — `setup.bat`/`setup.sh` (create `.venv`, install dependencies and start a new installation by deleting the installation marker), `run.bat`/`run.sh` (launch the service, supporting `--debug`), `generate-password-hash.js` (prints a `USERS` entry — peppered verifier and client salt — for a chosen username and password, applying the same installation-scoped pepper policy as the service) and the developer-only `administration.py` helpers (not committed).
 - `tests/` — `conftest.py`, `unit/`, `api/` and `scripts/`.
 - `plugins/` — installed plugins, one `plugins/<hash>` folder per plugin; `dev-*` folders load only in development mode.
@@ -575,9 +575,10 @@ The UI routes are registered by `_register_ui_routes` only when `guiEnabled` is 
 
 1. Install Python 3.10 or newer and make it available on `PATH`.
 2. Run `scripts\setup.bat` on Windows, or `bash scripts/setup.sh` on Unix-like systems. The script creates a `.venv` virtual environment and installs `requirements.txt` into it. To do it manually, create a virtual environment and run `pip install -r requirements.txt`.
-3. Copy `.env.example` to `.env`. You can leave `USERS=[]`: the first start creates a root account `admin` with the password `admin123`, which you should change immediately from the General card. To add another account, or to replace the default one, run `node scripts/generate-password-hash.js <username> <password>` (Node.js 18 or newer) and paste the printed entry into `USERS`, a JSON list of `{"username","password","client_salt","admin","root","id"}` where `password` is the stored verifier and `client_salt` the browser salt for that account. The generator scopes the pepper to the current installation: it creates `resources/password-pepper` on a new installation, replaces a pepper left by a previous one, and records the installation so the first start keeps that pepper. Back the pepper up and keep it out of version control, because losing it makes every stored password unusable. An entry holding a raw Argon2id hash, or missing `client_salt`, is refused at login.
-4. Review `resources/configuration.json` to set the port, whether the UI routes are enabled (`guiEnabled`) and whether the service runs in development mode (`development`).
-5. Keep the project structure intact so the service can find `resources/`, `src/` and `ui/`, and leave the signed `hash` files unmodified.
+3. Install GnuPG (`gpg`) and make it available on `PATH` (`C:\Program Files\GnuPG\bin` on Windows). It is required: the shipped `hash` files and plugin trust marks are verified with `gpg --verify` against `resources/plugins-lib/lorenbll-akupara-pub`, and the service refuses to start when the signature cannot be verified.
+4. Copy `.env.example` to `.env`. You can leave `USERS=[]`: the first start creates a root account `admin` with the password `admin123`, which you should change immediately from the General card. To add another account, or to replace the default one, run `node scripts/generate-password-hash.js <username> <password>` (Node.js 18 or newer) and paste the printed entry into `USERS`, a JSON list of `{"username","password","client_salt","admin","root","id"}` where `password` is the stored verifier and `client_salt` the browser salt for that account. The generator scopes the pepper to the current installation: it creates `resources/password-pepper` on a new installation, replaces a pepper left by a previous one, and records the installation so the first start keeps that pepper. Back the pepper up and keep it out of version control, because losing it makes every stored password unusable. An entry holding a raw Argon2id hash, or missing `client_salt`, is refused at login.
+5. Review `resources/configuration.json` to set the port, whether the UI routes are enabled (`guiEnabled`) and whether the service runs in development mode (`development`).
+6. Keep the project structure intact so the service can find `resources/`, `src/` and `ui/`, and leave the signed `hash` files unmodified.
 
 ## Run
 
@@ -719,22 +720,22 @@ The sentinel hash `"$argon2id$test-sentinel-hash"` is a valid-looking client has
 `tests/scripts/test_setup_run.py` runs the setup and run scripts in a disposable copy (see [Isolation guarantees](#isolation-guarantees)).
 
 - `test_setup_script` runs `setup.bat`/`setup.sh` in the copy and asserts a zero exit status, the presence of `.venv`, and the deletion of a pre-existing `resources/installation.json` (a setup run starts a new installation).
-- `test_run_script` starts `run.bat`/`run.sh` with `--debug`, streaming the server output to `run.log` (so the pipe buffer cannot stall the server), then polls `GET /api/health` on a free port for up to 180 s using `http.client` (never `urllib`, which could route the loopback request through a proxy). Once healthy it asserts that the sandbox `.env` holds exactly one root entry, `admin`, and that `POST /api/login` with `_client_password_hash("admin123", <client_salt>)` returns `200`, so the bootstrap account is proven usable on a genuinely fresh installation rather than only in unit tests. On failure it prints the tails of `run.log` and of the latest `logs/*.json` before re-raising. The test is skipped when `git` is unavailable, because `git ls-files` drives the integrity check.
+- `test_run_script` starts `run.bat`/`run.sh` with `--debug`, streaming the server output to `run.log` (so the pipe buffer cannot stall the server), then polls `GET /api/health` on a free port for up to 180 s using `http.client` (never `urllib`, which could route the loopback request through a proxy). Once healthy it asserts that the sandbox `.env` holds exactly one root entry, `admin`, and that `POST /api/login` with `_client_password_hash("admin123", <client_salt>)` returns `200`, so the bootstrap account is proven usable on a genuinely fresh installation rather than only in unit tests. On failure it prints the tails of `run.log` and of the latest `logs/*.json` before re-raising. The test is skipped when `gpg` or `git` is unavailable, because the shipped `hash` files must verify and `git ls-files` drives the integrity check.
 
 The sandbox is a fresh git checkout in non-development mode, so the project-integrity check must pass for the server to start.
 
 ### Signing and hash tests
 
-`tests/unit/test_signing.py` covers `src/signing.py`. Tests sign and verify with `cryptography`'s Ed25519, check that a signature made by any other key is refused, and verify both shipped `hash` files (the repo root and `resources/plugins-lib/`) against the public key pinned in `src/signing.py`.
+`tests/unit/test_signing.py` covers `src/signing.py`. Most tests parse only; the tests that need a real keyring are marked `requires_gpg` and skipped when `gpg` is unavailable.
 
-That last test is the migration gate: if the `hash` files are not re-signed with the private key whose public half is pinned, it fails, which is the same failure a user would see when the service refuses to start.
+`_point_gpg_at_an_empty_keyring` redirects `GNUPGHOME` to an empty temporary keyring, in the path form the local `gpg` understands (native GnuPG needs the Windows form, while the Git-for-Windows MSYS build needs the POSIX form; the form is chosen from the `Home:` line of `gpg --version`). This isolation is essential: the signing key is present on the developer's machine, so without a clean keyring a broken or unreadable public key stays invisible and only ever fails on a clean machine. The test verifies both shipped `hash` files (the repo root and `resources/plugins-lib/`) against the shipped public key, and checks that a UTF-8 BOM in the public key does not break import.
 
 ### Continuous integration
 
 `.github/workflows/tests.yml` runs on every push, pull request and manual dispatch, with `contents: read` permission, and has two jobs:
 
 - **`unit-api`** — matrix of `ubuntu-latest` and `windows-latest` × Python `3.10`, `3.11` and `3.12`, `fail-fast: false`. Installs `requirements.txt` and `requirements-dev.txt`, then runs `python -m pytest tests/unit tests/api --tb=short -ra -v`.
-- **`scripts`** — matrix of `ubuntu-latest` and `windows-latest`, Python `3.11`. Installs the dependencies, then runs `python -m pytest tests/scripts --tb=short -ra -v`.
+- **`scripts`** — matrix of `ubuntu-latest` and `windows-latest`, Python `3.11`. Installs `gpg` (through `apt-get` on Linux; resolving it from `PATH` and falling back to Chocolatey or a fixed directory on Windows), installs the dependencies, then runs `python -m pytest tests/scripts --tb=short -ra -v`.
 
 `.github/workflows/disabled-styles.yml` runs on changes to `ui/css/index.css` or `src/main.py`, on `ubuntu-latest`, and verifies that every interactive `:disabled` rule in `ui/css/index.css` contains `cursor: not-allowed`. The same check runs at startup through `src/integrity.py:_verify_disabled_styles`.
 
@@ -742,14 +743,14 @@ That last test is the migration gate: if the `hash` files are not re-signed with
 
 - Choose the directory by scope: pure helper logic in `tests/unit/`, endpoint behaviour through the Flask `client` in `tests/api/`, and script/integration smoke tests in `tests/scripts/`.
 - Use the existing fixtures (`client`, `make_user`, `login`, `login_admin`, `enable_api_keys`, `make_api_key`) instead of touching real files or environment variables; the autouse isolation fixtures handle `.env`, logs, audio and `state`.
-- Monkeypatch external boundaries (GitHub requests, subprocess calls, version helpers) rather than performing real I/O. `tests/api/test_ui_routes.py` shows a version-helper mock; `tests/unit/test_signing.py` shows the sign/verify round-trip against a key pinned in source.
+- Monkeypatch external boundaries (GitHub requests, `subprocess`/`gpg`, version helpers) rather than performing real I/O. `tests/api/test_ui_routes.py` shows a version-helper mock; `tests/unit/test_signing.py` shows the gpg keyring isolation pattern; mark keyring-dependent tests with `requires_gpg`.
 - Keep the module docstring and naming style of the surrounding files; British English applies to comments and docstrings.
 - Run `python -m pytest tests/unit tests/api -q` before committing.
 
 ### Troubleshooting
 
-- **The shipped `hash` files fail to verify.** Re-sign them with `scripts/administration.py` (Project → Compute project hash, and the plugin-library action) using the private key in `resources/trust/akupara-signing.key`; its public half must match the key pinned in `src/signing.py`. Verification needs no `gpg`.
-- **`test_run_script` is skipped.** It requires `git`, because the sandbox integrity check is driven by `git ls-files`.
+- **gpg-dependent tests are skipped.** `test_signing.py`'s keyring tests and `test_run_script` require `gpg` on `PATH`; install GnuPG (or let CI do it) and re-run. On Windows, ensure the GnuPG `bin` directory is on `PATH`.
+- **`test_run_script` is skipped.** It also requires `git`, because the sandbox integrity check is driven by `git ls-files`.
 - **`test_run_script` times out.** Read the printed `run.log` tail and the latest `logs/*.json` tail: a missing signing key, an unverified `hash` file or a busy port are the usual causes. The sandbox uses a free port and non-development mode on purpose.
 - **The suite touched nothing real.** All paths are redirected per test; if a real `.env` or `logs/` file appears to change, the cause is outside the fixtures and should be investigated.
 - **Stale caches.** `pytest.ini` does not disable caching; a leftover `.pytest_cache/` or `__pycache__/` can be removed safely and does not affect results.
