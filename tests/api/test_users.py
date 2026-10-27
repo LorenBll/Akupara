@@ -1,5 +1,7 @@
 """Endpoint tests for ``/api/users``."""
 
+import json
+
 import env_store
 
 from conftest import SENTINEL_HASH, TEST_CLIENT_SALT
@@ -49,6 +51,17 @@ def test_register_user_refuses_a_malformed_user_list(client, login_admin):
     assert response.status_code == 500
     assert response.get_json()["error"] == "Password storage is unavailable."
     assert env_store.read_env_var("USERS") == "not json"
+
+
+def test_rename_user_refuses_a_list_holding_an_unreadable_entry(client, login_admin):
+    login_admin(client)
+    data = json.loads(env_store.read_env_var("USERS"))
+    env_store.write_env_var("USERS", json.dumps(data + [{"username": "broken"}]))
+    before = env_store.read_env_var("USERS")
+    response = client.patch("/api/users/adminuser", json={"new_username": "renamed123"})
+    assert response.status_code == 500
+    assert response.get_json()["error"] == "Password storage is unavailable."
+    assert env_store.read_env_var("USERS") == before
 
 
 def test_list_users_sanitised(client, login_admin):

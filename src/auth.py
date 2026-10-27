@@ -571,16 +571,34 @@ def _login_credentials_configured() -> bool:
     return bool(_load_users())
 
 
-def _load_users() -> list[dict]:
-    raw = _env_store.read_env_var("USERS")
-    if not raw:
+def _users_raw_list(raw: str) -> list:
+    """Return ``USERS`` as the list it is stored as, refusing to replace it.
+
+    A value that is not a JSON list is a configuration error, not an empty list:
+    rewriting it would silently drop whatever the operator wrote. This is the same
+    rule the bootstrap account follows, and it is why the caller must let the
+    ``PasswordStorageError`` reach the endpoint (500) instead of starting a fresh
+    list. An absent or blank value is genuinely empty and yields an empty list.
+    """
+    if not raw.strip():
         return []
     try:
         data = json.loads(raw)
-    except (json.JSONDecodeError, ValueError, TypeError):
-        return []
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        raise PasswordStorageError("The user list is not valid JSON.") from exc
     if not isinstance(data, list):
-        return []
+        raise PasswordStorageError("The user list is not a JSON list.")
+    return data
+
+
+def _parse_users(data: list) -> list[dict]:
+    """Project the raw ``USERS`` list onto the accounts the service can use.
+
+    Entries that are not objects, lack a usable username or password, or repeat an
+    earlier username are dropped. Unknown keys are not carried over, so a caller
+    that writes the result back must first establish that nothing would be lost
+    (see ``_users_for_change``).
+    """
     users: list[dict] = []
     seen: set[str] = set()
     for entry in data:
@@ -611,24 +629,18 @@ def _load_users() -> list[dict]:
     return users
 
 
-def _users_raw_list(raw: str) -> list:
-    """Return ``USERS`` as the list it is stored as, refusing to replace it.
+def _load_users() -> list[dict]:
+    """Return the users the service can use, ignoring anything it cannot read.
 
-    A value that is not a JSON list is a configuration error, not an empty list:
-    rewriting it would silently drop whatever the operator wrote. This is the same
-    rule the bootstrap account follows, and it is why the caller must let the
-    ``PasswordStorageError`` reach the endpoint (500) instead of starting a fresh
-    list. An absent or blank value is genuinely empty and yields an empty list.
+    Reading never fails: a malformed ``USERS`` value yields no users so that login
+    is refused rather than crashing. Changes that rewrite the list use
+    ``_users_for_change`` instead, which refuses the list outright.
     """
-    if not raw.strip():
-        return []
     try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, ValueError, TypeError) as exc:
-        raise PasswordStorageError("The user list is not valid JSON.") from exc
-    if not isinstance(data, list):
-        raise PasswordStorageError("The user list is not a JSON list.")
-    return data
+        data = _users_raw_list(_env_store.read_env_var("USERS"))
+    except PasswordStorageError:
+        return []
+    return _parse_users(data)
 
 
 def _users_list_is_empty() -> bool:
@@ -641,6 +653,21 @@ def _users_list_is_empty() -> bool:
         return not _users_raw_list(_env_store.read_env_var("USERS"))
     except PasswordStorageError:
         return False
+
+
+def _users_for_change() -> list[dict]:
+    """Return the users to change, refusing a list the service cannot represent.
+
+    A change rewrites ``USERS`` from the parsed accounts, so any entry that parsing
+    would drop (not an object, no usable username or password, or a repeated
+    username) would be lost silently. Such a list is a configuration error: the
+    change is refused and the stored value stays exactly as the operator wrote it.
+    """
+    data = _users_raw_list(_env_store.read_env_var("USERS"))
+    users = _parse_users(data)
+    if len(users) != len(data):
+        raise PasswordStorageError("The user list holds an entry that cannot be read.")
+    return users
 
 
 def _ensure_default_root_user() -> bool:
@@ -830,7 +857,7 @@ def _rename_user(username: str, new_username: str) -> dict | None:
         raise ValueError("Username contains prohibited characters.")
     if len(new_username) < 8:
         raise ValueError("Username must be at least 8 characters long.")
-    users = _load_users()
+    users = _users_for_change()
     target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
     if not target:
         return None
@@ -848,7 +875,7 @@ def _rename_user(username: str, new_username: str) -> dict | None:
 def _set_user_admin(username: str, admin: bool) -> dict | None:
     if not isinstance(admin, bool):
         raise ValueError("Invalid admin value.")
-    users = _load_users()
+    users = _users_for_change()
     target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
     if not target:
         return None
@@ -862,7 +889,7 @@ def _set_user_admin(username: str, admin: bool) -> dict | None:
 
 
 def _delete_user(username: str) -> bool:
-    users = _load_users()
+    users = _users_for_change()
     target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
     if target is None:
         return False

@@ -49,7 +49,7 @@ User documentation: [README.md](README.md). Repository rules for contributors an
 - `src/` — the service source (Python).
   - `main.py` — the web layer: the Flask app, all `/api/*` handlers, the UI view functions, the settings-page context, the startup sequence and the `__main__` entry point.
   - `app_factory.py` — the shared Flask decorators (`standard_endpoint`, `_options_response`, `_head_response`, `set_connection_header`) and `_register_ui_routes`, which registers the UI routes when `guiEnabled` is `true`.
-  - `auth.py` — the authentication decorators (`session_authenticated`, `api_key_or_admin_authenticated`, `admin_session_authenticated`, `log_change`), the server-side session store, user management, API-key management, the peppered password-verifier storage (installation-scoped pepper, Argon2id compatibility hashing), the bootstrap root account created when `USERS` is empty, and `_users_raw_list`, which refuses to rewrite a `USERS` value that is not a JSON list.
+  - `auth.py` — the authentication decorators (`session_authenticated`, `api_key_or_admin_authenticated`, `admin_session_authenticated`, `log_change`), the server-side session store, user management, API-key management, the peppered password-verifier storage (installation-scoped pepper, Argon2id compatibility hashing), the bootstrap root account created when `USERS` is empty, and the rule that a change rewrites `USERS` only when every entry is readable (`_users_raw_list`, `_users_for_change`).
   - `state.py` — the mutable process-wide state: service flags, the session and API-key stores, caches and locks.
   - `config.py` — loads `resources/configuration.json` and initialises the service state; also resolves the device's local addresses.
   - `env_store.py` — reads and writes `.env` variables (including boolean parsing).
@@ -214,6 +214,7 @@ Shared behaviour:
   - `403 {"error": "You cannot change your own admin status."}` for a self admin toggle.
   - `403 {"error": "Only the root user can change its username."}` when a non-root session renames the root user.
   - `403 {"error": "Invalid request."}` when `DELETE` targets the root user or when `PATCH` demotes the root user.
+  - `500 {"error": "Password storage is unavailable."}` when the pepper is unusable, or when `USERS` is not a JSON list or holds an entry the service cannot read (not an object, no usable username or password, or a repeated username): the stored value is left untouched, because rewriting it would drop that entry.
   - `401` unauthenticated; `403` admin required.
 
 ### `GET /api/api-keys` and `POST /api/api-keys`
@@ -588,7 +589,7 @@ Start the service:
 
 Both scripts check for Python 3.10+, create or reuse `.venv`, install `requirements.txt`, and start `src/main.py`. Without `--debug` the service starts in the background with no console output; with `--debug` it runs in the foreground and writes a short trace of its progress.
 
-A start with no `resources/installation.json` is a new installation: it creates or rotates the pepper and records the marker. A start that finds the marker but no usable pepper logs the reason, plays the error sound and exits without serving. A start whose `USERS` list is empty creates the default root account `admin` with the password `admin123`; a value that is not a valid JSON list is left untouched, and logins are refused while no usable user exists. Registering a user is refused for the same reason instead of replacing that value.
+A start with no `resources/installation.json` is a new installation: it creates or rotates the pepper and records the marker. A start that finds the marker but no usable pepper logs the reason, plays the error sound and exits without serving. A start whose `USERS` list is empty creates the default root account `admin` with the password `admin123`; a value that is not a valid JSON list is left untouched, and logins are refused while no usable user exists. Registering a user is refused for the same reason instead of replacing that value, and so is changing or deleting a user while the list holds an entry the service cannot read.
 
 To start it directly, run `python src/main.py` from the project root.
 
@@ -613,7 +614,7 @@ The service logs through `src/logginglib/`, which implements the shared logging 
 
 ## Testing
 
-The suite lives in `tests/`, is driven by `pytest` (`pytest.ini` sets `testpaths = tests`, `pythonpath = src` and `addopts = -ra`) and contains 259 collected tests: 174 in `tests/unit`, 83 in `tests/api` and 2 in `tests/scripts`.
+The suite lives in `tests/`, is driven by `pytest` (`pytest.ini` sets `testpaths = tests`, `pythonpath = src` and `addopts = -ra`) and contains 265 collected tests: 179 in `tests/unit`, 84 in `tests/api` and 2 in `tests/scripts`.
 
 ### Isolation guarantees
 
@@ -632,7 +633,7 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 
 `tests/conftest.py` holds the shared fixtures. The modules and their scope:
 
-`tests/unit/` (174 collected):
+`tests/unit/` (179 collected):
 
 - `test_app_factory.py` (5) — the shared Flask decorators and helpers (`standard_endpoint`, the `OPTIONS`/`HEAD` responses, `set_connection_header`).
 - `test_audio.py` (8) — pure audio helpers and the sound defaults: every event names a file shipped in `resources/audios/`, with `warn.wav` and `process.wav` pinned.
@@ -640,7 +641,7 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 - `test_auth_password_storage.py` (53) — peppered verifiers, client salts, rename behaviour, the installation-scoped pepper policy, the bootstrap root account, the browser-hash parameters and every rejection path of the stored-verifier format (raw hashes, missing parts, undecodable base64, wrong salt length, missing pepper, and a verifier that does not survive a pepper rotation).
 - `test_auth_passwords.py` (3) — password change in the auth layer.
 - `test_auth_sessions.py` (3) — session helpers.
-- `test_auth_users.py` (19) — user management, including registration refusing to replace a `USERS` value that is not a JSON list.
+- `test_auth_users.py` (24) — user management, including registration refusing to replace a `USERS` value that is not a JSON list and changes refusing a list that holds an unreadable entry.
 - `test_config.py` (6 functions, 7 collected) — service configuration, including a missing pepper aborting startup, the default-root seeding switch and the sound defaults written into a `.env` that lacks them; one test is parametrised over `development` `True`/`False`.
 - `test_env_store.py` (6) — `.env` persistence helpers.
 - `test_firewall.py` (10) — external-interactions helpers, including the plain-HTTP flag.
@@ -654,7 +655,7 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 - `test_updates.py` (5) — offline update-check classification.
 - `test_validation.py` (6) — input-validation helpers.
 
-`tests/api/` (83 collected):
+`tests/api/` (84 collected):
 
 - `test_api_keys.py` (6) — `/api/api-keys`.
 - `test_authz.py` (9) — the authorisation matrix for the three cookie/API-key decorators.
@@ -667,7 +668,7 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 - `test_settings_toggles.py` (10) — settings and feature toggles.
 - `test_shared_memory_api.py` (7) — `/api/shared-memory`.
 - `test_ui_routes.py` (13) — the UI routes, including whether the External Interactions card carries the plain-HTTP warning for the request's scheme (plain, disabled feature, `X-Forwarded-Proto: https` and a forwarded list).
-- `test_users.py` (10) — `/api/users`, including the **500** returned when `USERS` is malformed.
+- `test_users.py` (11) — `/api/users`, including the **500** returned when `USERS` is malformed or holds an unreadable entry.
 
 `tests/scripts/` (2 collected):
 
@@ -677,9 +678,9 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest                     # everything (259 tests)
-python -m pytest tests/unit          # unit tests only (174)
-python -m pytest tests/api           # API tests only (83)
+python -m pytest                     # everything (265 tests)
+python -m pytest tests/unit          # unit tests only (179)
+python -m pytest tests/api           # API tests only (84)
 python -m pytest tests/scripts       # script smoke tests only (2)
 python -m pytest tests/unit/test_auth_users.py         # one module
 python -m pytest tests/api/test_users.py::<test_name>  # one test

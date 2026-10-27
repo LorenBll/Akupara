@@ -1847,6 +1847,9 @@ def user_item(username: str) -> tuple:
         except ValueError as exc:
             log_warn("Root deletion rejected", {"client": request.remote_addr, "user": username})
             return jsonify({"error": "Invalid request."}), 403
+        except PasswordStorageError as exc:
+            log_error("User deletion failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+            return jsonify({"error": "Password storage is unavailable."}), 500
         if not deleted:
             return jsonify({"error": "Not found."}), 404
         log_info("User deleted", {"client": request.remote_addr, "username": username})
@@ -1866,6 +1869,9 @@ def user_item(username: str) -> tuple:
             return jsonify({"error": "Already exists."}), 409
         except ValueError:
             return jsonify({"error": "Invalid request."}), 400
+        except PasswordStorageError as exc:
+            log_error("User rename failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+            return jsonify({"error": "Password storage is unavailable."}), 500
         if target is None:
             return jsonify({"error": "Not found."}), 404
         log_info("User renamed", {"client": request.remote_addr, "old_username": username, "new_username": new_username})
@@ -1881,6 +1887,9 @@ def user_item(username: str) -> tuple:
         except ValueError as exc:
             log_warn("Root admin change rejected", {"client": request.remote_addr, "user": username})
             return jsonify({"error": "Invalid request."}), 403
+        except PasswordStorageError as exc:
+            log_error("Admin status change failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+            return jsonify({"error": "Password storage is unavailable."}), 500
         if target is None:
             return jsonify({"error": "Not found."}), 404
         log_info("Admin status updated", {"client": request.remote_addr, "username": username, "admin": admin})

@@ -79,6 +79,41 @@ def test_register_user_accepts_an_absent_user_list():
     assert [user["username"] for user in auth._load_users()] == ["alice1234"]
 
 
+@pytest.mark.parametrize("change", [
+    lambda: auth._rename_user("alice1234", "bob123456"),
+    lambda: auth._set_user_admin("alice1234", True),
+    lambda: auth._delete_user("alice1234"),
+], ids=["rename", "admin", "delete"])
+def test_user_changes_refuse_a_list_holding_an_unreadable_entry(change, make_user):
+    # These changes rewrite USERS from the parsed accounts, so an entry parsing
+    # would drop must block the change instead of vanishing from the file.
+    make_user("alice1234", SENTINEL_HASH)
+    data = json.loads(env_store.read_env_var("USERS"))
+    env_store.write_env_var("USERS", json.dumps(data + [{"username": "broken"}]))
+    before = env_store.read_env_var("USERS")
+    with pytest.raises(auth.PasswordStorageError):
+        change()
+    assert env_store.read_env_var("USERS") == before
+
+
+def test_user_changes_refuse_duplicate_entries(make_user):
+    make_user("alice1234", SENTINEL_HASH)
+    data = json.loads(env_store.read_env_var("USERS"))
+    env_store.write_env_var("USERS", json.dumps(data + [dict(data[0])]))
+    before = env_store.read_env_var("USERS")
+    with pytest.raises(auth.PasswordStorageError):
+        auth._delete_user("alice1234")
+    assert env_store.read_env_var("USERS") == before
+
+
+def test_user_changes_refuse_a_user_list_that_is_not_a_json_list(make_user):
+    make_user("alice1234", SENTINEL_HASH)
+    env_store.write_env_var("USERS", "not json")
+    with pytest.raises(auth.PasswordStorageError):
+        auth._rename_user("alice1234", "bob123456")
+    assert env_store.read_env_var("USERS") == "not json"
+
+
 def test_authenticate_user_case_insensitive(make_user):
     make_user("Alice1234", SENTINEL_HASH)
     assert auth._authenticate_user("ALICE1234", SENTINEL_HASH) is not None
