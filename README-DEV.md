@@ -613,7 +613,7 @@ The service logs through `src/logginglib/`, which implements the shared logging 
 
 ## Testing
 
-The suite lives in `tests/`, is driven by `pytest` (`pytest.ini` sets `testpaths = tests`, `pythonpath = src` and `addopts = -ra`) and contains 220 collected tests: 140 in `tests/unit`, 78 in `tests/api` and 2 in `tests/scripts`.
+The suite lives in `tests/`, is driven by `pytest` (`pytest.ini` sets `testpaths = tests`, `pythonpath = src` and `addopts = -ra`) and contains 246 collected tests: 166 in `tests/unit`, 78 in `tests/api` and 2 in `tests/scripts`.
 
 ### Isolation guarantees
 
@@ -632,12 +632,12 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 
 `tests/conftest.py` holds the shared fixtures. The modules and their scope:
 
-`tests/unit/` (140 collected):
+`tests/unit/` (166 collected):
 
 - `test_app_factory.py` (5) — the shared Flask decorators and helpers (`standard_endpoint`, the `OPTIONS`/`HEAD` responses, `set_connection_header`).
 - `test_audio.py` (6) — pure audio helpers.
 - `test_auth_api_keys.py` (9) — API-key management in the auth layer.
-- `test_auth_password_storage.py` (27) — peppered verifiers, client salts, rename behaviour, the installation-scoped pepper policy and the bootstrap root account.
+- `test_auth_password_storage.py` (53) — peppered verifiers, client salts, rename behaviour, the installation-scoped pepper policy, the bootstrap root account, the browser-hash parameters and every rejection path of the stored-verifier format (raw hashes, missing parts, undecodable base64, wrong salt length, missing pepper, and a verifier that does not survive a pepper rotation).
 - `test_auth_passwords.py` (3) — password change in the auth layer.
 - `test_auth_sessions.py` (3) — session helpers.
 - `test_auth_users.py` (15) — user management.
@@ -677,8 +677,8 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest                     # everything (220 tests)
-python -m pytest tests/unit          # unit tests only (140)
+python -m pytest                     # everything (246 tests)
+python -m pytest tests/unit          # unit tests only (166)
 python -m pytest tests/api           # API tests only (78)
 python -m pytest tests/scripts       # script smoke tests only (2)
 python -m pytest tests/unit/test_auth_users.py         # one module

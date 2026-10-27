@@ -212,11 +212,102 @@ def test_wrong_client_hash_is_rejected():
     assert auth._authenticate_user("alice1234", "$argon2id$other") is None
 
 
+# --- malformed stored verifiers ---------------------------------------------
+#
+# A verifier in the peppered format that is nevertheless corrupt (bad base64,
+# missing parts, wrong salt length) must be reported as a wrong password, not as
+# a storage error: only a value that is not in the peppered format at all is a
+# configuration error. These tests pin the exact boundaries of that rule.
+
+@pytest.mark.parametrize("stored", [
+    "$argon2id$v=19$m=65536,t=2,p=1$YWJj$ZGVm",     # raw hash, not wrapped
+    "akupara$2$" + "A" * 22,                       # no separator between salt and tag
+    "akupara$2$$" + "A" * 22,                      # empty wrap salt
+    "akupara$2$" + "A" * 22 + "$",                 # empty tag
+    "akupara$2$not base64!$" + "A" * 22,           # undecodable wrap salt
+    "akupara$2$" + "A" * 22 + "$not base64!",      # undecodable tag
+    "akupara$2$" + auth._b64url_encode(b"short") + "$" + "A" * 22,  # salt is 5 bytes
+])
+def test_malformed_verifiers_never_verify(stored):
+    assert auth._verify_wrapped_password(stored, SENTINEL_HASH) is False
+
+
+def test_malformed_wrapped_verifier_is_a_wrong_password_not_a_storage_error():
+    # A corrupt verifier that still claims the peppered format is indistinguishable
+    # from a wrong password at the login form, so it must answer 401 and not 500.
+    auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
+    entry = _entry("alice1234")
+    entry["password"] = "akupara$2$" + "A" * 22 + "$not base64!"
+    env_store.write_env_var("USERS", json.dumps([entry]))
+    assert auth._authenticate_user("alice1234", SENTINEL_HASH) is None
+
+
+def test_entry_without_a_password_is_a_storage_error():
+    with pytest.raises(auth.PasswordStorageError):
+        auth._verify_stored_password({"username": "alice1234"}, SENTINEL_HASH)
+
+
+def test_a_verifier_is_bound_to_the_installation_pepper():
+    auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
+    assert auth._authenticate_user("alice1234", SENTINEL_HASH) is not None
+    # A new installation mints a fresh pepper, and the old verifier cannot be
+    # checked against it, which is why a re-setup invalidates every account.
+    _forget_installation()
+    assert auth._initialize_password_storage() == "created"
+    assert auth._authenticate_user("alice1234", SENTINEL_HASH) is None
+
+
+def test_verification_requires_the_pepper(make_user):
+    make_user("alice1234", SENTINEL_HASH)
+    auth._password_pepper_path().unlink(missing_ok=True)
+    auth._reset_password_pepper_cache()
+    with pytest.raises(auth.PasswordStorageError):
+        auth._authenticate_user("alice1234", SENTINEL_HASH)
+
+
+def test_ensure_password_pepper_reads_the_file_when_the_cache_is_empty():
+    pepper = auth._ensure_password_pepper()
+    auth._reset_password_pepper_cache()
+    assert auth._ensure_password_pepper() == pepper
+
+
+# --- browser hashing ---------------------------------------------------------
+
+def test_client_password_hash_uses_the_browser_parameters():
+    # The parameter block the browser writes into its encoded hash; the bootstrap
+    # account is only usable while the two stay identical.
+    value = auth._client_password_hash("secret", "abcdefghijklmnopqrstuv")
+    assert value.startswith("$argon2id$v=19$m=65536,t=2,p=1$YWJjZGVmZ2hpamtsbW5vcHFyc3R1dg$")
+
+
+def test_client_password_hash_depends_on_both_the_password_and_the_salt():
+    first = auth._client_password_hash("secret", "aaaaaaaaaaaaaaaaaaaaaa")
+    assert first != auth._client_password_hash("secret", "bbbbbbbbbbbbbbbbbbbbbb")
+    assert first != auth._client_password_hash("secreu", "aaaaaaaaaaaaaaaaaaaaaa")
+
+
 # --- client salts -----------------------------------------------------------
 
 def test_registration_rejects_malformed_client_salt():
     with pytest.raises(ValueError):
         auth._register_user("alice1234", SENTINEL_HASH, False, "too-short")
+
+
+def test_accepts_a_generated_client_salt():
+    assert auth._is_valid_client_salt(auth._new_client_salt()) is True
+    assert auth._is_valid_client_salt(TEST_CLIENT_SALT) is True
+
+
+@pytest.mark.parametrize("value", [
+    None,
+    "",
+    123,
+    "x" * 65,
+    "AAAA",            # decodes to 3 bytes
+    "not base64!",
+])
+def test_rejects_malformed_client_salts(value):
+    assert auth._is_valid_client_salt(value) is False
 
 
 def test_change_password_rejects_malformed_client_salt(make_user):
@@ -265,3 +356,41 @@ def test_password_change_replaces_both_the_verifier_and_the_salt(make_user):
     assert entry["client_salt"] == TEST_CLIENT_SALT
     assert auth._authenticate_user("alice1234", "$argon2id$new") is not None
     assert auth._authenticate_user("alice1234", SENTINEL_HASH) is None
+
+
+# --- stored users -----------------------------------------------------------
+#
+# ``USERS`` is operator-editable, so loading must tolerate anything it finds
+# without crashing and without inventing accounts.
+
+@pytest.mark.parametrize("raw", [
+    "{not json",
+    '{"username": "alice1234"}',
+])
+def test_loading_tolerates_a_value_that_is_not_a_list(raw):
+    env_store.write_env_var("USERS", raw)
+    assert auth._load_users() == []
+
+
+def test_loading_ignores_malformed_entries_and_duplicates():
+    env_store.write_env_var("USERS", json.dumps([
+        "not an entry",
+        {"username": "", "password": "akupara$2$salt$tag"},
+        {"username": "alice1234"},
+        {"username": "alice1234", "password": "akupara$2$salt$tag", "client_salt": TEST_CLIENT_SALT},
+        {"username": "ALICE1234", "password": "akupara$2$other$tag", "client_salt": TEST_CLIENT_SALT},
+    ]))
+    users = auth._load_users()
+    assert [user["username"] for user in users] == ["alice1234"]
+    assert users[0]["password"] == "akupara$2$salt$tag"
+
+
+def test_authentication_scans_past_other_users_and_ignores_case(make_user):
+    make_user("bob123456", SENTINEL_HASH)
+    make_user("alice1234", SENTINEL_HASH)
+    assert auth._authenticate_user("ALICE1234", SENTINEL_HASH)["username"] == "alice1234"
+
+
+def test_authentication_returns_none_for_an_unknown_username(make_user):
+    make_user("alice1234", SENTINEL_HASH)
+    assert auth._authenticate_user("nobody123", SENTINEL_HASH) is None
