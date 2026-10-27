@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+import auth
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 _GPG_AVAILABLE = shutil.which("gpg") is not None
@@ -124,6 +126,7 @@ def test_run_script(tmp_path):
             )
         try:
             _wait_for_health(port, timeout=180, proc=proc)
+            _assert_default_root_can_log_in(sandbox, port)
         except AssertionError:
             log.flush()
             print("\n----- server stdout (tail) -----")
@@ -135,6 +138,31 @@ def test_run_script(tmp_path):
             raise
         finally:
             _terminate(proc)
+
+
+def _read_users(sandbox: Path) -> list[dict]:
+    for line in (sandbox / ".env").read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("USERS="):
+            return json.loads(stripped[len("USERS="):] or "[]")
+    return []
+
+
+def _assert_default_root_can_log_in(sandbox: Path, port: int) -> None:
+    """The fresh installation must hand out a usable root account."""
+    users = _read_users(sandbox)
+    assert [user["username"] for user in users] == ["admin"], users
+    assert users[0]["root"] is True, users
+    password_hash = auth._client_password_hash("admin123", users[0]["client_salt"])
+    body = json.dumps({"username": "admin", "password_hash": password_hash})
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        conn.request("POST", "/api/login", body=body, headers={"Content-Type": "application/json"})
+        response = conn.getresponse()
+        payload = response.read()
+    finally:
+        conn.close()
+    assert response.status == 200, payload
 
 
 def _read_log_tail(path: Path, limit: int = 8000) -> str:

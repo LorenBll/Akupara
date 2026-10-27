@@ -99,6 +99,52 @@ def test_ensure_password_pepper_never_creates_a_file():
     assert not auth._password_pepper_path().exists()
 
 
+# --- bootstrap account ------------------------------------------------------
+
+def test_default_root_user_is_created_when_no_user_exists():
+    assert auth._ensure_default_root_user() is True
+    entry = _entry("admin")
+    assert entry["admin"] is True
+    assert entry["root"] is True
+    assert entry["password"].startswith("akupara$2$")
+    assert len(_users()) == 1
+
+
+def test_default_root_user_can_log_in_with_its_documented_password():
+    auth._ensure_default_root_user()
+    entry = _entry("admin")
+    client_hash = auth._client_password_hash("admin123", entry["client_salt"])
+    assert auth._authenticate_user("admin", client_hash) is not None
+
+
+def test_default_root_password_matches_the_browser_encoding():
+    # The exact string ui/js/argon2 produces for this salt. If the parameters or
+    # the salt encoding drift, the bootstrapped account stops being usable, so
+    # this value is pinned rather than recomputed.
+    assert auth._client_password_hash("admin123", "abcdefghijklmnopqrstuv") == (
+        "$argon2id$v=19$m=65536,t=2,p=1$YWJjZGVmZ2hpamtsbW5vcHFyc3R1dg"
+        "$6oKTX8+P9Rf7dEezBuVpEpwTOSocqCR+Oj/Pjf4lnPE"
+    )
+
+
+def test_default_root_user_is_not_created_when_a_user_exists(make_user):
+    make_user("alice1234", SENTINEL_HASH)
+    assert auth._ensure_default_root_user() is False
+    assert [user["username"] for user in _users()] == ["alice1234"]
+
+
+def test_default_root_user_leaves_malformed_users_untouched():
+    env_store.write_env_var("USERS", "{not json")
+    assert auth._ensure_default_root_user() is False
+    assert env_store.read_env_var("USERS") == "{not json"
+
+
+def test_default_root_user_is_not_duplicated_on_a_second_call():
+    assert auth._ensure_default_root_user() is True
+    assert auth._ensure_default_root_user() is False
+    assert len(_users()) == 1
+
+
 # --- stored verifiers -------------------------------------------------------
 
 def test_registration_stores_a_wrapped_verifier():

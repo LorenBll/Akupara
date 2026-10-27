@@ -16,6 +16,7 @@ from pathlib import Path
 
 import state
 import env_store as _env_store
+from argon2.low_level import Type as _Argon2Type, hash_secret as _argon2_hash_secret
 from logginglib import log_debug, log_error, log_info, log_warn
 from validation import _is_valid_key_name
 
@@ -271,6 +272,20 @@ _PASSWORD_PEPPER_BYTES = 32
 _PASSWORD_SALT_BYTES = 16
 _PASSWORD_PEPPER_CACHE: bytes | None = None
 
+# Argon2id parameters the browser uses (``ui/js/argon2``). The server never
+# sees a password during normal use, but the bootstrap account below has to be
+# hashed here, and the result must match the browser byte for byte.
+_PASSWORD_ARGON2_TIME_COST = 2
+_PASSWORD_ARGON2_MEMORY_COST = 65536
+_PASSWORD_ARGON2_PARALLELISM = 1
+_PASSWORD_ARGON2_HASH_LENGTH = 32
+
+# Bootstrap account created when no user is configured, so a fresh installation
+# can be logged into. Its password is public: change it immediately after the
+# first login, or delete the account once another root exists.
+_DEFAULT_ROOT_USERNAME = "admin"
+_DEFAULT_ROOT_PASSWORD = "admin123"
+
 
 def _password_pepper_path() -> Path:
     return Path(__file__).resolve().parent.parent / "resources" / "password-pepper"
@@ -449,6 +464,24 @@ def _b64url_decode(value: str) -> bytes:
     return base64.b64decode(padded, altchars=b"-_", validate=True)
 
 
+def _client_password_hash(password: str, client_salt: str) -> str:
+    """Return the encoded Argon2id hash the browser would send for *password*.
+
+    The browser passes the client salt as a string and hashes its UTF-8 bytes;
+    the encoded result is the value the login form submits, so it must match
+    byte for byte for a server-generated account to be usable.
+    """
+    return _argon2_hash_secret(
+        password.encode("utf-8"),
+        client_salt.encode("utf-8"),
+        time_cost=_PASSWORD_ARGON2_TIME_COST,
+        memory_cost=_PASSWORD_ARGON2_MEMORY_COST,
+        parallelism=_PASSWORD_ARGON2_PARALLELISM,
+        hash_len=_PASSWORD_ARGON2_HASH_LENGTH,
+        type=_Argon2Type.ID,
+    ).decode("ascii")
+
+
 def _password_tag(wrap_salt: bytes, client_hash: str) -> bytes:
     """Return the keyed tag binding *client_hash* to *wrap_salt*.
 
@@ -576,6 +609,48 @@ def _load_users() -> list[dict]:
             user["client_salt"] = client_salt.strip()
         users.append(user)
     return users
+
+
+def _users_list_is_empty() -> bool:
+    """Return whether ``USERS`` is genuinely empty (not merely unusable).
+
+    A malformed value is left untouched: replacing it with the default account
+    would silently destroy whatever the operator wrote.
+    """
+    raw = _env_store.read_env_var("USERS")
+    if not raw.strip():
+        return True
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return False
+    return isinstance(data, list) and not data
+
+
+def _ensure_default_root_user() -> bool:
+    """Create the bootstrap root account when no user is configured.
+
+    A fresh installation has an empty ``USERS`` list, so nobody could log in.
+    The account exists only to let the operator in; its password is public, so
+    it must be changed at the first login. Returns whether it was created.
+    """
+    if not _users_list_is_empty():
+        return False
+    client_salt = _new_client_salt()
+    entry = {
+        "username": _DEFAULT_ROOT_USERNAME,
+        "password": _wrap_password(_client_password_hash(_DEFAULT_ROOT_PASSWORD, client_salt)),
+        "client_salt": client_salt,
+        "admin": True,
+        "root": True,
+        "id": secrets.token_hex(16),
+    }
+    _env_store.write_env_var("USERS", json.dumps([entry], ensure_ascii=False))
+    log_warn(
+        "Default root account created",
+        {"username": _DEFAULT_ROOT_USERNAME, "hint": "change its password immediately"},
+    )
+    return True
 
 
 def _authenticate_user(username: str, password_hash: str) -> dict | None:

@@ -163,7 +163,7 @@ if state.GUI_ENABLED:
 def client(monkeypatch):
     _reset_state()
     monkeypatch.setattr(config, "_load_configuration", lambda: dict(TEST_CONFIG))
-    main._initialize_service_config()
+    main._initialize_service_config(seed_default_root=False)
     main.app.config["TESTING"] = True
     return main.app.test_client()
 

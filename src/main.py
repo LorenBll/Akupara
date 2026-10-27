@@ -29,6 +29,7 @@ for _module, _package in {
     "flask": "Flask",
     "dotenv": "python-dotenv",
     "cryptography": "cryptography",
+    "argon2": "argon2-cffi",
 }.items():
     try:
         __import__(_module)
