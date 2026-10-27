@@ -340,6 +340,16 @@ class PluginBridge:
             if computed is None:
                 log_warn("Failed to compute plugin folder hash, skipping", {"folder": folder_name})
                 continue
+            # Content binding: the signed content_hash is the authoritative digest
+            # of the release the developer actually reviewed. An entry without it,
+            # or an installed folder that does not match it, is untrusted.
+            content_hash = str(catalog_entry.get("content_hash", "")).strip()
+            if not content_hash:
+                log_warn("Plugin has no signed content hash, skipping", {"folder": folder_name, "hash": hash_value})
+                continue
+            if computed.lower() != content_hash.lower():
+                log_warn("Plugin content hash mismatch (signed), skipping", {"folder": folder_name, "computed": computed, "content_hash": content_hash})
+                continue
             stored_hash = _read_plugin_hash_file(entry)
             # If no hash file, use folder name as stored_hash for comparison
             if stored_hash is None:
@@ -639,7 +649,8 @@ def _load_plugins() -> list[dict]:
     unique case-insensitive), ``description``, ``repo`` (GitHub URL),
     ``version`` (plugin version string, e.g. ``"1.0.0"``, after ``repo``),
     ``akupara_version`` (Akupara version the plugin is for, e.g. ``"1.0.0"``,
-    after ``version``) and ``trust_mark`` (armored detached GPG signature,
+    after ``version``), ``content_hash`` (the SHA-256 content hash of the release
+    the developer reviewed) and ``trust_mark`` (armored detached GPG signature,
     ``""`` when absent). Each version change adds a **new entry** with a new
     ``hash``; division between files is still based on ``hash``.
     ``reverse_index_keys`` is **not** stored in the hash-range file — it lives
@@ -764,7 +775,13 @@ def _keys_for_hash(plugin_hash: str) -> list[str]:
 
 
 def _build_trust_data(plugin: dict) -> dict:
-    """Build canonical trust data for a plugin (hash, name, description, repo, version, akupara_version, reverse_index_keys)."""
+    """Build canonical trust data for a plugin.
+
+    Covers the plugin's identity (``hash``, ``name``, ``description``, ``repo``,
+    ``version``, ``akupara_version``), its reverse-index keys, and — crucially —
+    the ``content_hash`` of the release the developer actually reviewed, so the
+    signature binds the installed bytes, not only the metadata.
+    """
     ph = str(plugin.get("hash", "")).strip()
     return {
         "hash": ph,
@@ -773,6 +790,7 @@ def _build_trust_data(plugin: dict) -> dict:
         "repo": str(plugin.get("repo", "") or plugin.get("link", "")),
         "version": str(plugin.get("version", "")),
         "akupara_version": str(plugin.get("akupara_version", "")),
+        "content_hash": str(plugin.get("content_hash", "")).strip(),
         "reverse_index_keys": _keys_for_hash(ph),
     }
 
@@ -780,7 +798,7 @@ def _build_trust_data(plugin: dict) -> dict:
 def verify_plugin_signature(plugin: dict) -> bool:
     """Verify whether a plugin's ``trust_mark`` signature is valid.
 
-    Rebuilds the canonical JSON ``{"hash","name","description","repo","version","akupara_version","reverse_index_keys"}``
+    Rebuilds the canonical JSON ``{"hash","name","description","repo","version","akupara_version","content_hash","reverse_index_keys"}``
     (reverse keys computed live from ``reverse-index.json``), canonicalises with
     ``sort_keys=True, separators=(",", ":")``, then verifies the armored PGP
     signature over those bytes with the pinned Akupara key (``src/signing.py``).

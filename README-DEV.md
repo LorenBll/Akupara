@@ -26,7 +26,7 @@ User documentation: [README.md](README.md). Repository rules for contributors an
 
 - **API keys** — with `API_KEYS_ENABLED` on, the API Keys card generates keys and the service accepts them in the `X-Api-Key` header on the management and external-interaction endpoints (`api_key_or_admin_authenticated`). Keys exist so plugins and scripts can act without a browser session. The `.env` stores each key Fernet-encrypted under `API_KEYS`, with `API_KEY_ENCRYPTION_KEY` generated on first run; the plaintext key is shown once in the card so it can be copied.
 
-- **Signed, hash-verified plugin library** — `resources/plugins-lib/` holds the catalogue of installable plugins as hash-range JSON files (`<low>-<high>.json`) plus a `reverse-index.json` word index, and `hash` is the library's signed content hash. It exists to certify which plugin versions Akupara may run. A plugin is `{"hash","name","description","repo","version","akupara_version","trust_mark"}`, and at startup the service verifies the stored hash's PGP signature and recomputes the folder hash, so a modified or uncertified library stops the service; search it with `POST /api/plugins/search` or the Plugins page.
+- **Signed, hash-verified plugin library** — `resources/plugins-lib/` holds the catalogue of installable plugins as hash-range JSON files (`<low>-<high>.json`) plus a `reverse-index.json` word index, and `hash` is the library's signed content hash. It exists to certify which plugin versions Akupara may run. A plugin is `{"hash","name","description","repo","version","akupara_version","content_hash","trust_mark"}`, and at startup the service verifies the stored hash's PGP signature and recomputes the folder hash, so a modified or uncertified library stops the service; search it with `POST /api/plugins/search` or the Plugins page.
 
 - **Plugin discovery and upgrades** — installed plugins live in `plugins/<hash>` folders; the service verifies each folder's trust mark and content hash, compares the installed version with the plugin's GitHub releases, and offers or applies upgrades. It exists to keep installed plugins valid and current. Use the Plugins page (`Check for Updates`, `Update All`, per-row `Update` and `Delete`) or the `/api/installed-plugins*` endpoints; `dev-*` folders skip every check and load only in development mode.
 
@@ -465,7 +465,7 @@ Shared behaviour:
 - **Methods**: `GET`, `POST`, `HEAD`, `OPTIONS`. **Auth**: `admin_session_authenticated`. **Network-callable**: yes.
 - **Purpose**: search the plugin catalogue by regular expression, using the reverse index first and falling back to a full scan.
 - **Request (`GET`)**: query parameter `q`, `query` or `pattern` (the first present wins). **Request (`POST`)**: `{"query": "..."}`, also accepting `pattern` or `q`.
-- **Response**: `200 {"plugins": [{"hash": "ab12…", "name": "sample", "description": "…", "repo": "…", "version": "1.0.0", "akupara_version": "…", "trust_mark": ""}]}`
+- **Response**: `200 {"plugins": [{"hash": "ab12…", "name": "sample", "description": "…", "repo": "…", "version": "1.0.0", "akupara_version": "…", "content_hash": "…", "trust_mark": ""}]}`
 - **Errors**: `400 {"error": "Invalid request."}` for a non-string or invalid pattern; `401` unauthenticated; `403` admin required.
 
 ### `GET /api/plugin-events` and `POST /api/plugin-events`

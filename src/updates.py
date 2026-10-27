@@ -210,23 +210,19 @@ def _perform_plugins_lib_update() -> bool:
         except Exception:
             pass
         root = Path(__file__).resolve().parent.parent
+        # Never pull a tree whose hash is not signed by the currently-trusted
+        # key: verify the remote hash before fetching, so a compromised or
+        # MITM'd upstream cannot swap in a new key + re-signed hashes.
+        import plugin_bridge
+        remote_hash = plugin_bridge._fetch_remote_hash()
+        if remote_hash is None:
+            log_error("Plugin library update refused: remote hash has an invalid or missing signature", {})
+            return False
         subprocess.run(["git", "fetch", "origin"], cwd=root, capture_output=True, timeout=30)
         proc = subprocess.run(["git", "pull", "--ff-only"], cwd=root, capture_output=True, timeout=30)
         if proc.returncode != 0:
             subprocess.run(["git", "checkout", "main"], cwd=root, capture_output=True, timeout=10)
             subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=root, capture_output=True, timeout=30)
-        try:
-            import plugin_bridge
-            remote_hash = plugin_bridge._fetch_remote_hash()
-        except github_api.GithubRateLimitedError:
-            remote_hash = None
-            log_warn("GitHub rate limit while fetching remote hash after plugin library update — continuing")
-        except Exception as exc:
-            if _is_offline_error(exc):
-                remote_hash = None
-                log_warn("Offline while fetching remote hash after plugin library update — continuing", {"error": str(exc)})
-            else:
-                remote_hash = None
         log_info("Plugin library updated to latest version", {"remote_hash": remote_hash})
         return True
     except Exception as exc:
@@ -264,23 +260,18 @@ def _perform_project_update() -> bool:
         except Exception:
             pass
         root = Path(__file__).resolve().parent.parent
+        # Never pull a tree whose hash is not signed by the currently-trusted
+        # key: verify the remote release hash before fetching, so a compromised
+        # or MITM'd upstream cannot swap in a new key + re-signed hashes.
+        remote_hash = _fetch_remote_project_hash()
+        if remote_hash is None:
+            log_error("Project update refused: remote hash has an invalid or missing signature", {})
+            return False
         subprocess.run(["git", "fetch", "origin"], cwd=root, capture_output=True, timeout=30)
         proc = subprocess.run(["git", "pull", "--ff-only"], cwd=root, capture_output=True, timeout=30)
         if proc.returncode != 0:
             subprocess.run(["git", "checkout", "main"], cwd=root, capture_output=True, timeout=10)
             subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=root, capture_output=True, timeout=30)
-        try:
-            remote_hash = _fetch_remote_project_hash()
-        except github_api.GithubRateLimitedError:
-            remote_hash = None
-            log_warn("GitHub rate limit while fetching remote hash after project update — continuing")
-        except Exception as exc:
-            if _is_offline_error(exc):
-                remote_hash = None
-                log_warn("Offline while fetching remote hash after project update — continuing", {"error": str(exc)})
-            else:
-                remote_hash = None
-                log_warn("Failed to fetch remote hash after project update", {"error": str(exc)})
         log_info("Project updated to latest version", {"remote_hash": remote_hash})
         return True
     except Exception as exc:
