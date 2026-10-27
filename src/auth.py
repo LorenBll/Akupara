@@ -611,20 +611,36 @@ def _load_users() -> list[dict]:
     return users
 
 
+def _users_raw_list(raw: str) -> list:
+    """Return ``USERS`` as the list it is stored as, refusing to replace it.
+
+    A value that is not a JSON list is a configuration error, not an empty list:
+    rewriting it would silently drop whatever the operator wrote. This is the same
+    rule the bootstrap account follows, and it is why the caller must let the
+    ``PasswordStorageError`` reach the endpoint (500) instead of starting a fresh
+    list. An absent or blank value is genuinely empty and yields an empty list.
+    """
+    if not raw.strip():
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        raise PasswordStorageError("The user list is not valid JSON.") from exc
+    if not isinstance(data, list):
+        raise PasswordStorageError("The user list is not a JSON list.")
+    return data
+
+
 def _users_list_is_empty() -> bool:
     """Return whether ``USERS`` is genuinely empty (not merely unusable).
 
     A malformed value is left untouched: replacing it with the default account
     would silently destroy whatever the operator wrote.
     """
-    raw = _env_store.read_env_var("USERS")
-    if not raw.strip():
-        return True
     try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, ValueError, TypeError):
+        return not _users_raw_list(_env_store.read_env_var("USERS"))
+    except PasswordStorageError:
         return False
-    return isinstance(data, list) and not data
 
 
 def _ensure_default_root_user() -> bool:
@@ -745,13 +761,7 @@ def _register_user(username: str, password_hash: str, admin: bool, client_salt: 
     for user in _load_users():
         if username_key == user["username"].casefold():
             raise UsernameTakenError("A user with that username already exists.")
-    raw = _env_store.read_env_var("USERS")
-    try:
-        data = json.loads(raw) if raw else []
-    except (json.JSONDecodeError, ValueError, TypeError):
-        data = []
-    if not isinstance(data, list):
-        data = []
+    data = _users_raw_list(_env_store.read_env_var("USERS"))
     data.append({
         "username": username,
         "password": _wrap_password(password_hash),

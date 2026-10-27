@@ -1,8 +1,11 @@
 """Unit tests for user management in the auth layer."""
 
+import json
+
 import pytest
 
 import auth
+import env_store
 import state
 
 from conftest import SENTINEL_HASH, TEST_CLIENT_SALT
@@ -42,6 +45,38 @@ def test_register_user_generates_secret_id():
     auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
     user = next(u for u in auth._load_users() if u["username"] == "alice1234")
     assert user["id"]
+
+
+def test_register_user_refuses_to_replace_a_malformed_user_list():
+    # A malformed USERS value must survive a registration attempt: starting a fresh
+    # list instead would silently destroy whatever the operator wrote.
+    env_store.write_env_var("USERS", "not json")
+    with pytest.raises(auth.PasswordStorageError):
+        auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
+    assert env_store.read_env_var("USERS") == "not json"
+
+
+def test_register_user_refuses_a_user_list_that_is_not_a_json_list():
+    env_store.write_env_var("USERS", '{"username": "alice1234"}')
+    with pytest.raises(auth.PasswordStorageError):
+        auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
+    assert env_store.read_env_var("USERS") == '{"username": "alice1234"}'
+
+
+def test_register_user_appends_to_a_list_that_holds_a_malformed_entry():
+    # A malformed *entry* is not a malformed list: the entry is preserved and the
+    # new account is appended beside it.
+    env_store.write_env_var("USERS", json.dumps([{"username": "broken"}]))
+    auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
+    stored = json.loads(env_store.read_env_var("USERS"))
+    assert {"username": "broken"} in stored
+    assert any(entry.get("username") == "alice1234" for entry in stored)
+
+
+def test_register_user_accepts_an_absent_user_list():
+    env_store.write_env_var("USERS", "")
+    auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
+    assert [user["username"] for user in auth._load_users()] == ["alice1234"]
 
 
 def test_authenticate_user_case_insensitive(make_user):

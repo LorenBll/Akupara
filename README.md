@@ -58,7 +58,7 @@ Start the service:
 
 Both scripts check for Python 3.10+, create or reuse `.venv`, install `requirements.txt`, and start `src/main.py`. Without `--debug` the service starts in the background with no console output; with `--debug` it runs in the foreground and writes a short trace of its progress.
 
-A start with no `resources/installation.json` is a new installation: it creates or rotates the pepper and records the marker. A start that finds the marker but no usable pepper logs the reason, plays the error sound and exits without serving. A start whose `USERS` list is empty creates the default root account `admin` with the password `admin123`; a value that is not a valid JSON list is left untouched, and logins are refused while no usable user exists.
+A start with no `resources/installation.json` is a new installation: it creates or rotates the pepper and records the marker. A start that finds the marker but no usable pepper logs the reason, plays the error sound and exits without serving. A start whose `USERS` list is empty creates the default root account `admin` with the password `admin123`; a value that is not a valid JSON list is left untouched, and logins are refused while no usable user exists. Registering a user is refused for the same reason instead of replacing that value.
 
 To start it directly, run `python src/main.py` from the project root.
 
