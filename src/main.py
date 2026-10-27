@@ -1897,6 +1897,17 @@ if __name__ == "__main__":
     try:
         _initialize_service_config()
         _register_ui_routes(app)
+    except PasswordStorageError as exc:
+        log_error("Password storage check failed — not starting", {"error": str(exc)})
+        try:
+            audio.get_audio_orchestrator().start()
+        except Exception:
+            pass
+        try:
+            audio.play_sound("error")
+        except Exception:
+            pass
+        exit(1)
     except Exception as exc:
         log_error("Failed to load configuration", {"error": str(exc), "traceback": _format_exc()})
         exit(1)

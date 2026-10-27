@@ -122,10 +122,20 @@ def _isolate_env(tmp_path_factory, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_password_pepper(tmp_path_factory, monkeypatch):
-    """Keep the real ``resources/password-pepper`` out of the test run."""
-    pepper_file = tmp_path_factory.mktemp("pepper") / "password-pepper"
+    """Give every test its own settled installation, away from the real resources.
+
+    The real ``resources/password-pepper`` and ``resources/installation.json``
+    must never be touched, and most tests need a usable pepper, so the fixture
+    initialises one in a temporary directory. The pepper-policy tests reset that
+    state to exercise a new or a pepper-less installation.
+    """
+    resource_dir = tmp_path_factory.mktemp("pepper")
+    pepper_file = resource_dir / "password-pepper"
+    marker_file = resource_dir / "installation.json"
     monkeypatch.setattr(auth, "_password_pepper_path", lambda: pepper_file)
+    monkeypatch.setattr(auth, "_installation_marker_path", lambda: marker_file)
     auth._reset_password_pepper_cache()
+    auth._initialize_password_storage()
     yield pepper_file
     auth._reset_password_pepper_cache()
 

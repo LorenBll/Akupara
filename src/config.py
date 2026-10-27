@@ -44,22 +44,22 @@ def _initialize_service_config() -> None:
 
     # Local imports for auth helpers to avoid circular imports at module load
     from auth import (
-        PasswordStorageError,
-        _ensure_password_pepper,
+        _initialize_password_storage,
         _load_api_keys,
         _login_credentials_configured,
+        _password_pepper_path,
         _refresh_api_key_store,
     )
 
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
     config = _load_configuration()
 
-    # The pepper protects the stored password verifiers; create it on first run
-    # and fail loudly (without crashing) when it is missing or malformed.
-    try:
-        _ensure_password_pepper()
-    except PasswordStorageError as exc:
-        log_error("Password storage unavailable", {"error": str(exc)})
+    # The pepper is scoped to this installation: a new installation mints its
+    # own, and one that has already run must find the one it minted. A failure
+    # here is fatal (the caller stops the process), because without the pepper
+    # no stored password can be verified.
+    pepper_action = _initialize_password_storage()
+    log_info("Password storage initialised", {"action": pepper_action, "path": str(_password_pepper_path())})
 
     configured_port = config.get("port", 49150)
     if isinstance(configured_port, str) and configured_port.isdigit():

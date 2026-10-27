@@ -21,26 +21,82 @@ def _entry(username: str) -> dict:
 
 
 # --- pepper -----------------------------------------------------------------
+#
+# The pepper belongs to one installation, and an installation is one setup run.
+# ``resources/installation.json`` records that the installation has run; the
+# setup scripts delete it, so the next start counts as a new installation.
+#   * no pepper  + new installation        -> create
+#   * no pepper  + installation has run    -> error (the process must not start)
+#   * pepper     + new installation        -> rotate
+#   * pepper     + installation has run    -> keep
 
-def test_pepper_created_with_32_bytes():
-    pepper = auth._ensure_password_pepper()
-    assert len(pepper) == 32
-    path = auth._password_pepper_path()
-    assert path.is_file()
-    assert len(base64.b64decode(path.read_text(encoding="utf-8").strip(), validate=True)) == 32
+def _pepper_bytes() -> bytes:
+    raw = auth._password_pepper_path().read_text(encoding="utf-8").strip()
+    return base64.b64decode(raw, validate=True)
 
 
-def test_pepper_is_stable_across_calls():
+def _forget_installation() -> None:
+    """Turn the per-test installation back into one that has never run."""
+    auth._password_pepper_path().unlink(missing_ok=True)
+    auth._installation_marker_path().unlink(missing_ok=True)
+    auth._reset_password_pepper_cache()
+
+
+def test_new_installation_creates_a_pepper():
+    _forget_installation()
+    assert auth._initialize_password_storage() == "created"
+    assert auth._password_pepper_path().is_file()
+    assert len(_pepper_bytes()) == 32
+    assert auth._installation_marker_path().is_file()
+
+
+def test_new_installation_rotates_a_pepper_left_by_a_previous_installation():
+    _forget_installation()
+    previous = base64.b64encode(b"p" * 32).decode("ascii")
+    auth._password_pepper_path().write_text(previous + "\n", encoding="utf-8")
+    assert auth._initialize_password_storage() == "rotated"
+    assert _pepper_bytes() != base64.b64decode(previous)
+    assert auth._installation_marker_path().is_file()
+
+
+def test_existing_installation_keeps_its_pepper():
     first = auth._ensure_password_pepper()
     auth._reset_password_pepper_cache()
+    assert auth._initialize_password_storage() == "kept"
     assert auth._ensure_password_pepper() == first
 
 
-def test_invalid_pepper_fails_closed():
+def test_existing_installation_without_a_pepper_fails():
+    auth._password_pepper_path().unlink(missing_ok=True)
+    auth._reset_password_pepper_cache()
+    with pytest.raises(auth.PasswordStorageError):
+        auth._initialize_password_storage()
+    assert not auth._password_pepper_path().exists()
+
+
+def test_existing_installation_with_a_malformed_pepper_fails():
     auth._password_pepper_path().write_text("not base64!", encoding="utf-8")
     auth._reset_password_pepper_cache()
     with pytest.raises(auth.PasswordStorageError):
+        auth._initialize_password_storage()
+    # The malformed pepper is not silently replaced: the installation has run,
+    # so its stored password verifiers depend on whatever this file should hold.
+    assert auth._password_pepper_path().read_text(encoding="utf-8") == "not base64!"
+
+
+def test_initialisation_is_idempotent_within_one_installation():
+    pepper = auth._ensure_password_pepper()
+    for _ in range(3):
+        assert auth._initialize_password_storage() == "kept"
+        assert auth._ensure_password_pepper() == pepper
+
+
+def test_ensure_password_pepper_never_creates_a_file():
+    # Minting is the startup policy's job; a missing pepper here is an error.
+    _forget_installation()
+    with pytest.raises(auth.PasswordStorageError):
         auth._ensure_password_pepper()
+    assert not auth._password_pepper_path().exists()
 
 
 # --- stored verifiers -------------------------------------------------------

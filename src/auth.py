@@ -11,6 +11,7 @@ import json
 import os
 import secrets
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import state
@@ -255,6 +256,11 @@ def log_change(func):
 # Each account stores its own random client salt (``USERS[].client_salt``), so
 # the salt is unique per account and survives a rename unchanged.
 #
+# The pepper is scoped to one installation, and an installation is one setup
+# run: ``resources/installation.json`` marks that it has started and the setup
+# scripts delete it, so the next start counts as a new installation and rotates
+# the pepper. See :func:`_initialize_password_storage` for the four cases.
+#
 # The peppered format is the only one accepted. A ``USERS`` entry that still
 # holds a raw Argon2id hash, or that lacks a client salt, is unusable: the
 # stored password must be regenerated with ``scripts/generate-password-hash.js``.
@@ -268,6 +274,19 @@ _PASSWORD_PEPPER_CACHE: bytes | None = None
 
 def _password_pepper_path() -> Path:
     return Path(__file__).resolve().parent.parent / "resources" / "password-pepper"
+
+
+def _installation_marker_path() -> Path:
+    """Return the file recording that this installation has already run.
+
+    It is written when the installation is first prepared — by its first start
+    or by ``scripts/generate-password-hash.js`` — and removed by
+    ``setup.bat``/``setup.sh``, because one installation corresponds to one
+    setup run. Its presence is what separates a fresh installation, which mints
+    its own pepper, from one that has run before, which must find the pepper it
+    minted.
+    """
+    return Path(__file__).resolve().parent.parent / "resources" / "installation.json"
 
 
 def _reset_password_pepper_cache() -> None:
@@ -286,42 +305,26 @@ def _decode_password_pepper(raw: str) -> bytes:
     return pepper
 
 
-def _ensure_password_pepper() -> bytes:
-    """Return the server-side pepper, creating ``resources/password-pepper`` on first use.
-
-    The pepper is deliberately kept outside ``.env``: the stored verifiers live
-    in ``.env``, and a pepper stored beside them would not protect anything. It
-    is generated once, created with owner-only permissions where the platform
-    supports them, and must be backed up — losing it makes every stored
-    password unusable.
-    """
-    global _PASSWORD_PEPPER_CACHE
-    if _PASSWORD_PEPPER_CACHE is not None:
-        return _PASSWORD_PEPPER_CACHE
+def _read_password_pepper() -> bytes | None:
+    """Return the stored pepper, or ``None`` when there is no pepper file."""
     path = _password_pepper_path()
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        raw = ""
+        return None
     except (OSError, UnicodeDecodeError) as exc:
         raise PasswordStorageError("The password pepper cannot be read.") from exc
-    if raw.strip():
-        _PASSWORD_PEPPER_CACHE = _decode_password_pepper(raw)
-        return _PASSWORD_PEPPER_CACHE
-    if path.exists():
+    if not raw.strip():
         raise PasswordStorageError("The password pepper is empty.")
-    secret = secrets.token_bytes(_PASSWORD_PEPPER_BYTES)
+    return _decode_password_pepper(raw)
+
+
+def _write_password_pepper(secret: bytes) -> None:
+    """Store *secret* as this installation's pepper, replacing any existing file."""
+    path = _password_pepper_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        # Another process won the race: use the pepper it created.
-        try:
-            raw = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            raise PasswordStorageError("The password pepper cannot be read.") from exc
-        _PASSWORD_PEPPER_CACHE = _decode_password_pepper(raw)
-        return _PASSWORD_PEPPER_CACHE
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     except OSError as exc:
         raise PasswordStorageError("The password pepper cannot be created.") from exc
     try:
@@ -337,9 +340,72 @@ def _ensure_password_pepper() -> bytes:
         os.chmod(str(path), 0o600)
     except OSError:
         pass
-    _PASSWORD_PEPPER_CACHE = secret
-    log_info("Password pepper generated", {"path": str(path)})
-    return secret
+
+
+def _installation_has_run() -> bool:
+    return _installation_marker_path().exists()
+
+
+def _mark_installation_started() -> None:
+    """Record that this installation has run, so its pepper may never vanish."""
+    path = _installation_marker_path()
+    if path.exists():
+        return
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"started": started}) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise PasswordStorageError("The installation marker cannot be written.") from exc
+
+
+def _initialize_password_storage() -> str:
+    """Apply the installation-scoped pepper policy and say what happened.
+
+    The pepper belongs to one installation — the tree produced by one setup run
+    — so a stored verifier is only meaningful to the installation that minted
+    it. A new installation therefore mints a fresh pepper and replaces any
+    pepper it finds, which can only belong to a previous installation. An
+    installation that has already run must find its own pepper: without it no
+    stored password can be verified, so the caller must not start.
+
+    Returns ``"created"``, ``"rotated"`` or ``"kept"``, and raises
+    ``PasswordStorageError`` when the pepper is missing or unusable on an
+    installation that has already run.
+    """
+    global _PASSWORD_PEPPER_CACHE
+    if not _installation_has_run():
+        # New installation: whatever pepper is present is not ours.
+        already_present = _password_pepper_path().exists()
+        secret = secrets.token_bytes(_PASSWORD_PEPPER_BYTES)
+        _write_password_pepper(secret)
+        _PASSWORD_PEPPER_CACHE = secret
+        _mark_installation_started()
+        return "rotated" if already_present else "created"
+    stored = _read_password_pepper()
+    if stored is None:
+        raise PasswordStorageError(
+            "The password pepper is missing on an installation that has already run; "
+            "no stored password can be verified."
+        )
+    _PASSWORD_PEPPER_CACHE = stored
+    return "kept"
+
+
+def _ensure_password_pepper() -> bytes:
+    """Return this installation's pepper, loading it once.
+
+    Minting a pepper is the startup policy's job (:func:`_initialize_password_storage`),
+    so a missing file here is an error rather than something to create.
+    """
+    global _PASSWORD_PEPPER_CACHE
+    if _PASSWORD_PEPPER_CACHE is not None:
+        return _PASSWORD_PEPPER_CACHE
+    stored = _read_password_pepper()
+    if stored is None:
+        raise PasswordStorageError("The password pepper is missing.")
+    _PASSWORD_PEPPER_CACHE = stored
+    return stored
 
 
 def _derive_decoy_salt(username: str) -> str:

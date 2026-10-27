@@ -72,6 +72,9 @@ def _make_sandbox(tmp_path: Path, port: int) -> Path:
 
 def test_setup_script(tmp_path):
     sandbox = _make_sandbox(tmp_path, _free_port())
+    # A setup run starts a new installation, so an existing marker must go.
+    marker = sandbox / "resources" / "installation.json"
+    marker.write_text('{"started": "2020-01-01T00:00:00Z"}\n', encoding="utf-8")
     if os.name == "nt":
         proc = subprocess.run(
             ["cmd", "/c", "setup.bat"],
@@ -92,6 +95,7 @@ def test_setup_script(tmp_path):
         proc.stdout.decode(errors="replace") + "\n" + proc.stderr.decode(errors="replace")
     )
     assert (sandbox / ".venv").exists()
+    assert not marker.exists()
 
 
 @pytest.mark.skipif(not (_GPG_AVAILABLE and _GIT_AVAILABLE), reason="requires gpg and git")

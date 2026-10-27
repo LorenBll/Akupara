@@ -40,6 +40,9 @@ nohup.out
 # Password-store pepper (generated on first run; never commit)
 resources/password-pepper
 
+# Installation marker (written on first start, deleted by the setup scripts)
+resources/installation.json
+
 # Testing
 .pytest_cache/
 .coverage

@@ -30,6 +30,10 @@ def _should_exclude_from_project_hash(rel: str) -> bool:
     # first run, never shipped, so it must not affect the released hash.
     if rel == "resources/password-pepper":
         return True
+    # Installation marker: written on first start, deleted by the setup scripts,
+    # so it also belongs to one installation and not to the released tree.
+    if rel == "resources/installation.json":
+        return True
     if rel.startswith("resources/plugins-lib/"):
         return True
     if rel.startswith("resources/audios/"):

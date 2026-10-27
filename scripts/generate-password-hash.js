@@ -31,35 +31,19 @@ const WRAP_SALT_BYTES = 16;
 const PEPPER_BYTES = 32;
 const WRAP_PREFIX = 'akupara$2$';
 const PEPPER_PATH = path.join(__dirname, '..', 'resources', 'password-pepper');
+const MARKER_PATH = path.join(__dirname, '..', 'resources', 'installation.json');
 
 function base64url(buffer) {
     return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function createPepper() {
-    fs.mkdirSync(path.dirname(PEPPER_PATH), { recursive: true });
-    const secret = crypto.randomBytes(PEPPER_BYTES);
-    try {
-        fs.writeFileSync(PEPPER_PATH, secret.toString('base64') + '\n', { flag: 'wx', mode: 0o600 });
-    } catch (error) {
-        if (error.code === 'EEXIST') {
-            // Another process created the pepper first: use that one.
-            return loadPepper();
-        }
-        throw error;
-    }
-    console.error('Created the password pepper at ' + PEPPER_PATH + '.');
-    console.error('Back it up and keep it out of version control: without it no stored password can be verified.');
-    return secret;
-}
-
-function loadPepper() {
+function readPepper() {
     let raw;
     try {
         raw = fs.readFileSync(PEPPER_PATH, 'utf8').trim();
     } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-        return createPepper();
+        if (error.code === 'ENOENT') return null;
+        throw error;
     }
     if (!raw) throw new Error('The password pepper at ' + PEPPER_PATH + ' is empty.');
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(raw) || raw.length % 4 !== 0) {
@@ -72,7 +56,65 @@ function loadPepper() {
     return pepper;
 }
 
-function wrapVerifier(clientHash) {
+function writePepper(secret) {
+    fs.mkdirSync(path.dirname(PEPPER_PATH), { recursive: true });
+    fs.writeFileSync(PEPPER_PATH, secret.toString('base64') + '\n', { mode: 0o600 });
+    try {
+        fs.chmodSync(PEPPER_PATH, 0o600);
+    } catch (error) {
+        // Not every platform supports POSIX permissions.
+    }
+}
+
+function installationHasRun() {
+    return fs.existsSync(MARKER_PATH);
+}
+
+function markInstallationStarted() {
+    if (installationHasRun()) return;
+    fs.mkdirSync(path.dirname(MARKER_PATH), { recursive: true });
+    const started = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    fs.writeFileSync(MARKER_PATH, JSON.stringify({ started }) + '\n');
+}
+
+// The pepper belongs to one installation, and an installation is one setup run.
+// The rules mirror src/auth.py so an entry generated before the first start and
+// one generated after it are both valid for the same installation:
+//   * no pepper  + new installation        -> create
+//   * no pepper  + installation has run    -> error
+//   * pepper     + new installation        -> rotate
+//   * pepper     + installation has run    -> keep
+function initializePepper() {
+    if (!installationHasRun()) {
+        const replaced = fs.existsSync(PEPPER_PATH);
+        const secret = crypto.randomBytes(PEPPER_BYTES);
+        writePepper(secret);
+        // The generator counts as preparing this installation: writing the
+        // marker keeps the first server start from rotating the pepper the new
+        // USERS entries were computed with.
+        markInstallationStarted();
+        if (replaced) {
+            console.error('Replaced the password pepper at ' + PEPPER_PATH + '.');
+            console.error('This is a new installation, so the previous pepper and its USERS');
+            console.error('entries no longer apply: regenerate every entry with this script.');
+        } else {
+            console.error('Created the password pepper at ' + PEPPER_PATH + '.');
+            console.error('Back it up and keep it out of version control: without it no stored password can be verified.');
+        }
+        return secret;
+    }
+    const secret = readPepper();
+    if (secret === null) {
+        throw new Error(
+            'The password pepper at ' + PEPPER_PATH + ' is missing, but this installation has already run. ' +
+            'No stored password can be verified without it: restore it from a backup, or run the setup script ' +
+            'again to start a new installation, which invalidates every existing USERS entry.'
+        );
+    }
+    return secret;
+}
+
+function wrapVerifier(clientHash, pepper) {
     const wrapSalt = crypto.randomBytes(WRAP_SALT_BYTES);
     const message = Buffer.concat([
         Buffer.from('akupara/users/v2\0', 'utf8'),
@@ -80,7 +122,7 @@ function wrapVerifier(clientHash) {
         Buffer.from('\0', 'utf8'),
         Buffer.from(clientHash, 'utf8'),
     ]);
-    const tag = crypto.createHmac('sha256', loadPepper()).update(message).digest();
+    const tag = crypto.createHmac('sha256', pepper).update(message).digest();
     return WRAP_PREFIX + base64url(wrapSalt) + '$' + base64url(tag);
 }
 
@@ -90,6 +132,14 @@ if (!username || !password) {
     console.error('Usage: node generate-password-hash.js <username> <password>');
     console.error('Prints a USERS entry for .env; set admin and root before pasting it.');
     console.error('Every USERS entry must be generated this way: raw Argon2id hashes are no longer accepted.');
+    process.exit(1);
+}
+
+let pepper;
+try {
+    pepper = initializePepper();
+} catch (error) {
+    console.error(error.message || error);
     process.exit(1);
 }
 
@@ -107,7 +157,7 @@ argon2.hash({
     .then((result) => {
         const entry = {
             username,
-            password: wrapVerifier(result.encoded),
+            password: wrapVerifier(result.encoded, pepper),
             client_salt: clientSalt,
             admin: false,
             root: false,
