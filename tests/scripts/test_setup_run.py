@@ -4,10 +4,8 @@ These tests never touch the developer's real ``.env``, ``logs/``, ``.venv``,
 ``resources/configuration.json`` or installed plugins: the project is copied to
 a temporary directory and operated on there.
 
-The run test additionally requires ``gpg`` (the shipped ``hash`` files are
-PGP-signed and ``src/main.py`` refuses to start without verification) and a git
-checkout (``git ls-files`` drives the project-integrity check). It is skipped
-automatically where those are unavailable.
+The run test additionally requires a git checkout (``git ls-files`` drives the
+project-integrity check). It is skipped automatically where git is unavailable.
 """
 
 import http.client
@@ -26,7 +24,6 @@ import auth
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-_GPG_AVAILABLE = shutil.which("gpg") is not None
 _GIT_AVAILABLE = shutil.which("git") is not None
 
 
@@ -100,7 +97,7 @@ def test_setup_script(tmp_path):
     assert not marker.exists()
 
 
-@pytest.mark.skipif(not (_GPG_AVAILABLE and _GIT_AVAILABLE), reason="requires gpg and git")
+@pytest.mark.skipif(not _GIT_AVAILABLE, reason="requires git")
 def test_run_script(tmp_path):
     port = _free_port()
     sandbox = _make_sandbox(tmp_path, port)
