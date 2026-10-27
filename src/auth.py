@@ -254,10 +254,13 @@ def log_change(func):
 # be attacked offline and its values cannot be replayed at the login endpoint.
 # Each account stores its own random client salt (``USERS[].client_salt``), so
 # the salt is unique per account and survives a rename unchanged.
+#
+# The peppered format is the only one accepted. A ``USERS`` entry that still
+# holds a raw Argon2id hash, or that lacks a client salt, is unusable: the
+# stored password must be regenerated with ``scripts/generate-password-hash.js``.
 # ---------------------------------------------------------------------------
 
 _PASSWORD_WRAP_PREFIX = "akupara$2$"
-_PASSWORD_LEGACY_SALT = "akupara-salt"
 _PASSWORD_PEPPER_BYTES = 32
 _PASSWORD_SALT_BYTES = 16
 _PASSWORD_PEPPER_CACHE: bytes | None = None
@@ -420,15 +423,18 @@ def _verify_wrapped_password(stored: str, client_hash: str) -> bool:
 
 
 def _verify_stored_password(entry: dict, client_hash: str) -> bool:
-    """Return whether *client_hash* matches the verifier stored in *entry*."""
+    """Return whether *client_hash* matches the verifier stored in *entry*.
+
+    Only the peppered format is accepted. An entry left in the old raw-hash
+    format is a configuration error rather than a rejected password, so it is
+    reported instead of looking like a wrong password at the login form.
+    """
     stored = entry.get("password")
     if not isinstance(stored, str) or not stored:
-        return False
-    if _is_wrapped_password(stored):
-        return _verify_wrapped_password(stored, client_hash)
-    # Legacy entries stored the client hash itself; still accepted so existing
-    # accounts keep working, then upgraded by ``_upgrade_password_storage``.
-    return hmac.compare_digest(client_hash, stored)
+        raise PasswordStorageError("The stored password verifier is missing.")
+    if not _is_wrapped_password(stored):
+        raise PasswordStorageError("The stored password verifier is not in the supported format.")
+    return _verify_wrapped_password(stored, client_hash)
 
 
 def _password_client_salt(entry: dict | None, username: str) -> str:
@@ -436,10 +442,9 @@ def _password_client_salt(entry: dict | None, username: str) -> str:
     if entry is None:
         return _derive_decoy_salt(username)
     stored_salt = entry.get("client_salt")
-    if isinstance(stored_salt, str) and stored_salt:
-        return stored_salt
-    # Accounts that predate per-account salts used one fixed, public salt.
-    return _PASSWORD_LEGACY_SALT
+    if not _is_valid_client_salt(stored_salt):
+        raise PasswordStorageError("The stored client salt is missing or malformed.")
+    return stored_salt
 
 
 def _password_salts_for_username(username: str) -> dict:
@@ -449,9 +454,7 @@ def _password_salts_for_username(username: str) -> dict:
     a new one and is then stored with the account (never derived from the
     username, so renaming an account does not invalidate its password). ``salt``
     is stable for every username — a decoy is returned for unknown accounts — so
-    the response does not reveal whether an account exists on the current scheme.
-    An account still on the legacy fixed salt must report that salt, so it is
-    distinguishable until its next password change.
+    the response does not reveal whether an account exists.
     """
     username_key = str(username).casefold()
     entry = next((user for user in _load_users() if user["username"].casefold() == username_key), None)
@@ -459,25 +462,6 @@ def _password_salts_for_username(username: str) -> dict:
         "salt": _password_client_salt(entry, username),
         "newSalt": _new_client_salt(),
     }
-
-
-def _upgrade_password_storage(entry: dict, client_hash: str) -> None:
-    """Re-wrap a legacy verifier after a successful login (transparent migration)."""
-    if _is_wrapped_password(entry.get("password")):
-        return
-    try:
-        upgraded = _set_user_password_env(
-            entry["username"],
-            _wrap_password(client_hash),
-            client_salt=_PASSWORD_LEGACY_SALT,
-        )
-    except (PasswordStorageError, OSError, ValueError) as exc:
-        log_error("Password verifier upgrade failed", {"username": entry["username"], "error": str(exc)})
-        return
-    if upgraded:
-        log_info("Password verifier upgraded", {"username": entry["username"]})
-    else:
-        log_warn("Password verifier upgrade skipped", {"username": entry["username"]})
 
 
 # ---------------------------------------------------------------------------
@@ -520,8 +504,7 @@ def _load_users() -> list[dict]:
             "root": bool(entry.get("root", False)),
             "id": str(entry.get("id") or ""),
         }
-        # Only accounts migrated from the legacy fixed salt carry this marker;
-        # all other accounts derive their salt from the pepper and username.
+        # Every account carries the salt its password was stretched with.
         client_salt = entry.get("client_salt")
         if isinstance(client_salt, str) and client_salt.strip():
             user["client_salt"] = client_salt.strip()
@@ -536,7 +519,6 @@ def _authenticate_user(username: str, password_hash: str) -> dict | None:
             continue
         if not _verify_stored_password(user, password_hash):
             return None
-        _upgrade_password_storage(user, password_hash)
         return {"username": user["username"], "admin": user["admin"], "root": user["root"]}
     return None
 
@@ -561,7 +543,9 @@ def _matching_stored_passwords(username: str) -> list[dict]:
     return [user for user in _load_users() if username_key == user["username"].casefold()]
 
 
-def _set_user_password_env(username: str, new_password_hash: str, client_salt: str | None = None) -> bool:
+def _set_user_password_env(username: str, new_password_hash: str, client_salt: str) -> bool:
+    if not _is_valid_client_salt(client_salt):
+        raise ValueError("Invalid client salt.")
     raw = _env_store.read_env_var("USERS")
     if not raw:
         return False
@@ -578,12 +562,7 @@ def _set_user_password_env(username: str, new_password_hash: str, client_salt: s
         entry_username = entry.get("username")
         if isinstance(entry_username, str) and entry_username.casefold() == username_key:
             entry["password"] = new_password_hash
-            # A new password always uses the derived per-user salt; only the
-            # legacy-migration path pins the old fixed salt.
-            if client_salt:
-                entry["client_salt"] = client_salt
-            else:
-                entry.pop("client_salt", None)
+            entry["client_salt"] = client_salt
             _env_store.write_env_var("USERS", json.dumps(data, ensure_ascii=False))
             return True
     return False

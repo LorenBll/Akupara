@@ -1,4 +1,4 @@
-# Akupara
+﻿# Akupara
 
 Akupara is a local-first web service with a browser UI, user, session and API-key authentication, a signed and hash-verified plugin library, internal and external plugin interactions, audio feedback, and update and integrity checks.
 
@@ -22,7 +22,7 @@ User documentation: [README.md](README.md). Repository rules for contributors an
 
 - **Local-first service with a browser UI** — the service binds to `127.0.0.1` on the port in `resources/configuration.json` and serves a single-page UI whose navigation switches between the home, settings and plugins pages. It exists so the service is reachable only from the device that runs it. Start it (see [Run](#run)) and open `http://127.0.0.1:<port>/` in a browser; every page except the login page and the static assets requires a session, and a protected `/api/*` endpoint without a session returns `401` so the frontend redirects to `/login`.
 
-- **Accounts, sessions and roles** — login credentials live in the `USERS` `.env` variable as peppered verifiers: the browser stretches the password with Argon2id using a per-account salt (`m=65536, t=2, p=1`) and the server stores only `akupara$2$<salt>$<tag>`, an HMAC-SHA256 tag keyed by `resources/password-pepper`, so a leaked `.env` cannot be attacked offline and its contents cannot be replayed at `/api/login`; existing accounts upgrade transparently on their next login. A successful login issues a sliding `akupara-refresh` cookie (renewed on every authenticated response; 15 minutes of validity) whose session is held server-side per user, so several users can be logged in at the same time. It exists to keep the service restricted to known users. Log in at `/login`, and manage the accounts from the Users card: register a user, rename it, switch it between Standard and Admin, or delete it; a user marked `"root": true` in `.env` cannot lose admin status or be deleted, and only the root account may rename itself. A standard user may view the settings page but not administer it.
+- **Accounts, sessions and roles** — login credentials live in the `USERS` `.env` variable as peppered verifiers: the browser stretches the password with Argon2id using a per-account salt (`m=65536, t=2, p=1`) and the server stores only `akupara$2$<salt>$<tag>`, an HMAC-SHA256 tag keyed by `resources/password-pepper`, so a leaked `.env` cannot be attacked offline and its contents cannot be replayed at `/api/login`; an entry that is not in this format is refused, so every account must be generated with `scripts/generate-password-hash.js`. A successful login issues a sliding `akupara-refresh` cookie (renewed on every authenticated response; 15 minutes of validity) whose session is held server-side per user, so several users can be logged in at the same time. It exists to keep the service restricted to known users. Log in at `/login`, and manage the accounts from the Users card: register a user, rename it, switch it between Standard and Admin, or delete it; a user marked `"root": true` in `.env` cannot lose admin status or be deleted, and only the root account may rename itself. A standard user may view the settings page but not administer it.
 
 - **API keys** — with `API_KEYS_ENABLED` on, the API Keys card generates keys and the service accepts them in the `X-Api-Key` header on the management and external-interaction endpoints (`api_key_or_admin_authenticated`). Keys exist so plugins and scripts can act without a browser session. The `.env` stores each key Fernet-encrypted under `API_KEYS`, with `API_KEY_ENCRYPTION_KEY` generated on first run; the plaintext key is shown once in the card so it can be copied.
 
@@ -140,22 +140,22 @@ Shared behaviour:
 - **Methods**: `POST`, `OPTIONS`. **Auth**: none. **Network-callable**: yes.
 - **Purpose**: return the Argon2id salts the browser needs to hash a password, so each account can use its own salt without storing anything client-side. It is unauthenticated because the login page needs it before a session exists.
 - **Request**: `{"username": "alice"}`.
-- **Response**: `200 {"salt": "<22-character base64url>", "newSalt": "<22-character base64url>"}`. `salt` hashes the current password and is stable for a given username; an unknown username receives a stable pepper-derived decoy, so the response does not reveal whether an account exists. `newSalt` is fresh on every call and must be sent as `new_client_salt` with a password change or as `client_salt` with a registration. A legacy account (created before per-account salts) reports `"salt": "akupara-salt"` until a password change gives it a unique salt.
+- **Response**: `200 {"salt": "<22-character base64url>", "newSalt": "<22-character base64url>"}`. `salt` hashes the current password and is stable for a given username; an unknown username receives a stable pepper-derived decoy, so the response does not reveal whether an account exists. `newSalt` is fresh on every call and must be sent as `new_client_salt` with a password change or as `client_salt` with a registration.
 - **Errors**:
   - `400 {"error": "Invalid request."}` when `username` is missing, empty or not a string.
-  - `500 {"error": "Password storage is unavailable."}` when the pepper is missing, empty or malformed.
+  - `500 {"error": "Password storage is unavailable."}` when the pepper is unusable, or when the account has no valid `client_salt`.
 
 ### `POST /api/login`
 
 - **Methods**: `POST`, `OPTIONS`. **Auth**: none. **Network-callable**: yes.
 - **Purpose**: authenticate a user and issue the `akupara-refresh` session cookie.
 - **Request**: `{"username": "alice", "password_hash": "$argon2id$..."}`. The hash must be computed by the browser with the `salt` returned by `POST /api/password-salt`.
-- **Response**: `200 {"status": "ok"}` and a `Set-Cookie: akupara-refresh=<token>; HttpOnly; SameSite=Lax; Max-Age=900; Path=/`. A successful login resets the consecutive failed-login counter and re-wraps a legacy verifier in place.
+- **Response**: `200 {"status": "ok"}` and a `Set-Cookie: akupara-refresh=<token>; HttpOnly; SameSite=Lax; Max-Age=900; Path=/`. A successful login resets the consecutive failed-login counter.
 - **Errors**:
   - `400 {"error": "Invalid request."}` when `username` or `password_hash` is not a string.
   - `403 {"error": "Login is not configured."}` when `USERS` is empty.
   - `401 {"error": "Invalid credentials."}` on a wrong username or password.
-  - `500 {"error": "Password storage is unavailable."}` when the pepper or a stored verifier is unusable.
+  - `500 {"error": "Password storage is unavailable."}` when the pepper is unusable, or when the account's stored verifier is not in the supported `akupara$2$…` format.
 
 ### `POST /api/logout`
 
@@ -185,7 +185,7 @@ Shared behaviour:
   - `404 {"error": "Account not found."}` when the account no longer exists.
   - `403 {"error": "Current password is incorrect."}` when the current hash does not match.
   - `401` unauthenticated.
-  - `500 {"error": "Password storage is unavailable."}` when the pepper is unusable.
+  - `500 {"error": "Password storage is unavailable."}` when the pepper is unusable, or when the account's stored verifier is not in the supported `akupara$2$…` format.
 
 ### `GET /api/users` and `POST /api/users`
 
@@ -575,7 +575,7 @@ The UI routes are registered by `_register_ui_routes` only when `guiEnabled` is 
 1. Install Python 3.10 or newer and make it available on `PATH`.
 2. Run `scripts\setup.bat` on Windows, or `bash scripts/setup.sh` on Unix-like systems. The script creates a `.venv` virtual environment and installs `requirements.txt` into it. To do it manually, create a virtual environment and run `pip install -r requirements.txt`.
 3. Install GnuPG (`gpg`) and make it available on `PATH` (`C:\Program Files\GnuPG\bin` on Windows). It is required: the shipped `hash` files and plugin trust marks are verified with `gpg --verify` against `resources/plugins-lib/lorenbll-akupara-pub`, and the service refuses to start when the signature cannot be verified.
-4. Copy `.env.example` to `.env` and set `USERS` to a JSON list of `{"username","password","client_salt","admin","root","id"}`, where `password` is the stored verifier and `client_salt` the browser salt for that account. Run `node scripts/generate-password-hash.js <username> <password>` (Node.js 18 or newer) to print a ready-to-paste entry; the script creates `resources/password-pepper` when it is missing. Back that file up and keep it out of version control, because losing it makes every stored password unusable.
+4. Copy `.env.example` to `.env` and set `USERS` to a JSON list of `{"username","password","client_salt","admin","root","id"}`, where `password` is the stored verifier and `client_salt` the browser salt for that account. Run `node scripts/generate-password-hash.js <username> <password>` (Node.js 18 or newer) to print a ready-to-paste entry; it is the only way to create an accepted entry, and it creates `resources/password-pepper` when it is missing. Back that file up and keep it out of version control, because losing it makes every stored password unusable. An entry holding a raw Argon2id hash, or missing `client_salt`, is refused at login.
 5. Review `resources/configuration.json` to set the port, whether the UI routes are enabled (`guiEnabled`) and whether the service runs in development mode (`development`).
 6. Keep the project structure intact so the service can find `resources/`, `src/` and `ui/`, and leave the signed `hash` files unmodified.
 
@@ -611,7 +611,7 @@ The service logs through `src/logginglib/`, which implements the shared logging 
 
 ## Testing
 
-The suite lives in `tests/`, is driven by `pytest` (`pytest.ini` sets `testpaths = tests`, `pythonpath = src` and `addopts = -ra`) and contains 204 collected tests: 126 in `tests/unit`, 76 in `tests/api` and 2 in `tests/scripts`.
+The suite lives in `tests/`, is driven by `pytest` (`pytest.ini` sets `testpaths = tests`, `pythonpath = src` and `addopts = -ra`) and contains 207 collected tests: 127 in `tests/unit`, 78 in `tests/api` and 2 in `tests/scripts`.
 
 ### Isolation guarantees
 
@@ -630,12 +630,12 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 
 `tests/conftest.py` holds the shared fixtures. The modules and their scope:
 
-`tests/unit/` (126 collected):
+`tests/unit/` (127 collected):
 
 - `test_app_factory.py` (5) — the shared Flask decorators and helpers (`standard_endpoint`, the `OPTIONS`/`HEAD` responses, `set_connection_header`).
 - `test_audio.py` (6) — pure audio helpers.
 - `test_auth_api_keys.py` (9) — API-key management in the auth layer.
-- `test_auth_password_storage.py` (16) — peppered verifiers, client salts, migration and rename behaviour.
+- `test_auth_password_storage.py` (17) — peppered verifiers, client salts and rename behaviour.
 - `test_auth_passwords.py` (3) — password change in the auth layer.
 - `test_auth_sessions.py` (3) — session helpers.
 - `test_auth_users.py` (15) — user management.
@@ -652,15 +652,15 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 - `test_updates.py` (5) — offline update-check classification.
 - `test_validation.py` (6) — input-validation helpers.
 
-`tests/api/` (76 collected):
+`tests/api/` (78 collected):
 
 - `test_api_keys.py` (6) — `/api/api-keys`.
 - `test_authz.py` (9) — the authorisation matrix for the three cookie/API-key decorators.
 - `test_change_password.py` (5) — `/api/change-password`.
 - `test_external_interactions_api.py` (5) — the external-interactions (firewall) endpoints.
 - `test_health.py` (3) — `GET /api/health`.
-- `test_login_logout_session.py` (5) — login, logout and session.
-- `test_password_salt.py` (3) — `/api/password-salt`.
+- `test_login_logout_session.py` (6) — login, logout and session.
+- `test_password_salt.py` (4) — `/api/password-salt`.
 - `test_plugin_events_api.py` (5) — `/api/plugin-events`.
 - `test_settings_toggles.py` (10) — settings and feature toggles.
 - `test_shared_memory_api.py` (7) — `/api/shared-memory`.
@@ -675,9 +675,9 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest                     # everything (204 tests)
-python -m pytest tests/unit          # unit tests only (126)
-python -m pytest tests/api           # API tests only (76)
+python -m pytest                     # everything (207 tests)
+python -m pytest tests/unit          # unit tests only (127)
+python -m pytest tests/api           # API tests only (78)
 python -m pytest tests/scripts       # script smoke tests only (2)
 python -m pytest tests/unit/test_auth_users.py         # one module
 python -m pytest tests/api/test_users.py::<test_name>  # one test
@@ -704,13 +704,13 @@ Autouse fixtures (applied to every test):
 Helper fixtures (return callables):
 
 - `client` — a Flask test client initialised as described above.
-- `make_user` — appends a `USERS` entry (`password` defaults to the sentinel hash, with optional `admin`, `root`, `id` and `client_salt`) and returns the username.
+- `make_user` — appends a `USERS` entry (`password` defaults to the sentinel hash, wrapped into a peppered verifier, with optional `admin`, `root`, `id` and `client_salt`) and returns the username.
 - `login` — `POST`s `/api/login` with a username and password hash.
 - `login_admin` — creates an admin user and logs in as it.
 - `enable_api_keys` — sets `state.API_KEYS_ENABLED` and generates an `API_KEY_ENCRYPTION_KEY` when absent.
 - `make_api_key` — enables API keys and creates one, returning its plaintext value.
 
-The sentinel hash `"$argon2id$test-sentinel-hash"` is a valid-looking value: the backend only checks the `$argon2id$` prefix and compares hashes, so no real Argon2 computation is needed.
+The sentinel hash `"$argon2id$test-sentinel-hash"` is a valid-looking client hash: `make_user` stores only its peppered verifier, and the tests submit the sentinel itself, so no real Argon2 computation is needed.
 
 ### Script smoke tests
 
@@ -770,7 +770,7 @@ Configuration is split between two files: `resources/configuration.json` for the
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `USERS` | `[]` | JSON list of `{"username","password","client_salt","admin","root","id"}`, where `password` is the stored peppered verifier (`akupara$2$…`), `client_salt` the Argon2 salt the browser used, and `admin` (default `false`) grants the administrator role. The service refuses logins while the list is empty. |
+| `USERS` | `[]` | JSON list of `{"username","password","client_salt","admin","root","id"}`, where `password` is the stored peppered verifier (`akupara$2$…`), `client_salt` the Argon2 salt the browser used, and `admin` (default `false`) grants the administrator role. Generate every entry with `scripts/generate-password-hash.js`; a raw hash or a missing `client_salt` is refused. The service refuses logins while the list is empty. |
 | `INTERNAL_INTERACTIONS` | `false` | Enables internal interactions: shared variables and plugin event subscriptions, and their cards. |
 | `SHARED_MEMORY_ENABLED` | `false` | Switches shared variables on within internal interactions. Both this and `INTERNAL_INTERACTIONS` must be on for the shared-variable endpoints to work. When the key is absent from `.env`, the reader falls back to `true`. |
 | `SHARED_MEMORY` | `[]` | JSON list of `{"name","type","value","editor","reader"}` shared variables. `type` is one of `string`, `list`, `dictionary`, `integer`, `float`, `boolean`. |

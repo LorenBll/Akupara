@@ -37,9 +37,10 @@ import logginglib  # noqa: E402
 import main  # noqa: E402
 import state  # noqa: E402
 
-# A valid-looking Argon2id hash used as a stand-in for real hashes. The backend
-# only compares the submitted hash against the stored hash (constant-time) and
-# checks the ``$argon2id$`` prefix, so no real Argon2 computation is needed.
+# A valid-looking Argon2id hash used as a stand-in for a real client hash. It is
+# never stored: ``make_user`` wraps it with :func:`auth._wrap_password`, and a
+# login that submits it is verified against that verifier. No real Argon2
+# computation is needed, because the server only compares the tag.
 SENTINEL_HASH = "$argon2id$test-sentinel-hash"
 
 # A well-formed 16-byte base64url client salt (22 characters, no padding).
@@ -171,13 +172,13 @@ def make_user():
             users = []
         entry = {
             "username": username,
-            "password": password_hash,
+            # Accounts store a peppered verifier, never the client hash itself.
+            "password": auth._wrap_password(password_hash),
+            "client_salt": client_salt or TEST_CLIENT_SALT,
             "admin": bool(admin),
             "root": bool(root),
             "id": user_id or secrets.token_hex(16),
         }
-        if client_salt:
-            entry["client_salt"] = client_salt
         users.append(entry)
         env_store.write_env_var("USERS", json.dumps(users, ensure_ascii=False))
         return username

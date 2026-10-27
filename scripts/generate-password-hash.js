@@ -89,6 +89,7 @@ const password = process.argv[3];
 if (!username || !password) {
     console.error('Usage: node generate-password-hash.js <username> <password>');
     console.error('Prints a USERS entry for .env; set admin and root before pasting it.');
+    console.error('Every USERS entry must be generated this way: raw Argon2id hashes are no longer accepted.');
     process.exit(1);
 }
 
