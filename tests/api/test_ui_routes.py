@@ -1,6 +1,7 @@
 """Endpoint tests for UI routes."""
 
 import main
+import state
 
 
 def _mock_versions(monkeypatch):
@@ -58,3 +59,37 @@ def test_settings_card_admin_only(client, make_user, login, monkeypatch):
     make_user("alice1234", admin=False)
     login(client, "alice1234")
     assert client.get("/ui/cards/settings/users").status_code == 403
+
+
+def _external_interactions_card(client, monkeypatch, enabled, headers=None):
+    monkeypatch.setattr(state, "EXTERNAL_INTERACTIONS", enabled)
+    return client.get("/ui/cards/settings/external-interactions", headers=headers or {}).get_data(as_text=True)
+
+
+def test_external_interactions_card_warns_when_served_over_plain_http(client, login_admin, monkeypatch):
+    login_admin(client)
+    html = _external_interactions_card(client, monkeypatch, enabled=True)
+    assert 'id="externalInteractionsCard"' in html
+    assert "plain-http-warning" in html
+
+
+def test_external_interactions_card_does_not_warn_when_the_feature_is_off(client, login_admin, monkeypatch):
+    login_admin(client)
+    html = _external_interactions_card(client, monkeypatch, enabled=False)
+    assert "plain-http-warning" not in html
+
+
+def test_external_interactions_card_does_not_warn_behind_a_tls_proxy(client, login_admin, monkeypatch):
+    login_admin(client)
+    html = _external_interactions_card(
+        client, monkeypatch, enabled=True, headers={"X-Forwarded-Proto": "https"}
+    )
+    assert "plain-http-warning" not in html
+
+
+def test_external_interactions_card_trusts_the_first_forwarded_proto(client, login_admin, monkeypatch):
+    login_admin(client)
+    html = _external_interactions_card(
+        client, monkeypatch, enabled=True, headers={"X-Forwarded-Proto": "https, http"}
+    )
+    assert "plain-http-warning" not in html

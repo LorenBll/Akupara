@@ -257,6 +257,17 @@ def _external_interactions_enabled() -> bool:
     return bool(state.EXTERNAL_INTERACTIONS)
 
 
+def _external_interactions_plain_http(is_secure: bool) -> bool:
+    """Return whether external interactions are in use without TLS.
+
+    The network worker serves plain HTTP and adds no TLS, so an enabled external
+    interaction surface is only safe behind a TLS reverse proxy or a tunnel. The
+    settings card uses this to warn the operator instead of letting a plain-HTTP
+    deployment look like an ordinary one.
+    """
+    return _external_interactions_enabled() and not is_secure
+
+
 def _require_external_interactions_enabled() -> None:
     if not state.EXTERNAL_INTERACTIONS:
         # Need FeatureDisabledError

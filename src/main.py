@@ -29,6 +29,7 @@ for _module, _package in {
     "flask": "Flask",
     "dotenv": "python-dotenv",
     "cryptography": "cryptography",
+    "argon2": "argon2-cffi",
 }.items():
     try:
         __import__(_module)
@@ -89,6 +90,7 @@ from auth import (  # noqa: E402
     CurrentPasswordError,
     DuplicateNameError,
     FeatureDisabledError,
+    PasswordStorageError,
     UsernameTakenError,
     _active_session,
     _authenticate_user,
@@ -102,6 +104,7 @@ from auth import (  # noqa: E402
     _list_api_keys,
     _list_users,
     _login_credentials_configured,
+    _password_salts_for_username,
     _register_failed_login_attempt,
     _register_user,
     _rename_api_key,
@@ -118,6 +121,7 @@ from auth import (  # noqa: E402
 from firewall import (  # noqa: E402
     _delete_external_interactions_entry,
     _external_interactions_enabled,
+    _external_interactions_plain_http,
     _external_interactions_worker_bind_address,
     _list_external_interactions_entries,
     _load_external_interactions_entries,
@@ -1503,6 +1507,20 @@ def _settings_static_context() -> dict:
     return ctx
 
 
+def _request_is_secure() -> bool:
+    """Return whether the request reached the service over TLS.
+
+    A reverse proxy that terminates TLS forwards the upstream scheme in
+    ``X-Forwarded-Proto``; without that header the app cannot see the upstream
+    hop, so the header is honoured when present. Spoofing it only hides a warning
+    on the spoofer's own page.
+    """
+    if request.is_secure:
+        return True
+    forwarded = request.headers.get("X-Forwarded-Proto", "")
+    return forwarded.split(",")[0].strip().lower() == "https"
+
+
 def _settings_render_context(session: dict | None) -> dict:
     """Return the full Jinja context for the settings shell and card fragments."""
     ctx = dict(_settings_static_context())
@@ -1522,6 +1540,7 @@ def _settings_render_context(session: dict | None) -> dict:
         "external_interactions_allow_new": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", state.EXTERNAL_INTERACTIONS_ALLOW_NEW),
         "external_interactions_allow_new_outgoing": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", state.EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING),
         "external_interactions_enabled": _external_interactions_enabled(),
+        "external_interactions_plain_http": _external_interactions_plain_http(_request_is_secure()),
         "external_interactions_worker_bind": _external_interactions_worker_bind_address(),
         "automatic_update": _read_env_bool("AUTOMATIC_UPDATE", state.AUTOMATIC_UPDATE),
         "update_available": state._UPDATE_AVAILABLE_AT_STARTUP,
@@ -1660,6 +1679,22 @@ def ui_login_icon():
     return send_from_directory(icons_dir, "akupara.svg")
 
 
+@app.route("/api/password-salt", methods=["POST", "OPTIONS"])
+@network.external_interactions_worker_callable
+@standard_endpoint("POST", "OPTIONS")
+def password_salt() -> tuple:
+    data = request.get_json(silent=True) or {}
+    username = data.get("username")
+    if not isinstance(username, str) or not username.strip():
+        return jsonify({"error": "Invalid request."}), 400
+    try:
+        salts = _password_salts_for_username(username.strip())
+    except PasswordStorageError as exc:
+        log_error("Password salt lookup failed", {"client": request.remote_addr, "error": str(exc)})
+        return jsonify({"error": "Password storage is unavailable."}), 500
+    return jsonify(salts), 200
+
+
 @app.route("/api/login", methods=["POST", "OPTIONS"])
 @network.external_interactions_worker_callable
 @standard_endpoint("POST", "OPTIONS")
@@ -1672,7 +1707,11 @@ def login() -> tuple:
     if not _login_credentials_configured():
         log_warn("Login rejected: USERS not configured in .env", {"client": request.remote_addr})
         return jsonify({"error": "Login is not configured."}), 403
-    user = _authenticate_user(username, password_hash)
+    try:
+        user = _authenticate_user(username, password_hash)
+    except PasswordStorageError as exc:
+        log_error("Login failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+        return jsonify({"error": "Password storage is unavailable."}), 500
     if user is not None:
         response = jsonify({"status": "ok"})
         _issue_session_cookie(response, user["username"], user["admin"], user.get("root", False))
@@ -1714,11 +1753,14 @@ def change_password() -> tuple:
     data = request.get_json(silent=True) or {}
     current_password_hash = data.get("current_password_hash")
     new_password_hash = data.get("new_password_hash")
+    new_client_salt = data.get("new_client_salt")
     if (
         not isinstance(current_password_hash, str)
         or not current_password_hash
         or not isinstance(new_password_hash, str)
         or not new_password_hash
+        or not isinstance(new_client_salt, str)
+        or not new_client_salt
     ):
         return jsonify({"error": "Invalid request."}), 400
     if not new_password_hash.startswith("$argon2id$"):
@@ -1728,7 +1770,7 @@ def change_password() -> tuple:
         return _unauthorized_response()
     keep_token = request.cookies.get(state.SESSION_COOKIE_NAME)
     try:
-        _change_password(session["username"], current_password_hash, new_password_hash, keep_token)
+        _change_password(session["username"], current_password_hash, new_password_hash, new_client_salt, keep_token)
     except AccountNotFoundError as exc:
         log_warn("Password change rejected", {"client": request.remote_addr, "error": str(exc)})
         return jsonify({"error": "Account not found."}), 404
@@ -1736,6 +1778,11 @@ def change_password() -> tuple:
         log_warn("Password change rejected", {"client": request.remote_addr, "error": str(exc)})
         audio.play_audio("warn")()
         return jsonify({"error": "Current password is incorrect."}), 403
+    except ValueError:
+        return jsonify({"error": "Invalid request."}), 400
+    except PasswordStorageError as exc:
+        log_error("Password change failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+        return jsonify({"error": "Password storage is unavailable."}), 500
     audio.play_audio("success")()
     return jsonify({"status": "ok"}), 200
 
@@ -1754,6 +1801,7 @@ def users() -> tuple:
     data = request.get_json(silent=True) or {}
     username = data.get("username")
     password_hash = data.get("password_hash")
+    client_salt = data.get("client_salt")
     admin = data.get("admin", False)
     if not isinstance(username, str) or not username.strip():
         return jsonify({"error": "Invalid request."}), 400
@@ -1763,15 +1811,20 @@ def users() -> tuple:
         return jsonify({"error": "Invalid request."}), 400
     if not isinstance(password_hash, str) or not password_hash.startswith("$argon2id$"):
         return jsonify({"error": "Invalid password hash."}), 400
+    if not isinstance(client_salt, str) or not client_salt:
+        return jsonify({"error": "Invalid request."}), 400
     if not isinstance(admin, bool):
         return jsonify({"error": "Invalid request."}), 400
     try:
-        _register_user(username, password_hash, admin)
+        _register_user(username, password_hash, admin, client_salt)
     except UsernameTakenError as exc:
         log_warn("User registration rejected", {"client": request.remote_addr, "error": str(exc)})
         return jsonify({"error": "Already exists."}), 409
     except ValueError:
         return jsonify({"error": "Invalid request."}), 400
+    except PasswordStorageError as exc:
+        log_error("User registration failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+        return jsonify({"error": "Password storage is unavailable."}), 500
     log_info("User registered", {"username": username.strip(), "client": request.remote_addr})
     return jsonify({"status": "ok"}), 201
 
@@ -1794,6 +1847,9 @@ def user_item(username: str) -> tuple:
         except ValueError as exc:
             log_warn("Root deletion rejected", {"client": request.remote_addr, "user": username})
             return jsonify({"error": "Invalid request."}), 403
+        except PasswordStorageError as exc:
+            log_error("User deletion failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+            return jsonify({"error": "Password storage is unavailable."}), 500
         if not deleted:
             return jsonify({"error": "Not found."}), 404
         log_info("User deleted", {"client": request.remote_addr, "username": username})
@@ -1813,6 +1869,9 @@ def user_item(username: str) -> tuple:
             return jsonify({"error": "Already exists."}), 409
         except ValueError:
             return jsonify({"error": "Invalid request."}), 400
+        except PasswordStorageError as exc:
+            log_error("User rename failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+            return jsonify({"error": "Password storage is unavailable."}), 500
         if target is None:
             return jsonify({"error": "Not found."}), 404
         log_info("User renamed", {"client": request.remote_addr, "old_username": username, "new_username": new_username})
@@ -1828,6 +1887,9 @@ def user_item(username: str) -> tuple:
         except ValueError as exc:
             log_warn("Root admin change rejected", {"client": request.remote_addr, "user": username})
             return jsonify({"error": "Invalid request."}), 403
+        except PasswordStorageError as exc:
+            log_error("Admin status change failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+            return jsonify({"error": "Password storage is unavailable."}), 500
         if target is None:
             return jsonify({"error": "Not found."}), 404
         log_info("Admin status updated", {"client": request.remote_addr, "username": username, "admin": admin})
@@ -1861,6 +1923,17 @@ if __name__ == "__main__":
     try:
         _initialize_service_config()
         _register_ui_routes(app)
+    except PasswordStorageError as exc:
+        log_error("Password storage check failed — not starting", {"error": str(exc)})
+        try:
+            audio.get_audio_orchestrator().start()
+        except Exception:
+            pass
+        try:
+            audio.play_sound("error")
+        except Exception:
+            pass
+        exit(1)
     except Exception as exc:
         log_error("Failed to load configuration", {"error": str(exc), "traceback": _format_exc()})
         exit(1)

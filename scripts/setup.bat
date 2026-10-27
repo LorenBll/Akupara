@@ -109,6 +109,14 @@ if not exist "resources\configuration.json" (
   echo Configuration file found.
 )
 
+REM Each setup run starts a new installation: forget the previous one so the next
+REM start mints its own password pepper. Every USERS entry from the previous
+REM installation must then be regenerated with scripts\generate-password-hash.js.
+if exist "resources\installation.json" (
+  del /q "resources\installation.json"
+  echo Previous installation marker removed; this installation will have a new password pepper.
+)
+
 echo.
 echo ===============================================
 echo   Akupara Setup Complete

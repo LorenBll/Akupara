@@ -31,3 +31,17 @@ def test_is_valid_sound_file_name_rejects_traversal():
     assert _is_valid_sound_file_name("a/b.wav") is False
     assert _is_valid_sound_file_name("noext") is False
     assert _is_valid_sound_file_name("missing.wav") is False
+
+
+def test_every_sound_event_has_a_default_file_that_exists():
+    # An empty default silently mutes the event, so each one must name a file that
+    # is actually shipped in resources/audios/ (bare name, resolved by the service).
+    for event in audio.SOUND_EVENTS:
+        default = audio.DEFAULT_SOUND_FILES.get(event)
+        assert default, event
+        assert (audio.AUDIOS_DIR / default).is_file(), (event, default)
+
+
+def test_warn_and_process_defaults_are_the_documented_files():
+    assert audio.DEFAULT_SOUND_FILES["warn"] == "warn.wav"
+    assert audio.DEFAULT_SOUND_FILES["process"] == "process.wav"

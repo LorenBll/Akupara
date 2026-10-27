@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import functools
+import hashlib
 import hmac
 import json
+import os
 import secrets
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import state
 import env_store as _env_store
-from logginglib import log_debug, log_info, log_warn
+from argon2.low_level import Type as _Argon2Type, hash_secret as _argon2_hash_secret
+from logginglib import log_debug, log_error, log_info, log_warn
 from validation import _is_valid_key_name
 
 try:
@@ -37,6 +44,10 @@ class CurrentPasswordError(RuntimeError):
 
 class UsernameTakenError(RuntimeError):
     """Raised when registering a username that already exists."""
+
+
+class PasswordStorageError(RuntimeError):
+    """Raised when the password store (its pepper or a stored verifier) is unusable."""
 
 
 def _get_flask_request():
@@ -235,6 +246,324 @@ def log_change(func):
 
 
 # ---------------------------------------------------------------------------
+# Password storage
+#
+# The browser stretches the password with Argon2id and sends only the encoded
+# hash. That hash is still password-equivalent, so it is never stored as-is:
+# each stored verifier is ``akupara$2$<wrap salt>$<tag>`` where
+# ``tag = HMAC-SHA256(pepper, wrap salt || client hash)``. The pepper lives in
+# ``resources/password-pepper`` (outside ``.env``), so a leaked ``.env`` cannot
+# be attacked offline and its values cannot be replayed at the login endpoint.
+# Each account stores its own random client salt (``USERS[].client_salt``), so
+# the salt is unique per account and survives a rename unchanged.
+#
+# The pepper is scoped to one installation, and an installation is one setup
+# run: ``resources/installation.json`` marks that it has started and the setup
+# scripts delete it, so the next start counts as a new installation and replaces
+# the pepper. See :func:`_initialize_password_storage` for the four cases.
+#
+# The peppered format is the only one accepted. A ``USERS`` entry that still
+# holds a raw Argon2id hash, or that lacks a client salt, is unusable: the
+# stored password must be regenerated with ``scripts/generate-password-hash.js``.
+# ---------------------------------------------------------------------------
+
+_PASSWORD_WRAP_PREFIX = "akupara$2$"
+_PASSWORD_PEPPER_BYTES = 32
+_PASSWORD_SALT_BYTES = 16
+_PASSWORD_PEPPER_CACHE: bytes | None = None
+
+# Argon2id parameters the browser uses (``ui/js/argon2``). The server never
+# sees a password during normal use, but the bootstrap account below has to be
+# hashed here, and the result must match the browser byte for byte.
+_PASSWORD_ARGON2_TIME_COST = 2
+_PASSWORD_ARGON2_MEMORY_COST = 65536
+_PASSWORD_ARGON2_PARALLELISM = 1
+_PASSWORD_ARGON2_HASH_LENGTH = 32
+
+# Bootstrap account created when no user is configured, so a fresh installation
+# can be logged into. Its password is public: change it immediately after the
+# first login, or delete the account once another root exists.
+_DEFAULT_ROOT_USERNAME = "admin"
+_DEFAULT_ROOT_PASSWORD = "admin123"
+
+
+def _password_pepper_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "resources" / "password-pepper"
+
+
+def _installation_marker_path() -> Path:
+    """Return the file recording that this installation has already run.
+
+    It is written when the installation is first prepared — by its first start
+    or by ``scripts/generate-password-hash.js`` — and removed by
+    ``setup.bat``/``setup.sh``, because one installation corresponds to one
+    setup run. Its presence is what separates a fresh installation, which mints
+    its own pepper, from one that has run before, which must find the pepper it
+    minted.
+    """
+    return Path(__file__).resolve().parent.parent / "resources" / "installation.json"
+
+
+def _reset_password_pepper_cache() -> None:
+    """Forget the cached pepper (used by tests that relocate the pepper file)."""
+    global _PASSWORD_PEPPER_CACHE
+    _PASSWORD_PEPPER_CACHE = None
+
+
+def _decode_password_pepper(raw: str) -> bytes:
+    try:
+        pepper = base64.b64decode(raw.strip(), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise PasswordStorageError("The password pepper is not valid base64.") from exc
+    if len(pepper) < _PASSWORD_PEPPER_BYTES:
+        raise PasswordStorageError("The password pepper is too short.")
+    return pepper
+
+
+def _read_password_pepper() -> bytes | None:
+    """Return the stored pepper, or ``None`` when there is no pepper file."""
+    path = _password_pepper_path()
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise PasswordStorageError("The password pepper cannot be read.") from exc
+    if not raw.strip():
+        raise PasswordStorageError("The password pepper is empty.")
+    return _decode_password_pepper(raw)
+
+
+def _write_password_pepper(secret: bytes) -> None:
+    """Store *secret* as this installation's pepper, replacing any existing file."""
+    path = _password_pepper_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    except OSError as exc:
+        raise PasswordStorageError("The password pepper cannot be created.") from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(base64.b64encode(secret).decode("ascii") + "\n")
+    except OSError as exc:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise PasswordStorageError("The password pepper cannot be written.") from exc
+    try:
+        os.chmod(str(path), 0o600)
+    except OSError:
+        pass
+
+
+def _installation_has_run() -> bool:
+    return _installation_marker_path().exists()
+
+
+def _mark_installation_started() -> None:
+    """Record that this installation has run, so its pepper may never vanish."""
+    path = _installation_marker_path()
+    if path.exists():
+        return
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"started": started}) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise PasswordStorageError("The installation marker cannot be written.") from exc
+
+
+def _initialize_password_storage() -> str:
+    """Apply the installation-scoped pepper policy and say what happened.
+
+    The pepper belongs to one installation — the tree produced by one setup run
+    — so a stored verifier is only meaningful to the installation that minted
+    it. A new installation therefore mints a fresh pepper and replaces any
+    pepper it finds, which can only belong to a previous installation. An
+    installation that has already run must find its own pepper: without it no
+    stored password can be verified, so the caller must not start.
+
+    Returns ``"created"``, ``"replaced"`` or ``"kept"``, and raises
+    ``PasswordStorageError`` when the pepper is missing or unusable on an
+    installation that has already run.
+    """
+    global _PASSWORD_PEPPER_CACHE
+    if not _installation_has_run():
+        # New installation: whatever pepper is present is not ours.
+        already_present = _password_pepper_path().exists()
+        secret = secrets.token_bytes(_PASSWORD_PEPPER_BYTES)
+        _write_password_pepper(secret)
+        _PASSWORD_PEPPER_CACHE = secret
+        _mark_installation_started()
+        return "replaced" if already_present else "created"
+    stored = _read_password_pepper()
+    if stored is None:
+        raise PasswordStorageError(
+            "The password pepper is missing on an installation that has already run; "
+            "no stored password can be verified."
+        )
+    _PASSWORD_PEPPER_CACHE = stored
+    return "kept"
+
+
+def _ensure_password_pepper() -> bytes:
+    """Return this installation's pepper, loading it once.
+
+    Minting a pepper is the startup policy's job (:func:`_initialize_password_storage`),
+    so a missing file here is an error rather than something to create.
+    """
+    global _PASSWORD_PEPPER_CACHE
+    if _PASSWORD_PEPPER_CACHE is not None:
+        return _PASSWORD_PEPPER_CACHE
+    stored = _read_password_pepper()
+    if stored is None:
+        raise PasswordStorageError("The password pepper is missing.")
+    _PASSWORD_PEPPER_CACHE = stored
+    return stored
+
+
+def _derive_decoy_salt(username: str) -> str:
+    """Return a stable, random-looking salt for a username that does not exist.
+
+    Returning a decoy instead of an error keeps the salt endpoint from becoming
+    a username-enumeration oracle for accounts on the current scheme: an unknown
+    account answers with a stable value of the same shape.
+    """
+    pepper = _ensure_password_pepper()
+    message = b"akupara/client-salt/decoy\x00" + str(username).casefold().encode("utf-8")
+    digest = hmac.new(pepper, message, hashlib.sha256).digest()
+    return _b64url_encode(digest[:_PASSWORD_SALT_BYTES])
+
+
+def _new_client_salt() -> str:
+    """Return a fresh random Argon2 salt for a new password."""
+    return _b64url_encode(secrets.token_bytes(_PASSWORD_SALT_BYTES))
+
+
+def _is_valid_client_salt(value) -> bool:
+    """Return whether *value* is a well-formed 16-byte base64url client salt."""
+    if not isinstance(value, str) or not value or len(value) > 64:
+        return False
+    try:
+        return len(_b64url_decode(value)) == _PASSWORD_SALT_BYTES
+    except (binascii.Error, ValueError):
+        return False
+
+
+def _is_wrapped_password(value) -> bool:
+    return isinstance(value, str) and value.startswith(_PASSWORD_WRAP_PREFIX)
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padded = value + "=" * (-len(value) % 4)
+    return base64.b64decode(padded, altchars=b"-_", validate=True)
+
+
+def _client_password_hash(password: str, client_salt: str) -> str:
+    """Return the encoded Argon2id hash the browser would send for *password*.
+
+    The browser passes the client salt as a string and hashes its UTF-8 bytes;
+    the encoded result is the value the login form submits, so it must match
+    byte for byte for a server-generated account to be usable.
+    """
+    return _argon2_hash_secret(
+        password.encode("utf-8"),
+        client_salt.encode("utf-8"),
+        time_cost=_PASSWORD_ARGON2_TIME_COST,
+        memory_cost=_PASSWORD_ARGON2_MEMORY_COST,
+        parallelism=_PASSWORD_ARGON2_PARALLELISM,
+        hash_len=_PASSWORD_ARGON2_HASH_LENGTH,
+        type=_Argon2Type.ID,
+    ).decode("ascii")
+
+
+def _password_tag(wrap_salt: bytes, client_hash: str) -> bytes:
+    """Return the keyed tag binding *client_hash* to *wrap_salt*.
+
+    A keyed hash is the right primitive here: *client_hash* is a 256-bit
+    Argon2id output, not a user-chosen password, so there is nothing left to
+    stretch. What matters is that checking a guess requires the pepper.
+    """
+    pepper = _ensure_password_pepper()
+    message = b"akupara/users/v2\x00" + wrap_salt + b"\x00" + str(client_hash).encode("utf-8")
+    return hmac.new(pepper, message, hashlib.sha256).digest()
+
+
+def _wrap_password(client_hash: str) -> str:
+    """Wrap an Argon2id client hash into the stored, peppered verifier format."""
+    wrap_salt = secrets.token_bytes(_PASSWORD_SALT_BYTES)
+    tag = _password_tag(wrap_salt, client_hash)
+    return f"{_PASSWORD_WRAP_PREFIX}{_b64url_encode(wrap_salt)}${_b64url_encode(tag)}"
+
+
+def _verify_wrapped_password(stored: str, client_hash: str) -> bool:
+    if not _is_wrapped_password(stored):
+        return False
+    rest = stored[len(_PASSWORD_WRAP_PREFIX):]
+    try:
+        salt_part, tag_part = rest.split("$", 1)
+    except ValueError:
+        return False
+    if not salt_part or not tag_part:
+        return False
+    try:
+        wrap_salt = _b64url_decode(salt_part)
+        provided_tag = _b64url_decode(tag_part)
+    except (binascii.Error, ValueError):
+        return False
+    if len(wrap_salt) != _PASSWORD_SALT_BYTES:
+        return False
+    return hmac.compare_digest(_password_tag(wrap_salt, client_hash), provided_tag)
+
+
+def _verify_stored_password(entry: dict, client_hash: str) -> bool:
+    """Return whether *client_hash* matches the verifier stored in *entry*.
+
+    Only the peppered format is accepted. An entry left in the old raw-hash
+    format is a configuration error rather than a rejected password, so it is
+    reported instead of looking like a wrong password at the login form.
+    """
+    stored = entry.get("password")
+    if not isinstance(stored, str) or not stored:
+        raise PasswordStorageError("The stored password verifier is missing.")
+    if not _is_wrapped_password(stored):
+        raise PasswordStorageError("The stored password verifier is not in the supported format.")
+    return _verify_wrapped_password(stored, client_hash)
+
+
+def _password_client_salt(entry: dict | None, username: str) -> str:
+    """Return the Argon2 salt the browser must use to hash the current password."""
+    if entry is None:
+        return _derive_decoy_salt(username)
+    stored_salt = entry.get("client_salt")
+    if not _is_valid_client_salt(stored_salt):
+        raise PasswordStorageError("The stored client salt is missing or malformed.")
+    return stored_salt
+
+
+def _password_salts_for_username(username: str) -> dict:
+    """Return ``{"salt", "newSalt"}`` for the salt endpoint.
+
+    ``salt`` hashes the current password; ``newSalt`` must be used when setting
+    a new one and is then stored with the account (never derived from the
+    username, so renaming an account does not invalidate its password). ``salt``
+    is stable for every username — a decoy is returned for unknown accounts — so
+    the response does not reveal whether an account exists.
+    """
+    username_key = str(username).casefold()
+    entry = next((user for user in _load_users() if user["username"].casefold() == username_key), None)
+    return {
+        "salt": _password_client_salt(entry, username),
+        "newSalt": _new_client_salt(),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
 
@@ -242,16 +571,34 @@ def _login_credentials_configured() -> bool:
     return bool(_load_users())
 
 
-def _load_users() -> list[dict]:
-    raw = _env_store.read_env_var("USERS")
-    if not raw:
+def _users_raw_list(raw: str) -> list:
+    """Return ``USERS`` as the list it is stored as, refusing to replace it.
+
+    A value that is not a JSON list is a configuration error, not an empty list:
+    rewriting it would silently drop whatever the operator wrote. This is the same
+    rule the bootstrap account follows, and it is why the caller must let the
+    ``PasswordStorageError`` reach the endpoint (500) instead of starting a fresh
+    list. An absent or blank value is genuinely empty and yields an empty list.
+    """
+    if not raw.strip():
         return []
     try:
         data = json.loads(raw)
-    except (json.JSONDecodeError, ValueError, TypeError):
-        return []
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        raise PasswordStorageError("The user list is not valid JSON.") from exc
     if not isinstance(data, list):
-        return []
+        raise PasswordStorageError("The user list is not a JSON list.")
+    return data
+
+
+def _parse_users(data: list) -> list[dict]:
+    """Project the raw ``USERS`` list onto the accounts the service can use.
+
+    Entries that are not objects, lack a usable username or password, or repeat an
+    earlier username are dropped. Unknown keys are not carried over, so a caller
+    that writes the result back must first establish that nothing would be lost
+    (see ``_users_for_change``).
+    """
     users: list[dict] = []
     seen: set[str] = set()
     for entry in data:
@@ -267,21 +614,96 @@ def _load_users() -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        users.append({
+        user = {
             "username": username,
             "password": password,
             "admin": bool(entry.get("admin", False)),
             "root": bool(entry.get("root", False)),
             "id": str(entry.get("id") or ""),
-        })
+        }
+        # Every account carries the salt its password was stretched with.
+        client_salt = entry.get("client_salt")
+        if isinstance(client_salt, str) and client_salt.strip():
+            user["client_salt"] = client_salt.strip()
+        users.append(user)
     return users
+
+
+def _load_users() -> list[dict]:
+    """Return the users the service can use, ignoring anything it cannot read.
+
+    Reading never fails: a malformed ``USERS`` value yields no users so that login
+    is refused rather than crashing. Changes that rewrite the list use
+    ``_users_for_change`` instead, which refuses the list outright.
+    """
+    try:
+        data = _users_raw_list(_env_store.read_env_var("USERS"))
+    except PasswordStorageError:
+        return []
+    return _parse_users(data)
+
+
+def _users_list_is_empty() -> bool:
+    """Return whether ``USERS`` is genuinely empty (not merely unusable).
+
+    A malformed value is left untouched: replacing it with the default account
+    would silently destroy whatever the operator wrote.
+    """
+    try:
+        return not _users_raw_list(_env_store.read_env_var("USERS"))
+    except PasswordStorageError:
+        return False
+
+
+def _users_for_change() -> list[dict]:
+    """Return the users to change, refusing a list the service cannot represent.
+
+    A change rewrites ``USERS`` from the parsed accounts, so any entry that parsing
+    would drop (not an object, no usable username or password, or a repeated
+    username) would be lost silently. Such a list is a configuration error: the
+    change is refused and the stored value stays exactly as the operator wrote it.
+    """
+    data = _users_raw_list(_env_store.read_env_var("USERS"))
+    users = _parse_users(data)
+    if len(users) != len(data):
+        raise PasswordStorageError("The user list holds an entry that cannot be read.")
+    return users
+
+
+def _ensure_default_root_user() -> bool:
+    """Create the bootstrap root account when no user is configured.
+
+    A fresh installation has an empty ``USERS`` list, so nobody could log in.
+    The account exists only to let the operator in; its password is public, so
+    it must be changed at the first login. Returns whether it was created.
+    """
+    if not _users_list_is_empty():
+        return False
+    client_salt = _new_client_salt()
+    entry = {
+        "username": _DEFAULT_ROOT_USERNAME,
+        "password": _wrap_password(_client_password_hash(_DEFAULT_ROOT_PASSWORD, client_salt)),
+        "client_salt": client_salt,
+        "admin": True,
+        "root": True,
+        "id": secrets.token_hex(16),
+    }
+    _env_store.write_env_var("USERS", json.dumps([entry], ensure_ascii=False))
+    log_warn(
+        "Default root account created",
+        {"username": _DEFAULT_ROOT_USERNAME, "hint": "change its password immediately"},
+    )
+    return True
 
 
 def _authenticate_user(username: str, password_hash: str) -> dict | None:
     username_key = username.casefold()
     for user in _load_users():
-        if username_key == user["username"].casefold() and hmac.compare_digest(password_hash, user["password"]):
-            return {"username": user["username"], "admin": user["admin"], "root": user["root"]}
+        if username_key != user["username"].casefold():
+            continue
+        if not _verify_stored_password(user, password_hash):
+            return None
+        return {"username": user["username"], "admin": user["admin"], "root": user["root"]}
     return None
 
 
@@ -300,16 +722,14 @@ def _reset_failed_login_attempts() -> None:
         state._FAILED_LOGIN_ATTEMPTS = 0
 
 
-def _matching_stored_passwords(username: str) -> list[tuple[str, str]]:
+def _matching_stored_passwords(username: str) -> list[dict]:
     username_key = username.casefold()
-    records: list[tuple[str, str]] = []
-    for user in _load_users():
-        if username_key == user["username"].casefold():
-            records.append(("users", user["password"]))
-    return records
+    return [user for user in _load_users() if username_key == user["username"].casefold()]
 
 
-def _set_user_password_env(username: str, new_password_hash: str) -> bool:
+def _set_user_password_env(username: str, new_password_hash: str, client_salt: str) -> bool:
+    if not _is_valid_client_salt(client_salt):
+        raise ValueError("Invalid client salt.")
     raw = _env_store.read_env_var("USERS")
     if not raw:
         return False
@@ -326,25 +746,33 @@ def _set_user_password_env(username: str, new_password_hash: str) -> bool:
         entry_username = entry.get("username")
         if isinstance(entry_username, str) and entry_username.casefold() == username_key:
             entry["password"] = new_password_hash
+            entry["client_salt"] = client_salt
             _env_store.write_env_var("USERS", json.dumps(data, ensure_ascii=False))
             return True
     return False
 
 
-def _change_password(username: str, current_password_hash: str, new_password_hash: str, keep_token: str | None = None) -> None:
+def _change_password(
+    username: str,
+    current_password_hash: str,
+    new_password_hash: str,
+    new_client_salt: str,
+    keep_token: str | None = None,
+) -> None:
+    if not _is_valid_client_salt(new_client_salt):
+        raise ValueError("Invalid client salt.")
     records = _matching_stored_passwords(username)
     if not records:
         raise AccountNotFoundError("Account not found.")
-    if not any(hmac.compare_digest(current_password_hash, stored) for _, stored in records):
+    if not any(_verify_stored_password(record, current_password_hash) for record in records):
         raise CurrentPasswordError("Current password is incorrect.")
-    for source, _ in records:
-        if not _set_user_password_env(username, new_password_hash):
-            raise AccountNotFoundError("Account not found.")
+    if not _set_user_password_env(username, _wrap_password(new_password_hash), client_salt=new_client_salt):
+        raise AccountNotFoundError("Account not found.")
     _revoke_other_sessions(username, keep_token)
     log_info("Password changed for user", {"username": username})
 
 
-def _register_user(username: str, password_hash: str, admin: bool) -> None:
+def _register_user(username: str, password_hash: str, admin: bool, client_salt: str) -> None:
     username = username.strip()
     if not username:
         raise ValueError("Username must not be empty.")
@@ -354,18 +782,21 @@ def _register_user(username: str, password_hash: str, admin: bool) -> None:
         raise ValueError("Username must be at least 8 characters long.")
     if not isinstance(password_hash, str) or not password_hash.startswith("$argon2id$"):
         raise ValueError("Invalid password hash.")
+    if not _is_valid_client_salt(client_salt):
+        raise ValueError("Invalid client salt.")
     username_key = username.casefold()
     for user in _load_users():
         if username_key == user["username"].casefold():
             raise UsernameTakenError("A user with that username already exists.")
-    raw = _env_store.read_env_var("USERS")
-    try:
-        data = json.loads(raw) if raw else []
-    except (json.JSONDecodeError, ValueError, TypeError):
-        data = []
-    if not isinstance(data, list):
-        data = []
-    data.append({"username": username, "password": password_hash, "admin": bool(admin), "root": False, "id": secrets.token_hex(16)})
+    data = _users_raw_list(_env_store.read_env_var("USERS"))
+    data.append({
+        "username": username,
+        "password": _wrap_password(password_hash),
+        "client_salt": client_salt,
+        "admin": bool(admin),
+        "root": False,
+        "id": secrets.token_hex(16),
+    })
     _env_store.write_env_var("USERS", json.dumps(data, ensure_ascii=False))
     try:
         import audio
@@ -426,7 +857,7 @@ def _rename_user(username: str, new_username: str) -> dict | None:
         raise ValueError("Username contains prohibited characters.")
     if len(new_username) < 8:
         raise ValueError("Username must be at least 8 characters long.")
-    users = _load_users()
+    users = _users_for_change()
     target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
     if not target:
         return None
@@ -444,7 +875,7 @@ def _rename_user(username: str, new_username: str) -> dict | None:
 def _set_user_admin(username: str, admin: bool) -> dict | None:
     if not isinstance(admin, bool):
         raise ValueError("Invalid admin value.")
-    users = _load_users()
+    users = _users_for_change()
     target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
     if not target:
         return None
@@ -458,7 +889,7 @@ def _set_user_admin(username: str, admin: bool) -> dict | None:
 
 
 def _delete_user(username: str) -> bool:
-    users = _load_users()
+    users = _users_for_change()
     target = next((user for user in users if user["username"].casefold() == username.casefold()), None)
     if target is None:
         return False

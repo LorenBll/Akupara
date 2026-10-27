@@ -37,6 +37,25 @@ function getTooltipPosition(a) {
     if (a.kind === 'plugin-search') {
         return { left: r.left - a.el.offsetWidth - 8, top: r.top + r.height / 2 - a.el.offsetHeight / 2 };
     }
+    if (a.kind === 'warning') {
+        var warnLeft = r.right + 8;
+        var maxLeft = window.innerWidth - tr.width - 8;
+        if (warnLeft > maxLeft) warnLeft = maxLeft;
+        var warnTop = r.top + r.height / 2 - tr.height / 2;
+        var viewEl = document.getElementById('view');
+        if (viewEl) {
+            // Stay inside the scrollable fragment: the tooltip is centred on the
+            // card, but never above its top border or below its bottom. A
+            // fractional height must not round past the border, so the limits are
+            // rounded inwards.
+            var vr = viewEl.getBoundingClientRect();
+            var maxTop = Math.floor(vr.bottom - tr.height);
+            var minTop = Math.ceil(vr.top);
+            if (warnTop > maxTop) warnTop = maxTop;
+            if (warnTop < minTop) warnTop = minTop;
+        }
+        return { left: warnLeft, top: warnTop };
+    }
     return { left: r.right + 8, top: r.top + r.height / 2 - tr.height / 2 };
 }
 

@@ -77,6 +77,8 @@
 
     <div class="floating-tooltip" id="tableTooltip" hidden></div>
 
+    <div class="floating-tooltip warning-tooltip" id="externalInteractionsWarningTooltip" hidden>Plain HTTP Usage for External Interactions is Discouraged</div>
+
     <div class="floating-tooltip error-tooltip" id="errorTooltip" hidden></div>
 
     <div class="theme-light-afterglow" id="themeLightAfterglow" aria-hidden="true"></div>
@@ -120,6 +122,23 @@
                     window.location.href = '/login';
                 }
                 return r;
+            });
+        }
+
+        function fetchPasswordSalts(username) {
+            return fetch('/api/password-salt', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username })
+            }).then(function (r) {
+                if (r.status !== 200) throw new Error('Unable to prepare the password.');
+                return r.json();
+            }).then(function (data) {
+                if (!data || typeof data.salt !== 'string' || typeof data.newSalt !== 'string') {
+                    throw new Error('Unable to prepare the password.');
+                }
+                return data;
             });
         }
 
@@ -459,6 +478,25 @@
             }
             if (a.kind === 'plugin-search') {
                 return { left: r.left - a.el.offsetWidth - 8, top: r.top + r.height / 2 - a.el.offsetHeight / 2 };
+            }
+            if (a.kind === 'warning') {
+                var warnLeft = r.right + 8;
+                var maxLeft = window.innerWidth - tr.width - 8;
+                if (warnLeft > maxLeft) warnLeft = maxLeft;
+                var warnTop = r.top + r.height / 2 - tr.height / 2;
+                var viewEl = document.getElementById('view');
+                if (viewEl) {
+                    // Stay inside the scrollable fragment: the tooltip is centred on
+                    // the card, but never above its top border or below its bottom.
+                    // A fractional height must not round past the border, so the
+                    // limits are rounded inwards.
+                    var vr = viewEl.getBoundingClientRect();
+                    var maxTop = Math.floor(vr.bottom - tr.height);
+                    var minTop = Math.ceil(vr.top);
+                    if (warnTop > maxTop) warnTop = maxTop;
+                    if (warnTop < minTop) warnTop = minTop;
+                }
+                return { left: warnLeft, top: warnTop };
             }
             return { left: r.right + 8, top: r.top + r.height / 2 - tr.height / 2 };
         }
@@ -3432,6 +3470,28 @@
                 });
         }
 
+        var externalInteractionsWarningTooltip = document.getElementById('externalInteractionsWarningTooltip');
+
+        // The card carries the plain-http-warning class server-side when external
+        // interactions are enabled on a request that did not arrive over TLS.
+        function wireExternalInteractionsPlainHttpWarning() {
+            var card = document.getElementById('externalInteractionsCard');
+            if (!card || !card.classList.contains('plain-http-warning')) return;
+            if (card.getAttribute('data-warning-wired')) return;
+            card.setAttribute('data-warning-wired', '1');
+            card.addEventListener('mouseenter', function () {
+                if (!externalInteractionsWarningTooltip) return;
+                placeTooltip(registerTooltipAnchor(externalInteractionsWarningTooltip, card, 'warning'));
+            });
+            card.addEventListener('mouseleave', hideExternalInteractionsPlainHttpWarning);
+        }
+
+        function hideExternalInteractionsPlainHttpWarning() {
+            if (!externalInteractionsWarningTooltip) return;
+            externalInteractionsWarningTooltip.hidden = true;
+            unregisterTooltipAnchor(externalInteractionsWarningTooltip);
+        }
+
         function wireFirewallTable(direction) {
             var cfg = firewallTableConfig(direction);
             var table = document.getElementById(cfg.tableId);
@@ -3596,12 +3656,11 @@
             var registerBtn = document.getElementById('registerUserBtn');
             if (!usernameInput || !passwordInput || !confirmInput || !registerBtn) return;
 
-            var SALT = 'akupara-salt';
             var PARAMS = { time: 2, mem: 65536, hashLen: 32, parallelism: 1, type: argon2.ArgonType.Argon2id };
             var busy = false;
 
-            function hashPassword(password) {
-                var options = { pass: password, salt: SALT };
+            function hashPassword(password, salt) {
+                var options = { pass: password, salt: salt };
                 for (var key in PARAMS) options[key] = PARAMS[key];
                 return argon2.hash(options).then(function (result) {
                     return result.encoded;
@@ -3734,12 +3793,22 @@
                 var admin = selected ? selected.dataset.value === 'true' : false;
                 busy = true;
                 sync();
-                hashPassword(password)
-                    .then(function (passwordHash) {
+                fetchPasswordSalts(username)
+                    .then(function (salts) {
+                        return hashPassword(password, salts.newSalt).then(function (passwordHash) {
+                            return { passwordHash: passwordHash, clientSalt: salts.newSalt };
+                        });
+                    })
+                    .then(function (secret) {
                         return fetchWithHandshake('/api/users', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username: username, password_hash: passwordHash, admin: admin })
+                            body: JSON.stringify({
+                                username: username,
+                                password_hash: secret.passwordHash,
+                                client_salt: secret.clientSalt,
+                                admin: admin
+                            })
                         });
                     })
                     .then(function (r) {
@@ -4595,12 +4664,11 @@
             var changeBtn = document.getElementById('changePasswordBtn');
             if (!currentInput || !newInput || !confirmInput || !changeBtn) return;
 
-            var SALT = 'akupara-salt';
             var PARAMS = { time: 2, mem: 65536, hashLen: 32, parallelism: 1, type: argon2.ArgonType.Argon2id };
             var busy = false;
 
-            function hashPassword(password) {
-                var options = { pass: password, salt: SALT };
+            function hashPassword(password, salt) {
+                var options = { pass: password, salt: salt };
                 for (var key in PARAMS) options[key] = PARAMS[key];
                 return argon2.hash(options).then(function (result) {
                     return result.encoded;
@@ -4669,12 +4737,26 @@
                 }
                 busy = true;
                 syncChaining();
-                Promise.all([hashPassword(currentInput.value), hashPassword(newInput.value)])
-                    .then(function (hashes) {
+                var roleEl = document.getElementById('accountRoleValue');
+                var accountUsername = roleEl ? (roleEl.dataset.username || '') : '';
+                fetchPasswordSalts(accountUsername || currentUsername)
+                    .then(function (salts) {
+                        return Promise.all([
+                            hashPassword(currentInput.value, salts.salt),
+                            hashPassword(newInput.value, salts.newSalt)
+                        ]).then(function (hashes) {
+                            return { hashes: hashes, newSalt: salts.newSalt };
+                        });
+                    })
+                    .then(function (secret) {
                         return fetchWithHandshake('/api/change-password', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ current_password_hash: hashes[0], new_password_hash: hashes[1] })
+                            body: JSON.stringify({
+                                current_password_hash: secret.hashes[0],
+                                new_password_hash: secret.hashes[1],
+                                new_client_salt: secret.newSalt
+                            })
                         });
                     })
                     .then(function (r) {
@@ -5993,6 +6075,7 @@
                 }
                 wireFirewallTable('incoming');
                 wireFirewallTable('outgoing');
+                wireExternalInteractionsPlainHttpWarning();
                 loadFirewallIps('incoming');
                 loadFirewallIps('outgoing');
                 fetchExternalInteractionsAllowNew();

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import state
 import env_store as _env_store
-from logginglib import log_debug, log_info, log_warn
+from logginglib import log_debug, log_error, log_info, log_warn
 
 
 def _load_configuration() -> dict:
@@ -37,16 +37,39 @@ def _load_configuration() -> dict:
     return config
 
 
-def _initialize_service_config() -> None:
+def _initialize_service_config(seed_default_root: bool = True) -> None:
+    """Load the configuration and initialise the service state.
+
+    *seed_default_root* creates the bootstrap root account when ``USERS`` is
+    empty. It is on for a real start and turned off by the test fixtures, whose
+    scenarios expect to control the user list themselves.
+    """
     from dotenv import load_dotenv  # local import to avoid top-level cycle
     import audio
     from cryptography.fernet import Fernet
 
     # Local imports for auth helpers to avoid circular imports at module load
-    from auth import _load_api_keys, _login_credentials_configured, _refresh_api_key_store
+    from auth import (
+        _ensure_default_root_user,
+        _initialize_password_storage,
+        _load_api_keys,
+        _login_credentials_configured,
+        _password_pepper_path,
+        _refresh_api_key_store,
+    )
 
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
     config = _load_configuration()
+
+    # The pepper is scoped to this installation: a new installation mints its
+    # own, and one that has already run must find the one it minted. A failure
+    # here is fatal (the caller stops the process), because without the pepper
+    # no stored password can be verified.
+    pepper_action = _initialize_password_storage()
+    log_info("Password storage initialised", {"action": pepper_action, "path": str(_password_pepper_path())})
+
+    if seed_default_root:
+        _ensure_default_root_user()
 
     configured_port = config.get("port", 49150)
     if isinstance(configured_port, str) and configured_port.isdigit():

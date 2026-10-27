@@ -52,6 +52,14 @@ if [ ! -f "resources/configuration.json" ]; then
   echo "WARNING: Create resources/configuration.json before running Akupara."
 fi
 
+# Each setup run starts a new installation: forget the previous one so the next
+# start mints its own password pepper. Every USERS entry from the previous
+# installation must then be regenerated with scripts/generate-password-hash.js.
+if [ -f "resources/installation.json" ]; then
+  rm -f resources/installation.json
+  echo "Previous installation marker removed; this installation will have a new password pepper."
+fi
+
 echo ""
 echo "Setup complete."
 echo ""

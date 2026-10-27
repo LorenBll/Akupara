@@ -37,10 +37,14 @@ import logginglib  # noqa: E402
 import main  # noqa: E402
 import state  # noqa: E402
 
-# A valid-looking Argon2id hash used as a stand-in for real hashes. The backend
-# only compares the submitted hash against the stored hash (constant-time) and
-# checks the ``$argon2id$`` prefix, so no real Argon2 computation is needed.
+# A valid-looking Argon2id hash used as a stand-in for a real client hash. It is
+# never stored: ``make_user`` wraps it with :func:`auth._wrap_password`, and a
+# login that submits it is verified against that verifier. No real Argon2
+# computation is needed, because the server only compares the tag.
 SENTINEL_HASH = "$argon2id$test-sentinel-hash"
+
+# A well-formed 16-byte base64url client salt (22 characters, no padding).
+TEST_CLIENT_SALT = "abcdefghijklmnopqrstuv"
 
 _ENV_KEYS = [
     "USERS", "API_KEYS", "API_KEY_ENCRYPTION_KEY", "INTERNAL_INTERACTIONS",
@@ -117,6 +121,26 @@ def _isolate_env(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_password_pepper(tmp_path_factory, monkeypatch):
+    """Give every test its own settled installation, away from the real resources.
+
+    The real ``resources/password-pepper`` and ``resources/installation.json``
+    must never be touched, and most tests need a usable pepper, so the fixture
+    initialises one in a temporary directory. The pepper-policy tests reset that
+    state to exercise a new or a pepper-less installation.
+    """
+    resource_dir = tmp_path_factory.mktemp("pepper")
+    pepper_file = resource_dir / "password-pepper"
+    marker_file = resource_dir / "installation.json"
+    monkeypatch.setattr(auth, "_password_pepper_path", lambda: pepper_file)
+    monkeypatch.setattr(auth, "_installation_marker_path", lambda: marker_file)
+    auth._reset_password_pepper_cache()
+    auth._initialize_password_storage()
+    yield pepper_file
+    auth._reset_password_pepper_cache()
+
+
+@pytest.fixture(autouse=True)
 def _silence_audio(monkeypatch):
     monkeypatch.setattr(audio, "play_sound", lambda event, via_log=False: None)
 
@@ -139,7 +163,7 @@ if state.GUI_ENABLED:
 def client(monkeypatch):
     _reset_state()
     monkeypatch.setattr(config, "_load_configuration", lambda: dict(TEST_CONFIG))
-    main._initialize_service_config()
+    main._initialize_service_config(seed_default_root=False)
     main.app.config["TESTING"] = True
     return main.app.test_client()
 
@@ -148,7 +172,7 @@ def client(monkeypatch):
 
 @pytest.fixture
 def make_user():
-    def _make(username, password_hash=SENTINEL_HASH, admin=False, root=False, user_id=None):
+    def _make(username, password_hash=SENTINEL_HASH, admin=False, root=False, user_id=None, client_salt=None):
         raw = env_store.read_env_var("USERS") or "[]"
         try:
             users = json.loads(raw) if raw else []
@@ -156,13 +180,16 @@ def make_user():
             users = []
         if not isinstance(users, list):
             users = []
-        users.append({
+        entry = {
             "username": username,
-            "password": password_hash,
+            # Accounts store a peppered verifier, never the client hash itself.
+            "password": auth._wrap_password(password_hash),
+            "client_salt": client_salt or TEST_CLIENT_SALT,
             "admin": bool(admin),
             "root": bool(root),
             "id": user_id or secrets.token_hex(16),
-        })
+        }
+        users.append(entry)
         env_store.write_env_var("USERS", json.dumps(users, ensure_ascii=False))
         return username
     return _make
