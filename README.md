@@ -18,7 +18,7 @@ Developer documentation: [README-DEV.md](README-DEV.md).
 
 - **Local-first service with a browser UI** — the service binds to `127.0.0.1` on the port in `resources/configuration.json` and serves a single-page UI whose navigation switches between the home, settings and plugins pages. It exists so the service is reachable only from the device that runs it. Start it (see [Run](#run)) and open `http://127.0.0.1:<port>/` in a browser; every page except the login page and the static assets requires a session, and a protected `/api/*` endpoint without a session returns `401` so the frontend redirects to `/login`.
 
-- **Accounts, sessions and roles** — login credentials live in the `USERS` `.env` variable as Argon2id hashes (fixed salt `akupara-salt`, `m=65536, t=2, p=1`); a successful login issues a sliding `akupara-refresh` cookie (renewed on every authenticated response; 15 minutes of validity) whose session is held server-side per user, so several users can be logged in at the same time. It exists to keep the service restricted to known users. Log in at `/login`, and manage the accounts from the Users card: register a user, rename it, switch it between Standard and Admin, or delete it; a user marked `"root": true` in `.env` cannot lose admin status or be deleted, and only the root account may rename itself. A standard user may view the settings page but not administer it.
+- **Accounts, sessions and roles** — login credentials live in the `USERS` `.env` variable as peppered verifiers: the browser stretches the password with Argon2id using a per-account salt (`m=65536, t=2, p=1`) and the server stores only `akupara$2$<salt>$<tag>`, an HMAC-SHA256 tag keyed by `resources/password-pepper`, so a leaked `.env` cannot be attacked offline and its contents cannot be replayed at `/api/login`; existing accounts upgrade transparently on their next login. A successful login issues a sliding `akupara-refresh` cookie (renewed on every authenticated response; 15 minutes of validity) whose session is held server-side per user, so several users can be logged in at the same time. It exists to keep the service restricted to known users. Log in at `/login`, and manage the accounts from the Users card: register a user, rename it, switch it between Standard and Admin, or delete it; a user marked `"root": true` in `.env` cannot lose admin status or be deleted, and only the root account may rename itself. A standard user may view the settings page but not administer it.
 
 - **API keys** — with `API_KEYS_ENABLED` on, the API Keys card generates keys and the service accepts them in the `X-Api-Key` header on the management and external-interaction endpoints (`api_key_or_admin_authenticated`). Keys exist so plugins and scripts can act without a browser session. The `.env` stores each key Fernet-encrypted under `API_KEYS`, with `API_KEY_ENCRYPTION_KEY` generated on first run; the plaintext key is shown once in the card so it can be copied.
 
@@ -45,7 +45,7 @@ Developer documentation: [README-DEV.md](README-DEV.md).
 1. Install Python 3.10 or newer and make it available on `PATH`.
 2. Run `scripts\setup.bat` on Windows, or `bash scripts/setup.sh` on Unix-like systems. The script creates a `.venv` virtual environment and installs `requirements.txt` into it. To do it manually, create a virtual environment and run `pip install -r requirements.txt`.
 3. Install GnuPG (`gpg`) and make it available on `PATH` (`C:\Program Files\GnuPG\bin` on Windows). It is required: the shipped `hash` files and plugin trust marks are verified with `gpg --verify` against `resources/plugins-lib/lorenbll-akupara-pub`, and the service refuses to start when the signature cannot be verified.
-4. Copy `.env.example` to `.env` and set `USERS` to a JSON list of `{"username","password","admin","root"}`, where each `password` is the Argon2id hash of the real password (`scripts/generate-password-hash.js` prints a hash for a chosen password; the salt and parameters are fixed).
+4. Copy `.env.example` to `.env` and set `USERS` to a JSON list of `{"username","password","client_salt","admin","root","id"}`, where `password` is the stored verifier and `client_salt` the browser salt for that account. Run `node scripts/generate-password-hash.js <username> <password>` (Node.js 18 or newer) to print a ready-to-paste entry; the script creates `resources/password-pepper` when it is missing. Back that file up and keep it out of version control, because losing it makes every stored password unusable.
 5. Review `resources/configuration.json` to set the port, whether the UI routes are enabled (`guiEnabled`) and whether the service runs in development mode (`development`).
 6. Keep the project structure intact so the service can find `resources/`, `src/` and `ui/`, and leave the signed `hash` files unmodified.
 
@@ -66,6 +66,8 @@ Add `--debug` to write `DEBUG` events to the log; without it, `DEBUG` events are
 
 Configuration is split between two files: `resources/configuration.json` for the service itself and `.env` at the project root for runtime behaviour. Copy `.env.example` to `.env`; the service reads `.env` on every start and mirrors every change made through the UI back into it.
 
+`resources/password-pepper` is created on first use, either by the service or by `scripts/generate-password-hash.js`. It is not a `.env` key and is excluded from the project hash; back it up, because without it no stored password can be verified.
+
 `resources/configuration.json`:
 
 | Key | Default | Effect |
@@ -78,7 +80,7 @@ Configuration is split between two files: `resources/configuration.json` for the
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `USERS` | `[]` | JSON list of `{"username","password","admin","root","id"}`, where `password` is the Argon2id hash of the real password and `admin` (default `false`) grants the administrator role. The service refuses logins while the list is empty. |
+| `USERS` | `[]` | JSON list of `{"username","password","client_salt","admin","root","id"}`, where `password` is the stored peppered verifier (`akupara$2$…`), `client_salt` the Argon2 salt the browser used, and `admin` (default `false`) grants the administrator role. The service refuses logins while the list is empty. |
 | `INTERNAL_INTERACTIONS` | `false` | Enables internal interactions: shared variables and plugin event subscriptions, and their cards. |
 | `SHARED_MEMORY_ENABLED` | `false` | Switches shared variables on within internal interactions. Both this and `INTERNAL_INTERACTIONS` must be on for the shared-variable endpoints to work. When the key is absent from `.env`, the reader falls back to `true`. |
 | `SHARED_MEMORY` | `[]` | JSON list of `{"name","type","value","editor","reader"}` shared variables. `type` is one of `string`, `list`, `dictionary`, `integer`, `float`, `boolean`. |

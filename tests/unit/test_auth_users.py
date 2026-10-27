@@ -5,11 +5,11 @@ import pytest
 import auth
 import state
 
-from conftest import SENTINEL_HASH
+from conftest import SENTINEL_HASH, TEST_CLIENT_SALT
 
 
 def test_register_user_appends():
-    auth._register_user("alice1234", SENTINEL_HASH, False)
+    auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
     users = auth._load_users()
     assert any(
         u["username"] == "alice1234" and u["admin"] is False and u["root"] is False
@@ -19,27 +19,27 @@ def test_register_user_appends():
 
 def test_register_user_min_length():
     with pytest.raises(ValueError):
-        auth._register_user("short", SENTINEL_HASH, False)
+        auth._register_user("short", SENTINEL_HASH, False, TEST_CLIENT_SALT)
 
 
 def test_register_user_prohibited_chars():
     with pytest.raises(ValueError):
-        auth._register_user("bad name", SENTINEL_HASH, False)
+        auth._register_user("bad name", SENTINEL_HASH, False, TEST_CLIENT_SALT)
 
 
 def test_register_user_duplicate():
-    auth._register_user("alice1234", SENTINEL_HASH, False)
+    auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
     with pytest.raises(auth.UsernameTakenError):
-        auth._register_user("alice1234", SENTINEL_HASH, False)
+        auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
 
 
 def test_register_user_invalid_hash():
     with pytest.raises(ValueError):
-        auth._register_user("alice1234", "not-an-argon-hash", False)
+        auth._register_user("alice1234", "not-an-argon-hash", False, TEST_CLIENT_SALT)
 
 
 def test_register_user_generates_secret_id():
-    auth._register_user("alice1234", SENTINEL_HASH, False)
+    auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
     user = next(u for u in auth._load_users() if u["username"] == "alice1234")
     assert user["id"]
 

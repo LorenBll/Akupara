@@ -299,7 +299,6 @@
             var statusEl = document.getElementById('status');
             var errorTimeout = null;
 
-            var SALT = 'akupara-salt';
             var PARAMS = { time: 2, mem: 65536, hashLen: 32, parallelism: 1, type: argon2.ArgonType.Argon2id };
 
             usernameInput.value = '';
@@ -331,11 +330,26 @@
                 }
             }
 
-            function hashPassword(password) {
-                var options = { pass: password, salt: SALT };
+            function hashPassword(password, salt) {
+                var options = { pass: password, salt: salt };
                 for (var key in PARAMS) options[key] = PARAMS[key];
                 return argon2.hash(options).then(function (result) {
                     return result.encoded;
+                });
+            }
+
+            function fetchSalt(username) {
+                return fetch('/api/password-salt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ username: username })
+                }).then(function (response) {
+                    if (response.status !== 200) throw new Error('Login failed.');
+                    return response.json();
+                }).then(function (data) {
+                    if (!data || typeof data.salt !== 'string' || !data.salt) throw new Error('Login failed.');
+                    return data.salt;
                 });
             }
 
@@ -349,7 +363,8 @@
                     return;
                 }
                 setBusy(true);
-                hashPassword(password)
+                fetchSalt(username)
+                    .then(function (salt) { return hashPassword(password, salt); })
                     .then(function (passwordHash) {
                         return fetch('/api/login', {
                             method: 'POST',

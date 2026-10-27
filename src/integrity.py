@@ -26,6 +26,10 @@ def _should_exclude_from_project_hash(rel: str) -> bool:
         return True
     if rel == "resources/configuration.json":
         return True
+    # Installation-specific secret (like configuration.json): generated on
+    # first run, never shipped, so it must not affect the released hash.
+    if rel == "resources/password-pepper":
+        return True
     if rel.startswith("resources/plugins-lib/"):
         return True
     if rel.startswith("resources/audios/"):

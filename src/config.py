@@ -12,7 +12,7 @@ from pathlib import Path
 
 import state
 import env_store as _env_store
-from logginglib import log_debug, log_info, log_warn
+from logginglib import log_debug, log_error, log_info, log_warn
 
 
 def _load_configuration() -> dict:
@@ -43,10 +43,23 @@ def _initialize_service_config() -> None:
     from cryptography.fernet import Fernet
 
     # Local imports for auth helpers to avoid circular imports at module load
-    from auth import _load_api_keys, _login_credentials_configured, _refresh_api_key_store
+    from auth import (
+        PasswordStorageError,
+        _ensure_password_pepper,
+        _load_api_keys,
+        _login_credentials_configured,
+        _refresh_api_key_store,
+    )
 
     load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
     config = _load_configuration()
+
+    # The pepper protects the stored password verifiers; create it on first run
+    # and fail loudly (without crashing) when it is missing or malformed.
+    try:
+        _ensure_password_pepper()
+    except PasswordStorageError as exc:
+        log_error("Password storage unavailable", {"error": str(exc)})
 
     configured_port = config.get("port", 49150)
     if isinstance(configured_port, str) and configured_port.isdigit():

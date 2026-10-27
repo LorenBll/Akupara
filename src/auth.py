@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import functools
+import hashlib
 import hmac
 import json
+import os
 import secrets
 import time
+from pathlib import Path
 
 import state
 import env_store as _env_store
-from logginglib import log_debug, log_info, log_warn
+from logginglib import log_debug, log_error, log_info, log_warn
 from validation import _is_valid_key_name
 
 try:
@@ -37,6 +42,10 @@ class CurrentPasswordError(RuntimeError):
 
 class UsernameTakenError(RuntimeError):
     """Raised when registering a username that already exists."""
+
+
+class PasswordStorageError(RuntimeError):
+    """Raised when the password store (its pepper or a stored verifier) is unusable."""
 
 
 def _get_flask_request():
@@ -235,6 +244,243 @@ def log_change(func):
 
 
 # ---------------------------------------------------------------------------
+# Password storage
+#
+# The browser stretches the password with Argon2id and sends only the encoded
+# hash. That hash is still password-equivalent, so it is never stored as-is:
+# each stored verifier is ``akupara$2$<wrap salt>$<tag>`` where
+# ``tag = HMAC-SHA256(pepper, wrap salt || client hash)``. The pepper lives in
+# ``resources/password-pepper`` (outside ``.env``), so a leaked ``.env`` cannot
+# be attacked offline and its values cannot be replayed at the login endpoint.
+# Each account stores its own random client salt (``USERS[].client_salt``), so
+# the salt is unique per account and survives a rename unchanged.
+# ---------------------------------------------------------------------------
+
+_PASSWORD_WRAP_PREFIX = "akupara$2$"
+_PASSWORD_LEGACY_SALT = "akupara-salt"
+_PASSWORD_PEPPER_BYTES = 32
+_PASSWORD_SALT_BYTES = 16
+_PASSWORD_PEPPER_CACHE: bytes | None = None
+
+
+def _password_pepper_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "resources" / "password-pepper"
+
+
+def _reset_password_pepper_cache() -> None:
+    """Forget the cached pepper (used by tests that relocate the pepper file)."""
+    global _PASSWORD_PEPPER_CACHE
+    _PASSWORD_PEPPER_CACHE = None
+
+
+def _decode_password_pepper(raw: str) -> bytes:
+    try:
+        pepper = base64.b64decode(raw.strip(), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise PasswordStorageError("The password pepper is not valid base64.") from exc
+    if len(pepper) < _PASSWORD_PEPPER_BYTES:
+        raise PasswordStorageError("The password pepper is too short.")
+    return pepper
+
+
+def _ensure_password_pepper() -> bytes:
+    """Return the server-side pepper, creating ``resources/password-pepper`` on first use.
+
+    The pepper is deliberately kept outside ``.env``: the stored verifiers live
+    in ``.env``, and a pepper stored beside them would not protect anything. It
+    is generated once, created with owner-only permissions where the platform
+    supports them, and must be backed up — losing it makes every stored
+    password unusable.
+    """
+    global _PASSWORD_PEPPER_CACHE
+    if _PASSWORD_PEPPER_CACHE is not None:
+        return _PASSWORD_PEPPER_CACHE
+    path = _password_pepper_path()
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raw = ""
+    except (OSError, UnicodeDecodeError) as exc:
+        raise PasswordStorageError("The password pepper cannot be read.") from exc
+    if raw.strip():
+        _PASSWORD_PEPPER_CACHE = _decode_password_pepper(raw)
+        return _PASSWORD_PEPPER_CACHE
+    if path.exists():
+        raise PasswordStorageError("The password pepper is empty.")
+    secret = secrets.token_bytes(_PASSWORD_PEPPER_BYTES)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Another process won the race: use the pepper it created.
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise PasswordStorageError("The password pepper cannot be read.") from exc
+        _PASSWORD_PEPPER_CACHE = _decode_password_pepper(raw)
+        return _PASSWORD_PEPPER_CACHE
+    except OSError as exc:
+        raise PasswordStorageError("The password pepper cannot be created.") from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(base64.b64encode(secret).decode("ascii") + "\n")
+    except OSError as exc:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise PasswordStorageError("The password pepper cannot be written.") from exc
+    try:
+        os.chmod(str(path), 0o600)
+    except OSError:
+        pass
+    _PASSWORD_PEPPER_CACHE = secret
+    log_info("Password pepper generated", {"path": str(path)})
+    return secret
+
+
+def _derive_decoy_salt(username: str) -> str:
+    """Return a stable, random-looking salt for a username that does not exist.
+
+    Returning a decoy instead of an error keeps the salt endpoint from becoming
+    a username-enumeration oracle for accounts on the current scheme: an unknown
+    account answers with a stable value of the same shape.
+    """
+    pepper = _ensure_password_pepper()
+    message = b"akupara/client-salt/decoy\x00" + str(username).casefold().encode("utf-8")
+    digest = hmac.new(pepper, message, hashlib.sha256).digest()
+    return _b64url_encode(digest[:_PASSWORD_SALT_BYTES])
+
+
+def _new_client_salt() -> str:
+    """Return a fresh random Argon2 salt for a new password."""
+    return _b64url_encode(secrets.token_bytes(_PASSWORD_SALT_BYTES))
+
+
+def _is_valid_client_salt(value) -> bool:
+    """Return whether *value* is a well-formed 16-byte base64url client salt."""
+    if not isinstance(value, str) or not value or len(value) > 64:
+        return False
+    try:
+        return len(_b64url_decode(value)) == _PASSWORD_SALT_BYTES
+    except (binascii.Error, ValueError):
+        return False
+
+
+def _is_wrapped_password(value) -> bool:
+    return isinstance(value, str) and value.startswith(_PASSWORD_WRAP_PREFIX)
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padded = value + "=" * (-len(value) % 4)
+    return base64.b64decode(padded, altchars=b"-_", validate=True)
+
+
+def _password_tag(wrap_salt: bytes, client_hash: str) -> bytes:
+    """Return the keyed tag binding *client_hash* to *wrap_salt*.
+
+    A keyed hash is the right primitive here: *client_hash* is a 256-bit
+    Argon2id output, not a user-chosen password, so there is nothing left to
+    stretch. What matters is that checking a guess requires the pepper.
+    """
+    pepper = _ensure_password_pepper()
+    message = b"akupara/users/v2\x00" + wrap_salt + b"\x00" + str(client_hash).encode("utf-8")
+    return hmac.new(pepper, message, hashlib.sha256).digest()
+
+
+def _wrap_password(client_hash: str) -> str:
+    """Wrap an Argon2id client hash into the stored, peppered verifier format."""
+    wrap_salt = secrets.token_bytes(_PASSWORD_SALT_BYTES)
+    tag = _password_tag(wrap_salt, client_hash)
+    return f"{_PASSWORD_WRAP_PREFIX}{_b64url_encode(wrap_salt)}${_b64url_encode(tag)}"
+
+
+def _verify_wrapped_password(stored: str, client_hash: str) -> bool:
+    if not _is_wrapped_password(stored):
+        return False
+    rest = stored[len(_PASSWORD_WRAP_PREFIX):]
+    try:
+        salt_part, tag_part = rest.split("$", 1)
+    except ValueError:
+        return False
+    if not salt_part or not tag_part:
+        return False
+    try:
+        wrap_salt = _b64url_decode(salt_part)
+        provided_tag = _b64url_decode(tag_part)
+    except (binascii.Error, ValueError):
+        return False
+    if len(wrap_salt) != _PASSWORD_SALT_BYTES:
+        return False
+    return hmac.compare_digest(_password_tag(wrap_salt, client_hash), provided_tag)
+
+
+def _verify_stored_password(entry: dict, client_hash: str) -> bool:
+    """Return whether *client_hash* matches the verifier stored in *entry*."""
+    stored = entry.get("password")
+    if not isinstance(stored, str) or not stored:
+        return False
+    if _is_wrapped_password(stored):
+        return _verify_wrapped_password(stored, client_hash)
+    # Legacy entries stored the client hash itself; still accepted so existing
+    # accounts keep working, then upgraded by ``_upgrade_password_storage``.
+    return hmac.compare_digest(client_hash, stored)
+
+
+def _password_client_salt(entry: dict | None, username: str) -> str:
+    """Return the Argon2 salt the browser must use to hash the current password."""
+    if entry is None:
+        return _derive_decoy_salt(username)
+    stored_salt = entry.get("client_salt")
+    if isinstance(stored_salt, str) and stored_salt:
+        return stored_salt
+    # Accounts that predate per-account salts used one fixed, public salt.
+    return _PASSWORD_LEGACY_SALT
+
+
+def _password_salts_for_username(username: str) -> dict:
+    """Return ``{"salt", "newSalt"}`` for the salt endpoint.
+
+    ``salt`` hashes the current password; ``newSalt`` must be used when setting
+    a new one and is then stored with the account (never derived from the
+    username, so renaming an account does not invalidate its password). ``salt``
+    is stable for every username — a decoy is returned for unknown accounts — so
+    the response does not reveal whether an account exists on the current scheme.
+    An account still on the legacy fixed salt must report that salt, so it is
+    distinguishable until its next password change.
+    """
+    username_key = str(username).casefold()
+    entry = next((user for user in _load_users() if user["username"].casefold() == username_key), None)
+    return {
+        "salt": _password_client_salt(entry, username),
+        "newSalt": _new_client_salt(),
+    }
+
+
+def _upgrade_password_storage(entry: dict, client_hash: str) -> None:
+    """Re-wrap a legacy verifier after a successful login (transparent migration)."""
+    if _is_wrapped_password(entry.get("password")):
+        return
+    try:
+        upgraded = _set_user_password_env(
+            entry["username"],
+            _wrap_password(client_hash),
+            client_salt=_PASSWORD_LEGACY_SALT,
+        )
+    except (PasswordStorageError, OSError, ValueError) as exc:
+        log_error("Password verifier upgrade failed", {"username": entry["username"], "error": str(exc)})
+        return
+    if upgraded:
+        log_info("Password verifier upgraded", {"username": entry["username"]})
+    else:
+        log_warn("Password verifier upgrade skipped", {"username": entry["username"]})
+
+
+# ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
 
@@ -267,21 +513,31 @@ def _load_users() -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        users.append({
+        user = {
             "username": username,
             "password": password,
             "admin": bool(entry.get("admin", False)),
             "root": bool(entry.get("root", False)),
             "id": str(entry.get("id") or ""),
-        })
+        }
+        # Only accounts migrated from the legacy fixed salt carry this marker;
+        # all other accounts derive their salt from the pepper and username.
+        client_salt = entry.get("client_salt")
+        if isinstance(client_salt, str) and client_salt.strip():
+            user["client_salt"] = client_salt.strip()
+        users.append(user)
     return users
 
 
 def _authenticate_user(username: str, password_hash: str) -> dict | None:
     username_key = username.casefold()
     for user in _load_users():
-        if username_key == user["username"].casefold() and hmac.compare_digest(password_hash, user["password"]):
-            return {"username": user["username"], "admin": user["admin"], "root": user["root"]}
+        if username_key != user["username"].casefold():
+            continue
+        if not _verify_stored_password(user, password_hash):
+            return None
+        _upgrade_password_storage(user, password_hash)
+        return {"username": user["username"], "admin": user["admin"], "root": user["root"]}
     return None
 
 
@@ -300,16 +556,12 @@ def _reset_failed_login_attempts() -> None:
         state._FAILED_LOGIN_ATTEMPTS = 0
 
 
-def _matching_stored_passwords(username: str) -> list[tuple[str, str]]:
+def _matching_stored_passwords(username: str) -> list[dict]:
     username_key = username.casefold()
-    records: list[tuple[str, str]] = []
-    for user in _load_users():
-        if username_key == user["username"].casefold():
-            records.append(("users", user["password"]))
-    return records
+    return [user for user in _load_users() if username_key == user["username"].casefold()]
 
 
-def _set_user_password_env(username: str, new_password_hash: str) -> bool:
+def _set_user_password_env(username: str, new_password_hash: str, client_salt: str | None = None) -> bool:
     raw = _env_store.read_env_var("USERS")
     if not raw:
         return False
@@ -326,25 +578,38 @@ def _set_user_password_env(username: str, new_password_hash: str) -> bool:
         entry_username = entry.get("username")
         if isinstance(entry_username, str) and entry_username.casefold() == username_key:
             entry["password"] = new_password_hash
+            # A new password always uses the derived per-user salt; only the
+            # legacy-migration path pins the old fixed salt.
+            if client_salt:
+                entry["client_salt"] = client_salt
+            else:
+                entry.pop("client_salt", None)
             _env_store.write_env_var("USERS", json.dumps(data, ensure_ascii=False))
             return True
     return False
 
 
-def _change_password(username: str, current_password_hash: str, new_password_hash: str, keep_token: str | None = None) -> None:
+def _change_password(
+    username: str,
+    current_password_hash: str,
+    new_password_hash: str,
+    new_client_salt: str,
+    keep_token: str | None = None,
+) -> None:
+    if not _is_valid_client_salt(new_client_salt):
+        raise ValueError("Invalid client salt.")
     records = _matching_stored_passwords(username)
     if not records:
         raise AccountNotFoundError("Account not found.")
-    if not any(hmac.compare_digest(current_password_hash, stored) for _, stored in records):
+    if not any(_verify_stored_password(record, current_password_hash) for record in records):
         raise CurrentPasswordError("Current password is incorrect.")
-    for source, _ in records:
-        if not _set_user_password_env(username, new_password_hash):
-            raise AccountNotFoundError("Account not found.")
+    if not _set_user_password_env(username, _wrap_password(new_password_hash), client_salt=new_client_salt):
+        raise AccountNotFoundError("Account not found.")
     _revoke_other_sessions(username, keep_token)
     log_info("Password changed for user", {"username": username})
 
 
-def _register_user(username: str, password_hash: str, admin: bool) -> None:
+def _register_user(username: str, password_hash: str, admin: bool, client_salt: str) -> None:
     username = username.strip()
     if not username:
         raise ValueError("Username must not be empty.")
@@ -354,6 +619,8 @@ def _register_user(username: str, password_hash: str, admin: bool) -> None:
         raise ValueError("Username must be at least 8 characters long.")
     if not isinstance(password_hash, str) or not password_hash.startswith("$argon2id$"):
         raise ValueError("Invalid password hash.")
+    if not _is_valid_client_salt(client_salt):
+        raise ValueError("Invalid client salt.")
     username_key = username.casefold()
     for user in _load_users():
         if username_key == user["username"].casefold():
@@ -365,7 +632,14 @@ def _register_user(username: str, password_hash: str, admin: bool) -> None:
         data = []
     if not isinstance(data, list):
         data = []
-    data.append({"username": username, "password": password_hash, "admin": bool(admin), "root": False, "id": secrets.token_hex(16)})
+    data.append({
+        "username": username,
+        "password": _wrap_password(password_hash),
+        "client_salt": client_salt,
+        "admin": bool(admin),
+        "root": False,
+        "id": secrets.token_hex(16),
+    })
     _env_store.write_env_var("USERS", json.dumps(data, ensure_ascii=False))
     try:
         import audio

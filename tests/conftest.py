@@ -42,6 +42,9 @@ import state  # noqa: E402
 # checks the ``$argon2id$`` prefix, so no real Argon2 computation is needed.
 SENTINEL_HASH = "$argon2id$test-sentinel-hash"
 
+# A well-formed 16-byte base64url client salt (22 characters, no padding).
+TEST_CLIENT_SALT = "abcdefghijklmnopqrstuv"
+
 _ENV_KEYS = [
     "USERS", "API_KEYS", "API_KEY_ENCRYPTION_KEY", "INTERNAL_INTERACTIONS",
     "API_KEYS_ENABLED", "DISPLAY_PROMOTION", "SHARED_MEMORY",
@@ -117,6 +120,16 @@ def _isolate_env(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_password_pepper(tmp_path_factory, monkeypatch):
+    """Keep the real ``resources/password-pepper`` out of the test run."""
+    pepper_file = tmp_path_factory.mktemp("pepper") / "password-pepper"
+    monkeypatch.setattr(auth, "_password_pepper_path", lambda: pepper_file)
+    auth._reset_password_pepper_cache()
+    yield pepper_file
+    auth._reset_password_pepper_cache()
+
+
+@pytest.fixture(autouse=True)
 def _silence_audio(monkeypatch):
     monkeypatch.setattr(audio, "play_sound", lambda event, via_log=False: None)
 
@@ -148,7 +161,7 @@ def client(monkeypatch):
 
 @pytest.fixture
 def make_user():
-    def _make(username, password_hash=SENTINEL_HASH, admin=False, root=False, user_id=None):
+    def _make(username, password_hash=SENTINEL_HASH, admin=False, root=False, user_id=None, client_salt=None):
         raw = env_store.read_env_var("USERS") or "[]"
         try:
             users = json.loads(raw) if raw else []
@@ -156,13 +169,16 @@ def make_user():
             users = []
         if not isinstance(users, list):
             users = []
-        users.append({
+        entry = {
             "username": username,
             "password": password_hash,
             "admin": bool(admin),
             "root": bool(root),
             "id": user_id or secrets.token_hex(16),
-        })
+        }
+        if client_salt:
+            entry["client_salt"] = client_salt
+        users.append(entry)
         env_store.write_env_var("USERS", json.dumps(users, ensure_ascii=False))
         return username
     return _make

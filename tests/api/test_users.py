@@ -1,12 +1,12 @@
 """Endpoint tests for ``/api/users``."""
 
-from conftest import SENTINEL_HASH
+from conftest import SENTINEL_HASH, TEST_CLIENT_SALT
 
 
 def test_register_user(client, login_admin):
     login_admin(client)
     response = client.post("/api/users", json={
-        "username": "newuser123", "password_hash": SENTINEL_HASH, "admin": False,
+        "username": "newuser123", "password_hash": SENTINEL_HASH, "client_salt": TEST_CLIENT_SALT, "admin": False,
     })
     assert response.status_code == 201
 
@@ -15,7 +15,7 @@ def test_register_user_duplicate(client, login_admin, make_user):
     login_admin(client)
     make_user("newuser123")
     response = client.post("/api/users", json={
-        "username": "newuser123", "password_hash": SENTINEL_HASH, "admin": False,
+        "username": "newuser123", "password_hash": SENTINEL_HASH, "client_salt": TEST_CLIENT_SALT, "admin": False,
     })
     assert response.status_code == 409
 
@@ -23,7 +23,7 @@ def test_register_user_duplicate(client, login_admin, make_user):
 def test_register_user_short(client, login_admin):
     login_admin(client)
     response = client.post("/api/users", json={
-        "username": "short", "password_hash": SENTINEL_HASH, "admin": False,
+        "username": "short", "password_hash": SENTINEL_HASH, "client_salt": TEST_CLIENT_SALT, "admin": False,
     })
     assert response.status_code == 400
 
@@ -31,7 +31,7 @@ def test_register_user_short(client, login_admin):
 def test_register_user_prohibited(client, login_admin):
     login_admin(client)
     response = client.post("/api/users", json={
-        "username": "bad name", "password_hash": SENTINEL_HASH, "admin": False,
+        "username": "bad name", "password_hash": SENTINEL_HASH, "client_salt": TEST_CLIENT_SALT, "admin": False,
     })
     assert response.status_code == 400
 
