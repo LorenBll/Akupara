@@ -37,6 +37,12 @@ function getTooltipPosition(a) {
     if (a.kind === 'plugin-search') {
         return { left: r.left - a.el.offsetWidth - 8, top: r.top + r.height / 2 - a.el.offsetHeight / 2 };
     }
+    if (a.kind === 'warning') {
+        var warnLeft = r.right + 8;
+        var maxLeft = window.innerWidth - tr.width - 8;
+        if (warnLeft > maxLeft) warnLeft = maxLeft;
+        return { left: warnLeft, top: r.top + r.height / 2 - tr.height / 2 };
+    }
     return { left: r.right + 8, top: r.top + r.height / 2 - tr.height / 2 };
 }
 

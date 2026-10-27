@@ -77,6 +77,8 @@
 
     <div class="floating-tooltip" id="tableTooltip" hidden></div>
 
+    <div class="floating-tooltip warning-tooltip" id="externalInteractionsWarningTooltip" hidden>Plain HTTP Usage for External Interactions is Discouraged</div>
+
     <div class="floating-tooltip error-tooltip" id="errorTooltip" hidden></div>
 
     <div class="theme-light-afterglow" id="themeLightAfterglow" aria-hidden="true"></div>
@@ -476,6 +478,12 @@
             }
             if (a.kind === 'plugin-search') {
                 return { left: r.left - a.el.offsetWidth - 8, top: r.top + r.height / 2 - a.el.offsetHeight / 2 };
+            }
+            if (a.kind === 'warning') {
+                var warnLeft = r.right + 8;
+                var maxLeft = window.innerWidth - tr.width - 8;
+                if (warnLeft > maxLeft) warnLeft = maxLeft;
+                return { left: warnLeft, top: r.top + r.height / 2 - tr.height / 2 };
             }
             return { left: r.right + 8, top: r.top + r.height / 2 - tr.height / 2 };
         }
@@ -3449,6 +3457,28 @@
                 });
         }
 
+        var externalInteractionsWarningTooltip = document.getElementById('externalInteractionsWarningTooltip');
+
+        // The card carries the plain-http-warning class server-side when external
+        // interactions are enabled on a request that did not arrive over TLS.
+        function wireExternalInteractionsPlainHttpWarning() {
+            var card = document.getElementById('externalInteractionsCard');
+            if (!card || !card.classList.contains('plain-http-warning')) return;
+            if (card.getAttribute('data-warning-wired')) return;
+            card.setAttribute('data-warning-wired', '1');
+            card.addEventListener('mouseenter', function () {
+                if (!externalInteractionsWarningTooltip) return;
+                placeTooltip(registerTooltipAnchor(externalInteractionsWarningTooltip, card, 'warning'));
+            });
+            card.addEventListener('mouseleave', hideExternalInteractionsPlainHttpWarning);
+        }
+
+        function hideExternalInteractionsPlainHttpWarning() {
+            if (!externalInteractionsWarningTooltip) return;
+            externalInteractionsWarningTooltip.hidden = true;
+            unregisterTooltipAnchor(externalInteractionsWarningTooltip);
+        }
+
         function wireFirewallTable(direction) {
             var cfg = firewallTableConfig(direction);
             var table = document.getElementById(cfg.tableId);
@@ -6032,6 +6062,7 @@
                 }
                 wireFirewallTable('incoming');
                 wireFirewallTable('outgoing');
+                wireExternalInteractionsPlainHttpWarning();
                 loadFirewallIps('incoming');
                 loadFirewallIps('outgoing');
                 fetchExternalInteractionsAllowNew();

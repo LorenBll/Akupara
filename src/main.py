@@ -121,6 +121,7 @@ from auth import (  # noqa: E402
 from firewall import (  # noqa: E402
     _delete_external_interactions_entry,
     _external_interactions_enabled,
+    _external_interactions_plain_http,
     _external_interactions_worker_bind_address,
     _list_external_interactions_entries,
     _load_external_interactions_entries,
@@ -1506,6 +1507,20 @@ def _settings_static_context() -> dict:
     return ctx
 
 
+def _request_is_secure() -> bool:
+    """Return whether the request reached the service over TLS.
+
+    A reverse proxy that terminates TLS forwards the upstream scheme in
+    ``X-Forwarded-Proto``; without that header the app cannot see the upstream
+    hop, so the header is honoured when present. Spoofing it only hides a warning
+    on the spoofer's own page.
+    """
+    if request.is_secure:
+        return True
+    forwarded = request.headers.get("X-Forwarded-Proto", "")
+    return forwarded.split(",")[0].strip().lower() == "https"
+
+
 def _settings_render_context(session: dict | None) -> dict:
     """Return the full Jinja context for the settings shell and card fragments."""
     ctx = dict(_settings_static_context())
@@ -1525,6 +1540,7 @@ def _settings_render_context(session: dict | None) -> dict:
         "external_interactions_allow_new": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW", state.EXTERNAL_INTERACTIONS_ALLOW_NEW),
         "external_interactions_allow_new_outgoing": _read_env_bool("EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING", state.EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING),
         "external_interactions_enabled": _external_interactions_enabled(),
+        "external_interactions_plain_http": _external_interactions_plain_http(_request_is_secure()),
         "external_interactions_worker_bind": _external_interactions_worker_bind_address(),
         "automatic_update": _read_env_bool("AUTOMATIC_UPDATE", state.AUTOMATIC_UPDATE),
         "update_available": state._UPDATE_AVAILABLE_AT_STARTUP,

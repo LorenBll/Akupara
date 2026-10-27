@@ -27,9 +27,13 @@ SOUND_ENV_VARS: dict[str, str] = {
 }
 
 # Default audio file names, applied when the corresponding .env variable is absent.
+# Every event must have one: an empty value means "play nothing", so a missing
+# default would silently mute that event.
 DEFAULT_SOUND_FILES: dict[str, str] = {
     "startup": "logo-reveal.wav",
     "acknowledge": "acknowledge.wav",
+    "warn": "warn.wav",
+    "process": "process.wav",
     "success": "success.wav",
     "error": "error.wav",
 }

@@ -82,3 +82,12 @@ def test_delete_entry():
     ])
     assert firewall._delete_external_interactions_entry("incoming", "1.2.3.4") is True
     assert firewall._delete_external_interactions_entry("incoming", "1.2.3.4") is False
+
+
+def test_plain_http_warning_needs_both_the_feature_and_a_plain_request():
+    state.EXTERNAL_INTERACTIONS = False
+    assert firewall._external_interactions_plain_http(is_secure=False) is False
+    assert firewall._external_interactions_plain_http(is_secure=True) is False
+    state.EXTERNAL_INTERACTIONS = True
+    assert firewall._external_interactions_plain_http(is_secure=False) is True
+    assert firewall._external_interactions_plain_http(is_secure=True) is False

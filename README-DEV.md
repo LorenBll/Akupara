@@ -34,7 +34,7 @@ User documentation: [README.md](README.md). Repository rules for contributors an
 
 - **Plugin event subscriptions** — `PLUGIN_EVENT_SUBSCRIPTIONS` maps an event name (`[A-Za-z0-9_.-]+`) to the sorted list of subscribed plugin names. It exists so plugins can address one another by event. Manage the subscriptions from the Internal Interactions card or through the `/api/plugin-events*` endpoints while internal interactions are enabled.
 
-- **External interactions (IP firewall and network worker)** — with external interactions enabled, `ExternalInteractionsWorker` serves the marked endpoints on the device's first non-loopback IPv4 address on the same port, in parallel with the loopback server; the incoming IP list (`allow`, `unknown`, `block`) and `EXTERNAL_INTERACTIONS_ALLOW_NEW` decide which remote clients pass, and a parallel outgoing list and `EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING` exist for outgoing requests. It exists to expose the service to selected devices without opening it to everyone. Manage both lists from the External Interactions card; new incoming IPs are recorded automatically as `unknown` scoped to `akupara`. Opening it to other machines over plain HTTP is not advisable: the worker serves the same endpoints without TLS, so the login exchange and the `akupara-refresh` cookie travel unencrypted and a captured password hash can be replayed. Put the service behind a TLS reverse proxy or inside a VPN or SSH tunnel, or keep external interactions disabled.
+- **External interactions (IP firewall and network worker)** — with external interactions enabled, `ExternalInteractionsWorker` serves the marked endpoints on the device's first non-loopback IPv4 address on the same port, in parallel with the loopback server; the incoming IP list (`allow`, `unknown`, `block`) and `EXTERNAL_INTERACTIONS_ALLOW_NEW` decide which remote clients pass, and a parallel outgoing list and `EXTERNAL_INTERACTIONS_ALLOW_NEW_OUTGOING` exist for outgoing requests. It exists to expose the service to selected devices without opening it to everyone. Manage both lists from the External Interactions card; new incoming IPs are recorded automatically as `unknown` scoped to `akupara`. Opening it to other machines over plain HTTP is not advisable: the worker serves the same endpoints without TLS, so the login exchange and the `akupara-refresh` cookie travel unencrypted and a captured password hash can be replayed. Put the service behind a TLS reverse proxy or inside a VPN or SSH tunnel, or keep external interactions disabled. While external interactions are enabled and the page is not reached over TLS, the card border turns warn-yellow and hovering the card shows a "Plain HTTP Usage for External Interactions is Discouraged" tooltip just outside its right edge.
 
 - **Audio feedback** — the service plays a configurable sound for six events (`startup`, `acknowledge`, `warn`, `process`, `success`, `error`); each event's file is set by its `.env` variable or from the Customisation card, and playback requires `PLAY_AUDIOS`. It exists to confirm actions audibly. Toggle playback, the startup sound and the log sounds from the Customisation card.
 
@@ -54,7 +54,7 @@ User documentation: [README.md](README.md). Repository rules for contributors an
   - `config.py` — loads `resources/configuration.json` and initialises the service state; also resolves the device's local addresses.
   - `env_store.py` — reads and writes `.env` variables (including boolean parsing).
   - `audio.py` — the `AudioOrchestrator` worker, the sound-event map and playback.
-  - `firewall.py` — the external-interactions entry store and the IP policy used by the network worker.
+  - `firewall.py` — the external-interactions entry store, the IP policy used by the network worker, and `_external_interactions_plain_http`, which flags an enabled external-interaction surface reached without TLS so the settings card can warn about it.
   - `network.py` — the `ExternalInteractionsWorker`, the `external_interactions_worker_callable` marker and the guarded WSGI app.
   - `plugin_bridge.py` — the plugin bridge: catalogue loading, reverse-index search, library hashing, trust verification, and installed-plugin discovery and upgrades.
   - `plugin_events.py` — plugin-event subscription storage.
@@ -613,7 +613,7 @@ The service logs through `src/logginglib/`, which implements the shared logging 
 
 ## Testing
 
-The suite lives in `tests/`, is driven by `pytest` (`pytest.ini` sets `testpaths = tests`, `pythonpath = src` and `addopts = -ra`) and contains 246 collected tests: 166 in `tests/unit`, 78 in `tests/api` and 2 in `tests/scripts`.
+The suite lives in `tests/`, is driven by `pytest` (`pytest.ini` sets `testpaths = tests`, `pythonpath = src` and `addopts = -ra`) and contains 254 collected tests: 170 in `tests/unit`, 82 in `tests/api` and 2 in `tests/scripts`.
 
 ### Isolation guarantees
 
@@ -632,18 +632,18 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 
 `tests/conftest.py` holds the shared fixtures. The modules and their scope:
 
-`tests/unit/` (166 collected):
+`tests/unit/` (170 collected):
 
 - `test_app_factory.py` (5) — the shared Flask decorators and helpers (`standard_endpoint`, the `OPTIONS`/`HEAD` responses, `set_connection_header`).
-- `test_audio.py` (6) — pure audio helpers.
+- `test_audio.py` (8) — pure audio helpers and the sound defaults: every event names a file shipped in `resources/audios/`, with `warn.wav` and `process.wav` pinned.
 - `test_auth_api_keys.py` (9) — API-key management in the auth layer.
 - `test_auth_password_storage.py` (53) — peppered verifiers, client salts, rename behaviour, the installation-scoped pepper policy, the bootstrap root account, the browser-hash parameters and every rejection path of the stored-verifier format (raw hashes, missing parts, undecodable base64, wrong salt length, missing pepper, and a verifier that does not survive a pepper rotation).
 - `test_auth_passwords.py` (3) — password change in the auth layer.
 - `test_auth_sessions.py` (3) — session helpers.
 - `test_auth_users.py` (15) — user management.
-- `test_config.py` (5 functions, 6 collected) — service configuration, including a missing pepper aborting startup and the default-root seeding switch; one test is parametrised over `development` `True`/`False`.
+- `test_config.py` (6 functions, 7 collected) — service configuration, including a missing pepper aborting startup, the default-root seeding switch and the sound defaults written into a `.env` that lacks them; one test is parametrised over `development` `True`/`False`.
 - `test_env_store.py` (6) — `.env` persistence helpers.
-- `test_firewall.py` (9) — external-interactions helpers.
+- `test_firewall.py` (10) — external-interactions helpers, including the plain-HTTP flag.
 - `test_github_api.py` (2) — pure GitHub response classification.
 - `test_integrity.py` (2) — pure integrity helpers.
 - `test_logginglib.py` (6) — the JSON logging library and the logging standard.
@@ -654,7 +654,7 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 - `test_updates.py` (5) — offline update-check classification.
 - `test_validation.py` (6) — input-validation helpers.
 
-`tests/api/` (78 collected):
+`tests/api/` (82 collected):
 
 - `test_api_keys.py` (6) — `/api/api-keys`.
 - `test_authz.py` (9) — the authorisation matrix for the three cookie/API-key decorators.
@@ -666,7 +666,7 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 - `test_plugin_events_api.py` (5) — `/api/plugin-events`.
 - `test_settings_toggles.py` (10) — settings and feature toggles.
 - `test_shared_memory_api.py` (7) — `/api/shared-memory`.
-- `test_ui_routes.py` (9) — the UI routes.
+- `test_ui_routes.py` (13) — the UI routes, including whether the External Interactions card carries the plain-HTTP warning for the request's scheme (plain, disabled feature, `X-Forwarded-Proto: https` and a forwarded list).
 - `test_users.py` (9) — `/api/users`.
 
 `tests/scripts/` (2 collected):
@@ -677,9 +677,9 @@ The codebase relies on module-level globals (`src/state.py`), a root `.env` (`sr
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest                     # everything (246 tests)
-python -m pytest tests/unit          # unit tests only (166)
-python -m pytest tests/api           # API tests only (78)
+python -m pytest                     # everything (254 tests)
+python -m pytest tests/unit          # unit tests only (170)
+python -m pytest tests/api           # API tests only (82)
 python -m pytest tests/scripts       # script smoke tests only (2)
 python -m pytest tests/unit/test_auth_users.py         # one module
 python -m pytest tests/api/test_users.py::<test_name>  # one test
@@ -801,7 +801,7 @@ Configuration is split between two files: `resources/configuration.json` for the
 | `AUTOMATIC_PLUGIN_UPGRADE` | `false` | Upgrades installed plugins that have a newer release at startup. |
 | `GITHUB_TOKEN` | empty | Optional token sent to GitHub hosts as `Authorization: token <token>`. It exists to raise the API rate limit (~60 to ~5000 requests per hour). Generate one with no scopes and no expiration, and add it to `.env`; without it, frequent checks may hit the limit, in which case version checks are skipped rather than failing, while operations that need GitHub data log an error and keep running. |
 
-The sound-file defaults above are the values shipped in `.env.example`; when a sound key is absent from `.env`, the service falls back to the same file for `STARTUP_SOUND`, `ACKNOWLEDGE_SOUND`, `SUCCESS_SOUND` and `ERROR_SOUND`, and to an empty value for `WARN_SOUND` and `PROCESS_SOUND`.
+The sound-file defaults above are the values shipped in `.env.example`; when a sound key is absent from `.env`, the service falls back to the same file for every event, so no event is silently muted. A key present with an empty value plays nothing for that event.
 
 ## Support
 
