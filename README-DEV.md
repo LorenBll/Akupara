@@ -726,9 +726,9 @@ The sandbox is a fresh git checkout in non-development mode, so the project-inte
 
 ### Signing and hash tests
 
-`tests/unit/test_signing.py` covers `src/signing.py`. Most tests parse only; the tests that need a real keyring are marked `requires_gpg` and skipped when `gpg` is unavailable.
+`tests/unit/test_signing.py` covers `src/signing.py`. The tests that need `gpg` are marked `requires_gpg` and skipped when it is unavailable.
 
-`_point_gpg_at_an_empty_keyring` redirects `GNUPGHOME` to an empty temporary keyring, in the path form the local `gpg` understands (native GnuPG needs the Windows form, while the Git-for-Windows MSYS build needs the POSIX form; the form is chosen from the `Home:` line of `gpg --version`). This isolation is essential: the signing key is present on the developer's machine, so without a clean keyring a broken or unreadable public key stays invisible and only ever fails on a clean machine. The test verifies both shipped `hash` files (the repo root and `resources/plugins-lib/`) against the shipped public key, and checks that a UTF-8 BOM in the public key does not break import.
+Verification is inherently isolated — `src/signing.py` imports the key into a dedicated temporary keyring for every check, so it never touches the user's keyring, and it accepts a signature only when the signer's primary fingerprint equals the pinned one. The tests assert the shipped key's fingerprint matches the pin, that both shipped `hash` files (the repo root and `resources/plugins-lib/`) verify against the pinned key, that a UTF-8 BOM in the public key does not break the check, and that a flipped pin or a 64-hex mark (the former gpg-less fallback) is rejected.
 
 ### Continuous integration
 
@@ -743,7 +743,7 @@ The sandbox is a fresh git checkout in non-development mode, so the project-inte
 
 - Choose the directory by scope: pure helper logic in `tests/unit/`, endpoint behaviour through the Flask `client` in `tests/api/`, and script/integration smoke tests in `tests/scripts/`.
 - Use the existing fixtures (`client`, `make_user`, `login`, `login_admin`, `enable_api_keys`, `make_api_key`) instead of touching real files or environment variables; the autouse isolation fixtures handle `.env`, logs, audio and `state`.
-- Monkeypatch external boundaries (GitHub requests, `subprocess`/`gpg`, version helpers) rather than performing real I/O. `tests/api/test_ui_routes.py` shows a version-helper mock; `tests/unit/test_signing.py` shows the gpg keyring isolation pattern; mark keyring-dependent tests with `requires_gpg`.
+- Monkeypatch external boundaries (GitHub requests, `subprocess`/`gpg`, version helpers) rather than performing real I/O. `tests/api/test_ui_routes.py` shows a version-helper mock; `tests/unit/test_signing.py` shows the pinned-fingerprint and keyring-isolation checks; mark keyring-dependent tests with `requires_gpg`.
 - Keep the module docstring and naming style of the surrounding files; British English applies to comments and docstrings.
 - Run `python -m pytest tests/unit tests/api -q` before committing.
 

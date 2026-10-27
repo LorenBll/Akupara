@@ -82,29 +82,34 @@ def _crash(message: str, data=None) -> None:
 
 
 def _fetch_remote_project_hash(timeout: int = 8) -> str | None:
-    """Fetch the unsigned project hash from the latest release's hash asset.
+    """Fetch and verify the project hash from the latest release's hash asset.
 
     Only the latest release is consulted — the locally *indicated* hash is
     already validated by its PGP signature, so no tag-scanning fallback is
-    needed. Unavailable (offline / no release asset yet) → ``None``.
+    needed. The remote asset is itself signed; only a validly signed hash is
+    returned, so an unsigned or invalidly signed asset is treated like being
+    offline. Unavailable (offline / no release asset yet) → ``None``.
     """
     import ssl
     import urllib.request
+    import signing
     url = "https://github.com/LorenBll/Akupara/releases/latest/download/hash"
     ctx = ssl.create_default_context()
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Akupara/1.0"})
         with github_api.github_urlopen(req, timeout=timeout, context=ctx) as resp:
-            data = resp.read().decode("utf-8", errors="replace").strip().split()[0]
-            if data:
-                return data
+            data = resp.read().decode("utf-8", errors="replace")
+        hex_value, valid = signing.parse_signed_hash_text(data)
+        if valid and hex_value:
+            return hex_value.strip()
+        log_warn("Remote project hash has an invalid or missing signature — skipping remote check", {"url": url})
+        return None
     except github_api.GithubRateLimitedError:
         log_warn("GitHub API rate limit exceeded while fetching remote project hash — skipping version check", {"url": url})
         raise
     except Exception as exc:
         log_warn("Remote project hash unavailable — skipping remote check", {"url": url, "error": str(exc)})
         return None
-    return None
 
 
 def _is_update_available() -> bool:
