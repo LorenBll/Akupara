@@ -194,8 +194,15 @@ def test_tampered_verifier_is_rejected():
     auth._register_user("alice1234", SENTINEL_HASH, False, TEST_CLIENT_SALT)
     entry = _entry("alice1234")
     stored = entry["password"]
-    flipped = "A" if stored[-1] != "A" else "B"
-    entry["password"] = stored[:-1] + flipped
+    # The tag is compared as decoded bytes, and base64url encodes 16 bytes in 22
+    # characters whose last one carries only two significant bits: flipping that
+    # last character often leaves the bytes identical. The first character is
+    # fully significant, so the tamper always changes the decoded tag.
+    prefix, tag = stored.rsplit("$", 1)
+    flipped = "A" if tag[0] != "A" else "B"
+    tampered = f"{prefix}${flipped}{tag[1:]}"
+    assert auth._b64url_decode(tampered.rsplit("$", 1)[1]) != auth._b64url_decode(tag)
+    entry["password"] = tampered
     env_store.write_env_var("USERS", json.dumps([entry]))
     assert auth._authenticate_user("alice1234", SENTINEL_HASH) is None
 
