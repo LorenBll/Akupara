@@ -659,8 +659,7 @@ def _load_plugins() -> list[dict]:
     full-space file is used.
     No plugin handling (download/start) is performed here — this is catalogue research.
 
-    ``reverse-index.json`` and ``lorenbll-akupara-pub`` are explicitly excluded
-    from this scan.
+    ``reverse-index.json`` is explicitly excluded from this scan.
     """
     base_dir = Path(__file__).resolve().parent.parent / "resources" / "plugins-lib"
     plugins: list[dict] = []

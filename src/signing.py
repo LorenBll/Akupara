@@ -49,7 +49,7 @@ _trusted_key_cache: bytes | None = None
 
 
 def _gpg_pubkey_path() -> Path:
-    return Path(__file__).resolve().parent.parent / "resources" / "plugins-lib" / "lorenbll-akupara-pub"
+    return Path(__file__).resolve().parent.parent / "resources" / "lorenbll-akupara-pub"
 
 
 def _trust_cache_path() -> Path:

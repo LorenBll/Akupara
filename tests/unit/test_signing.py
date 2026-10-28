@@ -84,7 +84,7 @@ def test_bommed_public_key_is_still_accepted(tmp_path, monkeypatch):
     bommed = tmp_path / "lorenbll-akupara-pub"
     bommed.write_bytes(
         codecs.BOM_UTF8
-        + (PROJECT_ROOT / "resources" / "plugins-lib" / "lorenbll-akupara-pub").read_bytes()
+        + (PROJECT_ROOT / "resources" / "lorenbll-akupara-pub").read_bytes()
     )
     monkeypatch.setattr(signing, "_gpg_pubkey_path", lambda: bommed)
     signing._trusted_key_cache = None

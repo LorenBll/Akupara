@@ -34,11 +34,7 @@ def _should_exclude_from_project_hash(rel: str) -> bool:
     # so it also belongs to one installation and not to the released tree.
     if rel == "resources/installation.json":
         return True
-    # The plugin library has its own hash, so everything under it is excluded
-    # except the signing public key, which is the trust anchor for both hashes:
-    # including it in the project hash means a replacement of the key would be
-    # detected by the application-hash check as well.
-    if rel.startswith("resources/plugins-lib/") and rel != "resources/plugins-lib/lorenbll-akupara-pub":
+    if rel.startswith("resources/plugins-lib/"):
         return True
     if rel.startswith("resources/audios/"):
         return True

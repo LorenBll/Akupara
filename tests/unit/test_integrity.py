@@ -7,7 +7,6 @@ def test_should_exclude_from_project_hash():
     assert integrity._should_exclude_from_project_hash("hash") is True
     assert integrity._should_exclude_from_project_hash("resources/configuration.json") is True
     assert integrity._should_exclude_from_project_hash("resources/plugins-lib/x.json") is True
-    assert integrity._should_exclude_from_project_hash("resources/plugins-lib/lorenbll-akupara-pub") is False
     assert integrity._should_exclude_from_project_hash("resources/audios/a.wav") is True
     assert integrity._should_exclude_from_project_hash("logs/x.json") is True
     assert integrity._should_exclude_from_project_hash(".venv/x.py") is True
