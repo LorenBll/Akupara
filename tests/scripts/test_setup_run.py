@@ -149,15 +149,21 @@ def _read_users(sandbox: Path) -> list[dict]:
 
 
 def _assert_default_root_can_log_in(sandbox: Path, port: int) -> None:
-    """The fresh installation must hand out a usable root account."""
-    users = _read_users(sandbox)
-    assert [user["username"] for user in users] == ["admin"], users
-    assert users[0]["root"] is True, users
-    password_hash = auth._client_password_hash("admin123", users[0]["client_salt"])
-    body = json.dumps({"username": "admin", "password_hash": password_hash})
+    """The fresh installation requires first-run setup, then allows login."""
+    client_salt = auth._new_client_salt()
+    password_hash = auth._client_password_hash("setupsecret", client_salt)
+    setup_body = json.dumps({
+        "username": "administrator",
+        "password_hash": password_hash,
+        "client_salt": client_salt,
+    })
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     try:
-        conn.request("POST", "/api/login", body=body, headers={"Content-Type": "application/json"})
+        conn.request("POST", "/api/setup", body=setup_body, headers={"Content-Type": "application/json"})
+        response = conn.getresponse()
+        payload = response.read()
+        assert response.status == 201, payload
+        conn.request("POST", "/api/login", body=json.dumps({"username": "administrator", "password_hash": password_hash}), headers={"Content-Type": "application/json"})
         response = conn.getresponse()
         payload = response.read()
     finally:

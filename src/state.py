@@ -68,6 +68,11 @@ _FAILED_LOGIN_ATTEMPTS: int = 0
 _FAILED_LOGIN_LOCK = threading.Lock()
 _MAX_FAILED_LOGIN_WARNS: int = 3
 
+_LOGIN_RATE_LIMIT: dict[str, list[float]] = {}
+_LOGIN_RATE_LIMIT_LOCK = threading.Lock()
+_MAX_LOGIN_ATTEMPTS: int = 5
+_LOGIN_RATE_WINDOW_SECONDS: float = 300.0
+
 # ---------------------------------------------------------------------------
 # Local address cache
 # ---------------------------------------------------------------------------

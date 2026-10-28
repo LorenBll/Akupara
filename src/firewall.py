@@ -327,6 +327,13 @@ def _stop_external_interactions_worker() -> None:
 
 
 def _set_external_interactions(value: bool) -> None:
+    if value:
+        try:
+            from auth import _login_credentials_configured
+        except Exception:
+            _login_credentials_configured = lambda: False
+        if not _login_credentials_configured():
+            raise RuntimeError("Initial administrator setup is not complete.")
     state.EXTERNAL_INTERACTIONS = value
     _env_store.write_env_var("EXTERNAL_INTERACTIONS", str(value).lower())
     if value:

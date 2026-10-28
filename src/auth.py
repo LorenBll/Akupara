@@ -10,6 +10,7 @@ import hmac
 import json
 import os
 import secrets
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,9 +121,10 @@ def _renew_session_cookie(response) -> None:
     if not provided_token:
         return
     with state._SESSION_LOCK:
-        session = state._SESSION_STORE.get(provided_token)
+        session = state._SESSION_STORE.pop(provided_token, None)
         if session is None:
             return
+        session = dict(session)
         session["last_refresh"] = time.time()
         new_token = _generate_session_token()
         state._SESSION_STORE[new_token] = session
@@ -284,7 +286,6 @@ _PASSWORD_ARGON2_HASH_LENGTH = 32
 # can be logged into. Its password is public: change it immediately after the
 # first login, or delete the account once another root exists.
 _DEFAULT_ROOT_USERNAME = "admin"
-_DEFAULT_ROOT_PASSWORD = "admin123"
 
 
 def _password_pepper_path() -> Path:
@@ -557,9 +558,12 @@ def _password_salts_for_username(username: str) -> dict:
     """
     username_key = str(username).casefold()
     entry = next((user for user in _load_users() if user["username"].casefold() == username_key), None)
+    challenge = _new_login_challenge(username)
     return {
         "salt": _password_client_salt(entry, username),
         "newSalt": _new_client_salt(),
+        "challenge": challenge,
+        "nonce": challenge,
     }
 
 
@@ -670,30 +674,52 @@ def _users_for_change() -> list[dict]:
     return users
 
 
-def _ensure_default_root_user() -> bool:
-    """Create the bootstrap root account when no user is configured.
+_SETUP_LOCK = threading.Lock()
 
-    A fresh installation has an empty ``USERS`` list, so nobody could log in.
-    The account exists only to let the operator in; its password is public, so
-    it must be changed at the first login. Returns whether it was created.
+
+def _ensure_default_root_user() -> bool:
+    """Report whether the installation still needs its first administrator.
+
+    A fresh installation no longer receives a predictable password. When
+    ``USERS`` is empty the operator must complete the first-run setup flow
+    (see ``_create_initial_admin`` / ``/api/setup``) before anyone can log in.
+    Returns ``False`` so callers can detect that setup is still required.
     """
-    if not _users_list_is_empty():
-        return False
-    client_salt = _new_client_salt()
-    entry = {
-        "username": _DEFAULT_ROOT_USERNAME,
-        "password": _wrap_password(_client_password_hash(_DEFAULT_ROOT_PASSWORD, client_salt)),
-        "client_salt": client_salt,
-        "admin": True,
-        "root": True,
-        "id": secrets.token_hex(16),
-    }
-    _env_store.write_env_var("USERS", json.dumps([entry], ensure_ascii=False))
-    log_warn(
-        "Default root account created",
-        {"username": _DEFAULT_ROOT_USERNAME, "hint": "change its password immediately"},
-    )
-    return True
+    return False
+
+
+def _create_initial_admin(username: str, password_hash: str, client_salt: str) -> dict:
+    """Create the first administrator during the first-run setup flow.
+
+    Raises ``RuntimeError`` if an account already exists, ``ValueError`` for
+    invalid input. Safe under concurrent startup: only one caller wins.
+    """
+    username = username.strip() if isinstance(username, str) else ""
+    if not username:
+        raise ValueError("Username must not be empty.")
+    if any(ch in username for ch in state._FORBIDDEN_KEY_NAME_CHARS):
+        raise ValueError("Username contains prohibited characters.")
+    if len(username) < 8:
+        raise ValueError("Username must be at least 8 characters long.")
+    if not isinstance(password_hash, str) or not password_hash.startswith("$argon2id$"):
+        raise ValueError("Invalid password hash.")
+    if not _is_valid_client_salt(client_salt):
+        raise ValueError("Invalid client salt.")
+
+    with _SETUP_LOCK:
+        if _login_credentials_configured():
+            raise RuntimeError("Initial administrator setup is already complete.")
+        entry = {
+            "username": username,
+            "password": _wrap_password(password_hash),
+            "client_salt": client_salt,
+            "admin": True,
+            "root": True,
+            "id": secrets.token_hex(16),
+        }
+        _env_store.write_env_var("USERS", json.dumps([entry], ensure_ascii=False))
+    log_info("Initial administrator created", {"username": username})
+    return {"username": username, "admin": True, "root": True}
 
 
 def _authenticate_user(username: str, password_hash: str) -> dict | None:
@@ -704,6 +730,15 @@ def _authenticate_user(username: str, password_hash: str) -> dict | None:
         if not _verify_stored_password(user, password_hash):
             return None
         return {"username": user["username"], "admin": user["admin"], "root": user["root"]}
+    # Keep the unknown-username path on a comparable code path so login timing
+    # does not trivially reveal whether an account exists.
+    try:
+        _verify_stored_password(
+            {"password": _wrap_password("$argon2id$akupara-timing-decoy")},
+            password_hash,
+        )
+    except PasswordStorageError:
+        pass
     return None
 
 
@@ -720,6 +755,53 @@ def _register_failed_login_attempt() -> bool:
 def _reset_failed_login_attempts() -> None:
     with state._FAILED_LOGIN_LOCK:
         state._FAILED_LOGIN_ATTEMPTS = 0
+
+
+def _is_login_rate_limited(client: str) -> bool:
+    now = time.time()
+    with state._LOGIN_RATE_LIMIT_LOCK:
+        attempts = [t for t in state._LOGIN_RATE_LIMIT.get(client, []) if now - t < state._LOGIN_RATE_WINDOW_SECONDS]
+        state._LOGIN_RATE_LIMIT[client] = attempts
+        return len(attempts) >= state._MAX_LOGIN_ATTEMPTS
+
+
+def _record_failed_login_attempt_for_rate_limit(client: str) -> None:
+    now = time.time()
+    with state._LOGIN_RATE_LIMIT_LOCK:
+        attempts = [t for t in state._LOGIN_RATE_LIMIT.get(client, []) if now - t < state._LOGIN_RATE_WINDOW_SECONDS]
+        attempts.append(now)
+        state._LOGIN_RATE_LIMIT[client] = attempts
+
+
+def _reset_login_rate_limit(client: str) -> None:
+    with state._LOGIN_RATE_LIMIT_LOCK:
+        state._LOGIN_RATE_LIMIT.pop(client, None)
+
+
+_LOGIN_CHALLENGES: dict[str, tuple[str, float]] = {}
+_LOGIN_CHALLENGE_LOCK = threading.Lock()
+_LOGIN_CHALLENGE_TTL = 300.0
+
+
+def _new_login_challenge(username: str) -> str:
+    challenge = secrets.token_urlsafe(32)
+    with _LOGIN_CHALLENGE_LOCK:
+        _LOGIN_CHALLENGES[challenge] = (username.casefold(), time.time() + _LOGIN_CHALLENGE_TTL)
+    return challenge
+
+
+def _consume_login_challenge(challenge: str, username: str) -> bool:
+    if not isinstance(challenge, str) or not challenge:
+        return True  # Backwards-compatible: no challenge supplied.
+    now = time.time()
+    with _LOGIN_CHALLENGE_LOCK:
+        entry = _LOGIN_CHALLENGES.pop(challenge, None)
+    if entry is None:
+        return False
+    expected_user, expiry = entry
+    if expiry < now:
+        return False
+    return expected_user == username.casefold()
 
 
 def _matching_stored_passwords(username: str) -> list[dict]:

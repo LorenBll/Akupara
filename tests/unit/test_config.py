@@ -36,17 +36,14 @@ def test_initialize_service_config_propagates_a_missing_pepper(monkeypatch):
         config._initialize_service_config()
 
 
-def test_initialize_service_config_creates_the_default_root_user(monkeypatch):
+def test_initialize_service_config_does_not_create_a_default_root_user(monkeypatch):
     monkeypatch.setattr(
         config,
         "_load_configuration",
         lambda: {"port": 49155, "guiEnabled": True, "development": True},
     )
     config._initialize_service_config()
-    users = auth._load_users()
-    assert [user["username"] for user in users] == ["admin"]
-    assert users[0]["admin"] is True
-    assert users[0]["root"] is True
+    assert auth._load_users() == []
 
 
 def test_initialize_service_config_can_skip_the_default_root_user(monkeypatch):

@@ -29,9 +29,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import regex
 import ssl
+import stat
+import struct
 import urllib.request
 from pathlib import Path
 
@@ -553,36 +556,70 @@ def _read_plugin_hash_file(plugin_path: Path) -> str | None:
 
 
 def _compute_plugin_folder_hash(plugin_path: Path) -> str | None:
-    """Hash a plugin folder (each non-hash file individually, sorted, concat, hash).
+    """Compute an unambiguous integrity digest for *plugin_path*.
 
-    Excludes the ``hash`` file itself (hash/hash.txt/*.hash). Returns hex or None on error.
+    Every regular file below *plugin_path* contributes its normalised relative
+    path and its raw content, length-prefixed, in deterministic path order.
+    Only the plugin's own checksum manifest (a top-level file named exactly
+    ``hash``, case-insensitively) is excluded; other ``*.hash`` files are
+    included like any other file. Symlinks, unreadable files, non-regular
+    files and path-traversal attempts make the whole computation fail closed
+    (``None``).
     """
-    if not plugin_path.is_dir():
+    try:
+        root = plugin_path.resolve(strict=True)
+    except (OSError, RuntimeError):
         return None
-    per_file: list[tuple[str, str]] = []
-    for p in sorted(plugin_path.iterdir(), key=lambda x: x.name):
-        if not p.is_file():
-            continue
-        # Exclude hash file(s)
-        if p.name.lower() in ("hash", "hash.txt") or p.name.lower().endswith(".hash"):
-            continue
-        try:
-            h = _hash_file(p)
-        except OSError:
-            continue
-        per_file.append((p.name, h))
-    # If no files (only hash), hash of empty
-    if not per_file:
-        return _hash_bytes(b"")
-    per_file.sort(key=lambda x: x[0])
-    merged = "".join(h for _, h in per_file)
-    # Also sort by hash as secondary (already sorted by name, but spec said sorted hashes)
-    # Use sorted hashes for final merge as per previous folder hash pattern (sorted by file hash)
-    # For plugin folder, sort by file name is more intuitive; but we also sort hashes
-    # To match execution tree: "each hashed singularly, and then the hashes are hashed together" — implies sorted hashes
-    hashes_sorted = sorted(h for _, h in per_file)
-    merged_sorted = "".join(hashes_sorted)
-    return _hash_bytes(merged_sorted.encode("utf-8"))
+    if not root.is_dir():
+        return None
+
+    entries: list[tuple[str, bytes]] = []
+    try:
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+            # Deterministic traversal order.
+            dirnames.sort()
+            filenames.sort()
+            current = Path(dirpath)
+            for name in filenames:
+                full = current / name
+                # Reject symlinks and anything that is not a regular file.
+                if full.is_symlink():
+                    return None
+                try:
+                    st = full.stat(follow_symlinks=False)
+                except OSError:
+                    return None
+                if not stat.S_ISREG(st.st_mode):
+                    return None
+                try:
+                    rel = full.relative_to(root).as_posix()
+                except ValueError:
+                    return None
+                # Defensive path checks.
+                if not rel or rel.startswith("/") or ".." in rel.split("/"):
+                    return None
+                # Only the well-defined checksum manifest is excluded.
+                if rel.lower() == "hash":
+                    continue
+                try:
+                    data = full.read_bytes()
+                except OSError:
+                    return None
+                entries.append((rel, data))
+    except OSError:
+        return None
+
+    entries.sort(key=lambda item: item[0])
+
+    digest = hashlib.sha256()
+    digest.update(struct.pack(">I", len(entries)))
+    for rel, data in entries:
+        rel_bytes = rel.encode("utf-8")
+        digest.update(struct.pack(">I", len(rel_bytes)))
+        digest.update(rel_bytes)
+        digest.update(struct.pack(">Q", len(data)))
+        digest.update(data)
+    return digest.hexdigest()
 
 
 def _reverse_index_path() -> Path:

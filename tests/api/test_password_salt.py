@@ -11,7 +11,7 @@ def test_password_salt_is_public(client):
     response = client.post("/api/password-salt", json={"username": "nobody123"})
     assert response.status_code == 200
     data = response.get_json()
-    assert set(data) == {"salt", "newSalt"}
+    assert set(data) == {"salt", "newSalt", "challenge", "nonce"}
     assert len(data["salt"]) == 22
     assert len(data["newSalt"]) == 22
 

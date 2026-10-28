@@ -101,20 +101,9 @@ def test_ensure_password_pepper_never_creates_a_file():
 
 # --- bootstrap account ------------------------------------------------------
 
-def test_default_root_user_is_created_when_no_user_exists():
-    assert auth._ensure_default_root_user() is True
-    entry = _entry("admin")
-    assert entry["admin"] is True
-    assert entry["root"] is True
-    assert entry["password"].startswith("akupara$2$")
-    assert len(_users()) == 1
-
-
-def test_default_root_user_can_log_in_with_its_documented_password():
-    auth._ensure_default_root_user()
-    entry = _entry("admin")
-    client_hash = auth._client_password_hash("admin123", entry["client_salt"])
-    assert auth._authenticate_user("admin", client_hash) is not None
+def test_default_root_user_is_not_created_with_a_predictable_password():
+    assert auth._ensure_default_root_user() is False
+    assert _users() == []
 
 
 def test_default_root_password_matches_the_browser_encoding():
@@ -139,10 +128,10 @@ def test_default_root_user_leaves_malformed_users_untouched():
     assert env_store.read_env_var("USERS") == "{not json"
 
 
-def test_default_root_user_is_not_duplicated_on_a_second_call():
-    assert auth._ensure_default_root_user() is True
+def test_default_root_user_is_not_created_on_repeated_calls():
     assert auth._ensure_default_root_user() is False
-    assert len(_users()) == 1
+    assert auth._ensure_default_root_user() is False
+    assert _users() == []
 
 
 # --- stored verifiers -------------------------------------------------------

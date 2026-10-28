@@ -96,11 +96,14 @@ def _reset_state() -> None:
     state._external_interactions_worker = None
     state._CONFIG_CACHE = None
     state._FAILED_LOGIN_ATTEMPTS = 0
+    state._LOGIN_RATE_LIMIT.clear()
     state._LOCAL_ADDR_CACHE = None
     state._LOCAL_ADDR_CACHE_TS = 0.0
     state._SETTINGS_STATIC_CACHE = None
     state._SETTINGS_STATIC_TS = 0.0
     state._SESSION_STORE.clear()
+    if hasattr(auth, "_LOGIN_CHALLENGES"):
+        auth._LOGIN_CHALLENGES.clear()
     state._api_key_store.clear()
     # ``state.app`` is intentionally left pointing at the Flask app.
 

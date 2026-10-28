@@ -94,11 +94,14 @@ from auth import (  # noqa: E402
     UsernameTakenError,
     _active_session,
     _authenticate_user,
+    _consume_login_challenge,
+    _create_initial_admin,
     _change_password,
     _create_api_key,
     _delete_api_key,
     _delete_user,
     _is_root_username,
+    _is_login_rate_limited,
     _is_valid_session_cookie,
     _issue_session_cookie,
     _list_api_keys,
@@ -106,11 +109,13 @@ from auth import (  # noqa: E402
     _login_credentials_configured,
     _password_salts_for_username,
     _register_failed_login_attempt,
+    _record_failed_login_attempt_for_rate_limit,
     _register_user,
     _rename_api_key,
     _rename_user,
     _require_admin_session,
     _reset_failed_login_attempts,
+    _reset_login_rate_limit,
     _set_user_admin,
     _unauthorized_response,
     admin_session_authenticated,
@@ -1704,26 +1709,60 @@ def login() -> tuple:
     password_hash = data.get("password_hash")
     if not isinstance(username, str) or not isinstance(password_hash, str):
         return jsonify({"error": "Invalid request."}), 400
+    client = request.remote_addr
+    if _is_login_rate_limited(client):
+        return jsonify({"error": "Too many login attempts."}), 429
     if not _login_credentials_configured():
-        log_warn("Login rejected: USERS not configured in .env", {"client": request.remote_addr})
+        log_warn("Login rejected: USERS not configured in .env", {"client": client})
         return jsonify({"error": "Login is not configured."}), 403
+    challenge = data.get("challenge", data.get("nonce"))
+    if not _consume_login_challenge(challenge, username):
+        return jsonify({"error": "Invalid or expired login challenge."}), 401
     try:
         user = _authenticate_user(username, password_hash)
     except PasswordStorageError as exc:
-        log_error("Login failed: password storage unavailable", {"client": request.remote_addr, "error": str(exc)})
+        log_error("Login failed: password storage unavailable", {"client": client, "error": str(exc)})
         return jsonify({"error": "Password storage is unavailable."}), 500
     if user is not None:
         response = jsonify({"status": "ok"})
         _issue_session_cookie(response, user["username"], user["admin"], user.get("root", False))
         _reset_failed_login_attempts()
-        log_info("Login successful for user", {"username": user["username"], "client": request.remote_addr})
+        _reset_login_rate_limit(client)
+        log_info("Login successful for user", {"username": user["username"], "client": client})
         audio.play_audio("success")()
         return response, 200
+    _record_failed_login_attempt_for_rate_limit(client)
     play_warn = _register_failed_login_attempt()
-    log_warn("Login failed", {"client": request.remote_addr}, silent=not play_warn)
+    log_warn("Login failed", {"client": client}, silent=not play_warn)
     if play_warn:
         audio.play_audio("warn")()
     return jsonify({"error": "Invalid credentials."}), 401
+
+
+@app.route("/api/setup", methods=["POST", "OPTIONS"])
+@network.external_interactions_worker_callable
+@standard_endpoint("POST", "OPTIONS")
+def setup_initial_admin() -> tuple:
+    if _login_credentials_configured():
+        return jsonify({"error": "Setup already completed."}), 403
+    data = request.get_json(silent=True) or {}
+    username = data.get("username")
+    password_hash = data.get("password_hash")
+    client_salt = data.get("client_salt")
+    if not isinstance(username, str) or not isinstance(password_hash, str) or not isinstance(client_salt, str):
+        return jsonify({"error": "Invalid request."}), 400
+    try:
+        result = _create_initial_admin(username, password_hash, client_salt)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 409
+    except Exception as exc:
+        log_error("Initial setup failed", {"client": request.remote_addr, "error": str(exc)})
+        return jsonify({"error": "Setup failed."}), 500
+    response = jsonify({"status": "ok", "username": result["username"]})
+    _issue_session_cookie(response, result["username"], True, True)
+    return response, 201
 
 
 @app.route("/api/logout", methods=["POST", "OPTIONS"])
