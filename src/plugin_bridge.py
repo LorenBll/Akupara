@@ -100,7 +100,9 @@ def _compute_plugins_lib_hash() -> str:
         except OSError:
             continue
         entries.append((p.name, h))
-    merged = "".join(h for _, h in sorted(entries))
+    # Include the filename in the merge so a rename (or any change to the
+    # tree layout) changes the hash, not only content changes.
+    merged = "".join(f"{name}\n{h}\n" for name, h in sorted(entries))
     return _hash_bytes(merged.encode("utf-8"))
 
 def _read_stored_hash() -> str | None:

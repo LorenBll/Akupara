@@ -243,7 +243,25 @@ def _verify_signature(payload: bytes, armored_sig: str) -> bool:
             )
             if proc.returncode != 0:
                 return False
-            for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
+            status = proc.stdout.decode("utf-8", errors="replace").splitlines()
+            # Reject signatures made by an expired or revoked key: gpg emits
+            # EXPKEYSIG / REVKEYSIG instead of (or in addition to) GOODSIG and
+            # still exits 0, so the return code alone is not enough.
+            for line in status:
+                if line.startswith("[GNUPG:] EXPKEYSIG") or line.startswith("[GNUPG:] REVKEYSIG"):
+                    return False
+                if line.startswith("[GNUPG:] BADSIG") or line.startswith("[GNUPG:] ERRSIG"):
+                    return False
+            # Require a good signature by the pinned key.
+            goodsig_ok = False
+            for line in status:
+                if line.startswith("[GNUPG:] GOODSIG"):
+                    parts = line.split()
+                    if len(parts) >= 3 and parts[2].upper().endswith(_TRUST_KEY_FINGERPRINT[-16:]):
+                        goodsig_ok = True
+            if not goodsig_ok:
+                return False
+            for line in status:
                 if line.startswith("[GNUPG:] VALIDSIG"):
                     parts = line.split()
                     if len(parts) >= 3 and parts[2].upper() == _TRUST_KEY_FINGERPRINT:
@@ -286,7 +304,7 @@ def sign_hash(hex_value: str) -> str:
         raise RuntimeError("gpg not found; cannot sign hash.")
     payload = (str(hex_value).strip() + "\n").encode("utf-8")
     proc = subprocess.run(
-        [gpg, "--armor", "--detach-sign"],
+        [gpg, "--armor", "--detach-sign", "--local-user", _TRUST_KEY_FINGERPRINT, "--digest-algo", "SHA256"],
         input=payload,
         capture_output=True,
         timeout=15,
