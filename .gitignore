@@ -43,6 +43,9 @@ resources/password-pepper
 # Installation marker (written on first start, deleted by the setup scripts)
 resources/installation.json
 
+# Signing trust cache (a fetched copy of the public signing key; never commit)
+resources/trust/
+
 # Testing
 .pytest_cache/
 .coverage

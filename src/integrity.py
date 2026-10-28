@@ -175,7 +175,9 @@ def _compute_local_project_hash() -> str | None:
         h = hashlib.sha256(data).hexdigest()
         entries.append((rel, h))
     entries.sort(key=lambda x: x[0])
-    merged = "".join(h for _, h in entries)
+    # Include the relative path in the merge so a rename (or any change to
+    # the tree layout) changes the hash, not only content changes.
+    merged = "".join(f"{rel}\n{h}\n" for rel, h in entries)
     return hashlib.sha256(merged.encode("utf-8")).hexdigest()
 
 

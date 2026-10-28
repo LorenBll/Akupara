@@ -1,10 +1,17 @@
 """Signing helpers for the project and plugin-library hash files.
 
-The ``hash`` files (repo root ``hash`` and ``resources/plugins-lib/hash``) now
-carry an armored PGP detached signature over the hash value (``<hex>\\n``),
-produced with the Akupara developer's private key (the same key used for
-plugin trust marks) and verified with the distributed public key
-``resources/plugins-lib/lorenbll-akupara-pub``.
+The ``hash`` files (repo root ``hash`` and ``resources/plugins-lib/hash``) carry
+an armored PGP detached signature over the hash value (``<hex>\\n``), produced
+with the Akupara developer's private key (the same key used for plugin trust
+marks).
+
+The verifying key is identified by its **primary fingerprint**, pinned below.
+Verification imports the key into a dedicated temporary keyring (never the
+user's) and requires the signature to have been made by that exact key. The key
+itself is obtained first from a local copy, gated by the fingerprint, and falls
+back to the developer's GitHub account (``https://github.com/LorenBll.gpg``),
+again gated by the fingerprint. A key whose fingerprint does not match the pin is
+never used, so a modified library cannot ship its own key.
 
 File format::
 
@@ -17,8 +24,11 @@ File format::
 from __future__ import annotations
 
 import codecs
+import shutil
+import ssl
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 
 _GPG_CANDIDATES = [
@@ -27,9 +37,23 @@ _GPG_CANDIDATES = [
     r"C:\Program Files (x86)\GnuPG\bin\gpg.exe",
 ]
 
+# Primary fingerprint of the Akupara signing key ``lorenbll-akupara``, published
+# on the developer's GitHub account. This is the trust root: verification only
+# accepts a signature made by this key, and only a key matching this fingerprint
+# is ever used to verify.
+_TRUST_KEY_FINGERPRINT = "4F4633B426B4BE46A44814D5B729FD1B62A59BCF"
+
+_GITHUB_KEY_URL = "https://github.com/LorenBll.gpg"
+
+_trusted_key_cache: bytes | None = None
+
 
 def _gpg_pubkey_path() -> Path:
-    return Path(__file__).resolve().parent.parent / "resources" / "plugins-lib" / "lorenbll-akupara-pub"
+    return Path(__file__).resolve().parent.parent / "resources" / "lorenbll-akupara-pub"
+
+
+def _trust_cache_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "resources" / "trust" / "akupara-signing.pub"
 
 
 def _find_gpg() -> str | None:
@@ -44,7 +68,7 @@ def _find_gpg() -> str | None:
 
 
 def _public_key_bytes(path: Path) -> bytes:
-    """Return the shipped armored public key with any UTF-8 BOM stripped.
+    """Return an armored public key with any UTF-8 BOM stripped.
 
     gpg rejects an ASCII-armored block whose first line starts with a BOM
     (``no valid OpenPGP data found``), which silently turns the import into a
@@ -57,67 +81,216 @@ def _public_key_bytes(path: Path) -> bytes:
     return data.lstrip(b"\r\n \t")
 
 
-def import_public_key(pub_path: Path, gpg: str) -> bool:
-    """Import *pub_path* with *gpg* into the keyring; ``True`` when accepted.
+def _homedir_arg(gpg: str, path: Path) -> str:
+    """Return the ``--homedir`` value in the path form *gpg* understands.
 
-    The key is imported from a sanitised temporary copy so that a BOM cannot
-    make gpg reject the whole file.
+    Native GnuPG wants the Windows form; the Git-for-Windows MSYS build wants the
+    POSIX form (otherwise it resolves the path against its own install root).
+    The form is chosen from the ``Home:`` line of ``gpg --version``.
     """
     try:
-        data = _public_key_bytes(pub_path)
-    except OSError:
-        return False
-    if not data:
-        return False
+        version = subprocess.run([gpg, "--version"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        version = ""
+    value = str(path)
+    if any(line.startswith("Home: /") for line in version.splitlines()):
+        cygpath = shutil.which("cygpath")
+        converted = ""
+        if cygpath:
+            try:
+                proc = subprocess.run([cygpath, "-u", str(path)], capture_output=True, text=True, timeout=5)
+                converted = proc.stdout.strip() if proc.returncode == 0 else ""
+            except Exception:
+                converted = ""
+        value = converted or "/" + str(path).replace("\\", "/").replace(":", "")
+    return value
+
+
+def _key_fingerprint(gpg: str, key_bytes: bytes) -> str | None:
+    """Return the primary fingerprint of the first key in *key_bytes*, or ``None``."""
+    if not key_bytes:
+        return None
     try:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td) / "pub.asc"
-            tmp.write_bytes(data)
-            proc = subprocess.run([gpg, "--import", str(tmp)], capture_output=True, timeout=10)
-            return proc.returncode == 0
+            tmp.write_bytes(key_bytes)
+            proc = subprocess.run(
+                [gpg, "--show-keys", "--with-colons", str(tmp)],
+                capture_output=True,
+                timeout=15,
+            )
+        if proc.returncode != 0:
+            return None
+        for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
+            if line.startswith("fpr:"):
+                parts = line.split(":")
+                if len(parts) > 9 and parts[9]:
+                    return parts[9].upper()
+    except Exception:
+        return None
+    return None
+
+
+def _fetch_github_key(gpg: str) -> bytes | None:
+    """Fetch the signing key from GitHub and return the block matching the pin.
+
+    The developer's account may carry several keys, so the fetched bundle is
+    imported into a temporary keyring and the single key whose primary
+    fingerprint equals the pin is exported.
+    """
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(_GITHUB_KEY_URL, headers={"User-Agent": "Akupara/1.0"})
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            bundle = resp.read()
+    except Exception:
+        return None
+    if not bundle:
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "gnupg"
+            home.mkdir()
+            h = _homedir_arg(gpg, home)
+            proc = subprocess.run([gpg, "--homedir", h, "--import"], input=bundle, capture_output=True, timeout=30)
+            if proc.returncode != 0:
+                return None
+            proc = subprocess.run(
+                [gpg, "--homedir", h, "--with-colons", "--fingerprint", "--list-keys"],
+                capture_output=True,
+                timeout=15,
+            )
+            found = False
+            for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
+                if line.startswith("fpr:"):
+                    parts = line.split(":")
+                    if len(parts) > 9 and parts[9].upper() == _TRUST_KEY_FINGERPRINT:
+                        found = True
+                        break
+            if not found:
+                return None
+            proc = subprocess.run(
+                [gpg, "--homedir", h, "--armor", "--export", _TRUST_KEY_FINGERPRINT],
+                capture_output=True,
+                timeout=15,
+            )
+            if proc.returncode == 0 and proc.stdout:
+                return proc.stdout
+    except Exception:
+        return None
+    return None
+
+
+def _trusted_key_bytes() -> bytes | None:
+    """Return the trusted public key, gated by the pinned fingerprint.
+
+    Resolution order: the on-disk cache (``resources/trust/``), the shipped copy
+    (``resources/plugins-lib/``), then GitHub. A candidate is accepted only when
+    its primary fingerprint equals the pin, so a replaced or substituted key can
+    never be used. A successful GitHub fetch is cached for offline starts.
+    """
+    global _trusted_key_cache
+    if _trusted_key_cache is not None:
+        return _trusted_key_cache
+    gpg = _find_gpg()
+    if gpg is None:
+        return None
+    for path in (_trust_cache_path(), _gpg_pubkey_path()):
+        try:
+            data = _public_key_bytes(path)
+        except OSError:
+            continue
+        if not data:
+            continue
+        if _key_fingerprint(gpg, data) == _TRUST_KEY_FINGERPRINT:
+            _trusted_key_cache = data
+            return data
+    fetched = _fetch_github_key(gpg)
+    if fetched:
+        try:
+            _trust_cache_path().parent.mkdir(parents=True, exist_ok=True)
+            _trust_cache_path().write_bytes(fetched)
+        except OSError:
+            pass
+        _trusted_key_cache = fetched
+        return fetched
+    return None
+
+
+def _verify_signature(payload: bytes, armored_sig: str) -> bool:
+    """Return whether *armored_sig* is a valid signature by the pinned key over *payload*."""
+    gpg = _find_gpg()
+    if gpg is None:
+        return False
+    key = _trusted_key_bytes()
+    if not key:
+        return False
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            td_p = Path(td)
+            home = td_p / "gnupg"
+            home.mkdir()
+            h = _homedir_arg(gpg, home)
+            subprocess.run([gpg, "--homedir", h, "--import"], input=key, capture_output=True, timeout=15)
+            data_path = td_p / "data.bin"
+            sig_path = td_p / "sig.asc"
+            data_path.write_bytes(payload)
+            sig_path.write_text(armored_sig, encoding="utf-8")
+            proc = subprocess.run(
+                [gpg, "--homedir", h, "--status-fd", "1", "--verify", str(sig_path), str(data_path)],
+                capture_output=True,
+                timeout=15,
+            )
+            if proc.returncode != 0:
+                return False
+            status = proc.stdout.decode("utf-8", errors="replace").splitlines()
+            # Reject signatures made by an expired or revoked key: gpg emits
+            # EXPKEYSIG / REVKEYSIG instead of (or in addition to) GOODSIG and
+            # still exits 0, so the return code alone is not enough.
+            for line in status:
+                if line.startswith("[GNUPG:] EXPKEYSIG") or line.startswith("[GNUPG:] REVKEYSIG"):
+                    return False
+                if line.startswith("[GNUPG:] BADSIG") or line.startswith("[GNUPG:] ERRSIG"):
+                    return False
+            # Require a good signature by the pinned key.
+            goodsig_ok = False
+            for line in status:
+                if line.startswith("[GNUPG:] GOODSIG"):
+                    parts = line.split()
+                    if len(parts) >= 3 and parts[2].upper().endswith(_TRUST_KEY_FINGERPRINT[-16:]):
+                        goodsig_ok = True
+            if not goodsig_ok:
+                return False
+            for line in status:
+                if line.startswith("[GNUPG:] VALIDSIG"):
+                    parts = line.split()
+                    if len(parts) >= 3 and parts[2].upper() == _TRUST_KEY_FINGERPRINT:
+                        return True
+            return False
     except Exception:
         return False
 
 
+def verify_signature(payload: bytes, armored_sig: str) -> bool:
+    """Return whether *armored_sig* is a valid signature by the pinned key over *payload*.
+
+    Used by plugin trust-mark verification, which signs the canonical JSON bytes.
+    """
+    return _verify_signature(payload, armored_sig)
+
+
 def public_key_status() -> str:
-    """Return ``""`` when the shipped public key is usable, else the reason.
+    """Return ``""`` when the trusted public key is usable, else the reason.
 
     A failed hash signature is otherwise indistinguishable from a tampered hash
     file, which makes a broken public key very hard to diagnose.
     """
-    pub = _gpg_pubkey_path()
-    if not pub.is_file():
-        return f"public key missing: {pub}"
     gpg = _find_gpg()
     if gpg is None:
         return "gpg not found"
-    try:
-        data = _public_key_bytes(pub)
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td) / "pub.asc"
-            tmp.write_bytes(data)
-            proc = subprocess.run(
-                [gpg, "--show-keys", "--with-colons", str(tmp)],
-                capture_output=True,
-                timeout=10,
-            )
-        if proc.returncode != 0 or b"pub:" not in proc.stdout:
-            reason = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
-            detail = f": {reason[0]}" if reason else ""
-            return f"shipped public key is not a valid OpenPGP key{detail}"
-        return ""
-    except Exception as exc:  # noqa: BLE001 - returned as a diagnostic string
-        return f"public key check failed: {exc}"
-
-
-def _ensure_pubkey_imported() -> None:
-    pub = _gpg_pubkey_path()
-    if not pub.is_file():
-        return
-    gpg = _find_gpg()
-    if gpg is None:
-        return
-    import_public_key(pub, gpg)
+    if _trusted_key_bytes() is None:
+        return f"trusted public key unavailable (expected fingerprint {_TRUST_KEY_FINGERPRINT[-16:]})"
+    return ""
 
 
 def sign_hash(hex_value: str) -> str:
@@ -131,7 +304,7 @@ def sign_hash(hex_value: str) -> str:
         raise RuntimeError("gpg not found; cannot sign hash.")
     payload = (str(hex_value).strip() + "\n").encode("utf-8")
     proc = subprocess.run(
-        [gpg, "--armor", "--detach-sign"],
+        [gpg, "--armor", "--detach-sign", "--local-user", _TRUST_KEY_FINGERPRINT, "--digest-algo", "SHA256"],
         input=payload,
         capture_output=True,
         timeout=15,
@@ -142,23 +315,25 @@ def sign_hash(hex_value: str) -> str:
 
 
 def verify_signed_hash(hex_value: str, armored_sig: str) -> bool:
-    """Verify *armored_sig* over ``<hex>\\n`` with the Akupara public key."""
-    gpg = _find_gpg()
-    if gpg is None:
-        return False
-    _ensure_pubkey_imported()
+    """Verify *armored_sig* over ``<hex>\\n`` with the pinned Akupara public key."""
     payload = (str(hex_value).strip() + "\n").encode("utf-8")
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            td_p = Path(td)
-            data_path = td_p / "hash.txt"
-            sig_path = td_p / "hash.sig"
-            data_path.write_bytes(payload)
-            sig_path.write_text(armored_sig, encoding="utf-8")
-            proc = subprocess.run([gpg, "--verify", str(sig_path), str(data_path)], capture_output=True, timeout=15)
-            return proc.returncode == 0
-    except Exception:
-        return False
+    return _verify_signature(payload, armored_sig)
+
+
+def parse_signed_hash_text(text: str) -> tuple[str | None, bool]:
+    """Parse signed hash *text* → ``(hex, signature_valid)``."""
+    tokens = text.split()
+    if not tokens:
+        return None, False
+    hex_value = tokens[0].strip()
+    start = text.find("-----BEGIN PGP SIGNATURE-----")
+    end = text.find("-----END PGP SIGNATURE-----")
+    if start == -1 or end == -1:
+        return hex_value, False
+    sig = text[start:end + len("-----END PGP SIGNATURE-----")].strip()
+    if not sig:
+        return hex_value, False
+    return hex_value, verify_signed_hash(hex_value, sig)
 
 
 def read_signed_hash_file(path: Path) -> tuple[str | None, bool]:
@@ -172,18 +347,7 @@ def read_signed_hash_file(path: Path) -> tuple[str | None, bool]:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None, False
-    tokens = text.split()
-    if not tokens:
-        return None, False
-    hex_value = tokens[0].strip()
-    start = text.find("-----BEGIN PGP SIGNATURE-----")
-    end = text.find("-----END PGP SIGNATURE-----")
-    if start == -1 or end == -1:
-        return hex_value, False
-    sig = text[start:end + len("-----END PGP SIGNATURE-----")].strip()
-    if not sig:
-        return hex_value, False
-    return hex_value, verify_signed_hash(hex_value, sig)
+    return parse_signed_hash_text(text)
 
 
 def write_signed_hash_file(path: Path, hex_value: str, armored_sig: str) -> None:
